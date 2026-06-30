@@ -7,6 +7,11 @@ const MODE_OPTIONS = [
   { value: "audio", label: "直接上传音频" },
 ];
 
+const TTS_MODE_OPTIONS = [
+  { value: "customvoice", label: "CustomVoice" },
+  { value: "base", label: "Base 语音克隆" },
+];
+
 const STEP_LABELS = {
   idle: "等待素材",
   previewing: "生成试听",
@@ -142,7 +147,11 @@ export default function DigitalHuman() {
   const [speaker, setSpeaker] = useState("Uncle_Fu");
   const [languages, setLanguages] = useState(DEFAULT_LANGUAGES);
   const [language, setLanguage] = useState("Chinese");
+  const [ttsMode, setTtsMode] = useState("customvoice");
   const [instruct, setInstruct] = useState("");
+  const [refAudioFile, setRefAudioFile] = useState(null);
+  const [refAudioUrl, setRefAudioUrl] = useState(null);
+  const [refText, setRefText] = useState("");
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
@@ -158,6 +167,7 @@ export default function DigitalHuman() {
   const pollRef = useRef(null);
   const imageInputRef = useRef(null);
   const audioInputRef = useRef(null);
+  const refAudioInputRef = useRef(null);
   const voiceSelectRef = useRef(null);
   const languageSelectRef = useRef(null);
 
@@ -222,8 +232,9 @@ export default function DigitalHuman() {
       if (pollRef.current) clearTimeout(pollRef.current);
       if (imagePreview) URL.revokeObjectURL(imagePreview);
       if (audioLocalUrl) URL.revokeObjectURL(audioLocalUrl);
+      if (refAudioUrl) URL.revokeObjectURL(refAudioUrl);
     };
-  }, [audioLocalUrl, imagePreview]);
+  }, [audioLocalUrl, imagePreview, refAudioUrl]);
 
   useEffect(() => {
     if (!voiceMenuOpen && !languageMenuOpen) return;
@@ -271,6 +282,28 @@ export default function DigitalHuman() {
     setStatusMsg("");
     setTaskStatus("idle");
   }, []);
+
+  const handleRefAudioChange = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setRefAudioFile(file);
+    setRefAudioUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setAudioPreview(null);
+    resetVideoState();
+  }, [resetVideoState]);
+
+  const removeRefAudio = useCallback(() => {
+    setRefAudioFile(null);
+    setRefAudioUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    if (refAudioInputRef.current) refAudioInputRef.current.value = "";
+    resetVideoState();
+  }, [resetVideoState]);
 
   const handleImageChange = useCallback(
     (event) => {
@@ -338,7 +371,7 @@ export default function DigitalHuman() {
   }, [selectedSpeaker]);
 
   const canPreviewAudio = Boolean(
-    mode === "text" && !previewing && text.trim() && speaker && language
+    mode === "text" && !previewing && text.trim() && language && (ttsMode === "customvoice" ? speaker : refAudioFile && refText.trim())
   );
   const hasConfirmedAudio = Boolean(
     mode === "text" ? audioPreview?.audio_url : audioFile
@@ -368,9 +401,14 @@ export default function DigitalHuman() {
     try {
       const formData = new FormData();
       formData.append("text", text.trim());
+      formData.append("tts_mode", ttsMode);
       formData.append("speaker", speaker);
       formData.append("language", language);
-      if (instruct.trim()) formData.append("instruct", instruct.trim());
+      if (ttsMode === "customvoice" && instruct.trim()) formData.append("instruct", instruct.trim());
+      if (ttsMode === "base") {
+        formData.append("ref_audio", refAudioFile);
+        formData.append("ref_text", refText.trim());
+      }
 
       const response = await fetch(`${API}/tts/preview`, {
         method: "POST",
@@ -392,7 +430,7 @@ export default function DigitalHuman() {
     } finally {
       setPreviewing(false);
     }
-  }, [canPreviewAudio, instruct, language, speaker, text]);
+  }, [canPreviewAudio, instruct, language, refAudioFile, refText, speaker, text, ttsMode]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
@@ -411,6 +449,11 @@ export default function DigitalHuman() {
       if (mode === "text") {
         formData.append("mode", "preview");
         formData.append("audio_url", audioPreview.audio_url);
+        formData.append("tts_mode", ttsMode);
+        if (ttsMode === "base") {
+          formData.append("ref_audio", refAudioFile);
+          formData.append("ref_text", refText.trim());
+        }
       } else {
         formData.append("mode", "audio");
         formData.append("audio", audioFile);
@@ -469,7 +512,7 @@ export default function DigitalHuman() {
       setError(err.message);
       setGenerating(false);
     }
-  }, [audioFile, audioPreview, canGenerateVideo, imageFile, mode]);
+  }, [audioFile, audioPreview, canGenerateVideo, imageFile, mode, refAudioFile, refText, ttsMode]);
 
   return (
     <>
@@ -540,6 +583,28 @@ export default function DigitalHuman() {
           {mode === "text" ? (
             <>
               <div className="field">
+                <span className="field-label">TTS 模式</span>
+                <div className="segmented-control" role="tablist" aria-label="TTS 模式">
+                  {TTS_MODE_OPTIONS.map((option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
+                      onClick={() => {
+                        setTtsMode(option.value);
+                        setAudioPreview(null);
+                        if (taskStatus === "ready") setTaskStatus("idle");
+                      }}
+                      role="tab"
+                      aria-selected={ttsMode === option.value}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="field">
                 <label className="field-label" htmlFor="script-text">
                   口播文案 *
                 </label>
@@ -557,143 +622,198 @@ export default function DigitalHuman() {
                 />
               </div>
 
-              <div className="voice-config">
-                <div className="tts-model-note">
-                  本地 TTS 服务由 Qwen3-TTS CustomVoice 提供
-                </div>
-                <div className="voice-controls-grid">
-                  <div className="field">
-                    <div className="voice-header">
-                      <label className="field-label" htmlFor="speaker">
-                        音色
-                      </label>
-                    </div>
-                    <div className="voice-select" ref={voiceSelectRef}>
-                      <button
-                        id="speaker"
-                        className="voice-select-trigger"
-                        type="button"
-                        aria-haspopup="listbox"
-                        aria-expanded={voiceMenuOpen}
-                        onClick={() => setVoiceMenuOpen((open) => !open)}
-                      >
-                        <span className="voice-trigger-main">
-                          <span className="voice-title-row">
-                            <strong>{selectedSpeaker?.display_name || speaker}</strong>
-                            <span className="voice-inline-meta">
-                              推荐 {selectedSpeaker?.native_language_label || "中文"}
+              {ttsMode === "customvoice" ? (
+                <div className="voice-config">
+                  <div className="tts-model-note">
+                    本地 TTS 服务由 Qwen3-TTS CustomVoice 提供
+                  </div>
+                  <div className="voice-controls-grid">
+                    <div className="field">
+                      <div className="voice-header">
+                        <label className="field-label" htmlFor="speaker">
+                          音色
+                        </label>
+                      </div>
+                      <div className="voice-select" ref={voiceSelectRef}>
+                        <button
+                          id="speaker"
+                          className="voice-select-trigger"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded={voiceMenuOpen}
+                          onClick={() => setVoiceMenuOpen((open) => !open)}
+                        >
+                          <span className="voice-trigger-main">
+                            <span className="voice-title-row">
+                              <strong>{selectedSpeaker?.display_name || speaker}</strong>
+                              <span className="voice-inline-meta">
+                                推荐 {selectedSpeaker?.native_language_label || "中文"}
+                              </span>
+                            </span>
+                            <span>
+                              {selectedSpeaker?.short_description || "选择本地模型音色"}
                             </span>
                           </span>
-                          <span>
-                            {selectedSpeaker?.short_description || "选择本地模型音色"}
-                          </span>
-                        </span>
-                        <span className="voice-select-arrow" aria-hidden="true" />
-                      </button>
+                          <span className="voice-select-arrow" aria-hidden="true" />
+                        </button>
 
-                      {voiceMenuOpen && (
-                        <div className="voice-menu" role="listbox" aria-labelledby="speaker">
-                          {speakers.map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              className={`voice-option ${speaker === item.id ? "is-selected" : ""}`}
-                              role="option"
-                              aria-selected={speaker === item.id}
-                              onClick={() => {
-                                setSpeaker(item.id);
-                                setLanguage(item.native_language || "Chinese");
-                                setAudioPreview(null);
-                                setVoiceMenuOpen(false);
-                                if (taskStatus === "ready") setTaskStatus("idle");
-                              }}
-                            >
-                              <span className="voice-option-main">
-                                <span className="voice-title-row">
-                                  <strong>{item.display_name || item.label}</strong>
-                                  <span className="voice-inline-meta">
-                                    推荐 {item.native_language_label}
+                        {voiceMenuOpen && (
+                          <div className="voice-menu" role="listbox" aria-labelledby="speaker">
+                            {speakers.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className={`voice-option ${speaker === item.id ? "is-selected" : ""}`}
+                                role="option"
+                                aria-selected={speaker === item.id}
+                                onClick={() => {
+                                  setSpeaker(item.id);
+                                  setLanguage(item.native_language || "Chinese");
+                                  setAudioPreview(null);
+                                  setVoiceMenuOpen(false);
+                                  if (taskStatus === "ready") setTaskStatus("idle");
+                                }}
+                              >
+                                <span className="voice-option-main">
+                                  <span className="voice-title-row">
+                                    <strong>{item.display_name || item.label}</strong>
+                                    <span className="voice-inline-meta">
+                                      推荐 {item.native_language_label}
+                                    </span>
                                   </span>
+                                  <span>{item.short_description || item.description}</span>
                                 </span>
-                                <span>{item.short_description || item.description}</span>
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
+
+                    <div className="field">
+                      <div className="voice-header">
+                        <label className="field-label" htmlFor="tts-language">
+                          语言
+                        </label>
+                      </div>
+                      <div className="language-select" ref={languageSelectRef}>
+                        <button
+                          id="tts-language"
+                          className="voice-select-trigger language-select-trigger"
+                          type="button"
+                          aria-haspopup="listbox"
+                          aria-expanded={languageMenuOpen}
+                          onClick={() => setLanguageMenuOpen((open) => !open)}
+                        >
+                          <span className="language-trigger-label">
+                            {languages.find((item) => item.id === language)?.label || language}
+                            {selectedSpeaker?.native_language === language ? "（音色推荐）" : ""}
+                          </span>
+                          <span className="voice-select-arrow" aria-hidden="true" />
+                        </button>
+
+                        {languageMenuOpen && (
+                          <div className="voice-menu language-menu" role="listbox" aria-labelledby="tts-language">
+                            {languages.map((item) => (
+                              <button
+                                key={item.id}
+                                type="button"
+                                className={`voice-option language-option ${language === item.id ? "is-selected" : ""}`}
+                                role="option"
+                                aria-selected={language === item.id}
+                                onClick={() => {
+                                  setLanguage(item.id);
+                                  setAudioPreview(null);
+                                  setLanguageMenuOpen(false);
+                                  if (taskStatus === "ready") setTaskStatus("idle");
+                                }}
+                              >
+                                <span className="language-option-main">
+                                  <strong>{item.label}</strong>
+                                  {selectedSpeaker?.native_language === item.id && (
+                                    <span className="voice-inline-meta">音色推荐</span>
+                                  )}
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {selectedSpeaker && (
+                    <div className="voice-summary">
+                      <div className="voice-summary-main">
+                        <strong>{selectedSpeaker.display_name}</strong>
+                        <span>已选择：{selectedSpeaker.short_description || selectedSpeaker.description}</span>
+                      </div>
+                      <div className="voice-summary-tags">
+                        <span>推荐：{selectedSpeaker.native_language_label}</span>
+                        <span>
+                          支持：{selectedSpeaker.supported_language_summary || "10 种语言"}
+                        </span>
+                      </div>
+                      <p>
+                        支持语言包括：{selectedSpeaker.supported_language_labels || "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语"}。
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="field-grid">
+                  <div className="field">
+                    <label className="field-label" htmlFor="ref-audio">
+                      参考音频 *
+                    </label>
+                    <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
+                      {refAudioFile ? (
+                        <span className="upload-placeholder">
+                          <strong>{refAudioFile.name}</strong>
+                          <small>{formatFileSize(refAudioFile.size)}</small>
+                        </span>
+                      ) : (
+                        <span className="upload-placeholder">
+                          <strong>上传参考音频</strong>
+                          <small>用于 Base 语音克隆</small>
+                        </span>
+                      )}
+                      <input
+                        ref={refAudioInputRef}
+                        id="ref-audio"
+                        type="file"
+                        accept="audio/*"
+                        onChange={handleRefAudioChange}
+                      />
+                    </label>
+                    {refAudioFile && (
+                      <div className="file-row">
+                        <span>{refAudioFile.name}</span>
+                        <button type="button" className="text-button" onClick={removeRefAudio}>
+                          移除
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="field">
-                    <div className="voice-header">
-                      <label className="field-label" htmlFor="tts-language">
-                        语言
-                      </label>
-                    </div>
-                    <div className="language-select" ref={languageSelectRef}>
-                      <button
-                        id="tts-language"
-                        className="voice-select-trigger language-select-trigger"
-                        type="button"
-                        aria-haspopup="listbox"
-                        aria-expanded={languageMenuOpen}
-                        onClick={() => setLanguageMenuOpen((open) => !open)}
-                      >
-                        <span className="language-trigger-label">
-                          {languages.find((item) => item.id === language)?.label || language}
-                          {selectedSpeaker?.native_language === language ? "（音色推荐）" : ""}
-                        </span>
-                        <span className="voice-select-arrow" aria-hidden="true" />
-                      </button>
-
-                      {languageMenuOpen && (
-                        <div className="voice-menu language-menu" role="listbox" aria-labelledby="tts-language">
-                          {languages.map((item) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              className={`voice-option language-option ${language === item.id ? "is-selected" : ""}`}
-                              role="option"
-                              aria-selected={language === item.id}
-                              onClick={() => {
-                                setLanguage(item.id);
-                                setAudioPreview(null);
-                                setLanguageMenuOpen(false);
-                                if (taskStatus === "ready") setTaskStatus("idle");
-                              }}
-                            >
-                              <span className="language-option-main">
-                                <strong>{item.label}</strong>
-                                {selectedSpeaker?.native_language === item.id && (
-                                  <span className="voice-inline-meta">音色推荐</span>
-                                )}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <label className="field-label" htmlFor="ref-text">
+                      参考文本 *
+                    </label>
+                    <textarea
+                      id="ref-text"
+                      className="control textarea"
+                      rows={6}
+                      placeholder="参考音频里实际说的话"
+                      value={refText}
+                      onChange={(event) => {
+                        setRefText(event.target.value);
+                        setAudioPreview(null);
+                      }}
+                    />
                   </div>
                 </div>
-
-                {selectedSpeaker && (
-                  <div className="voice-summary">
-                    <div className="voice-summary-main">
-                      <strong>{selectedSpeaker.display_name}</strong>
-                      <span>已选择：{selectedSpeaker.short_description || selectedSpeaker.description}</span>
-                    </div>
-                    <div className="voice-summary-tags">
-                      <span>推荐：{selectedSpeaker.native_language_label}</span>
-                      <span>
-                        支持：{selectedSpeaker.supported_language_summary || "10 种语言"}
-                      </span>
-                    </div>
-                    <p>
-                      支持语言包括：{selectedSpeaker.supported_language_labels || "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语"}。
-                    </p>
-                  </div>
-                )}
-              </div>
+              )}
 
               <div className="field">
                 <label className="field-label" htmlFor="voice-instruct">
@@ -709,6 +829,7 @@ export default function DigitalHuman() {
                     setInstruct(event.target.value);
                     setAudioPreview(null);
                   }}
+                  disabled={ttsMode === "base"}
                 />
               </div>
 

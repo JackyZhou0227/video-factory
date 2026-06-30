@@ -79,7 +79,12 @@ npm install
 
 ## 下载 Hugging Face 模型
 
-本项目当前按 Qwen3-TTS CustomVoice 模型调用本地 TTS。推荐先安装 Hugging Face Hub CLI：
+本项目支持两种 Qwen3-TTS 模式：
+
+- `CustomVoice`：使用官方内置音色
+- `Base`：使用参考音频 + 参考文本做 voice clone
+
+推荐先安装 Hugging Face Hub CLI：
 
 ```powershell
 pip install -U "huggingface_hub[cli]"
@@ -97,10 +102,16 @@ pip install -U "huggingface_hub[cli]"
 $env:HF_HOME = "D:\models\hf_home"
 ```
 
-下载 0.6B 小模型：
+下载 CustomVoice 模型：
 
 ```powershell
 hf download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
+```
+
+下载 Base 模型：
+
+```powershell
+hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base
 ```
 
 如果希望下载到一个普通目录，而不是 Hugging Face cache，可以使用：
@@ -109,18 +120,24 @@ hf download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
 hf download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir D:\models\Qwen3-TTS-12Hz-0.6B-CustomVoice
 ```
 
-`config.yaml` 里的 `tts.model_path` 要填写模型本地路径。两种常见写法：
+```powershell
+hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir D:\models\Qwen3-TTS-12Hz-1.7B-Base
+```
+
+`config.yaml` 里的模型路径要分别填写：
 
 ```yaml
 tts:
-  model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+  customvoice_model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+  base_model_path: "D:/models/Qwen3-TTS-12Hz-1.7B-Base"
 ```
 
 或者填写 Hugging Face cache 里的 snapshot 路径：
 
 ```yaml
 tts:
-  model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice/snapshots/<revision>"
+  customvoice_model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice/snapshots/<revision>"
+  base_model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base/snapshots/<revision>"
 ```
 
 ## 配置本地 config.yaml
@@ -141,7 +158,8 @@ runninghub:
   instance_type: null
 
 tts:
-  model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+  customvoice_model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+  base_model_path: "D:/models/Qwen3-TTS-12Hz-1.7B-Base"
   device: "cuda"
   default_speaker: "Uncle_Fu"
   default_language: "Chinese"
@@ -159,10 +177,20 @@ server:
 
 - `runninghub.api_key`：RunningHub 的 API Key。也可以启动后在“设置”页面保存。
 - `runninghub.instance_type`：RunningHub 实例类型；不确定就保留 `null`。
-- `tts.model_path`：本地 Hugging Face 模型目录。
+- `tts.customvoice_model_path`：CustomVoice 模型目录。
+- `tts.base_model_path`：Base voice clone 模型目录。
 - `tts.device`：有 NVIDIA GPU 时通常填 `cuda`；只用 CPU 时填 `cpu`，但生成会很慢。
+- `tts.default_speaker`：CustomVoice 的默认音色。
+- `tts.default_language`：默认语言。
 - `workflow.digital_human_id`：RunningHub 上用于数字人口播视频的工作流 ID。
 - `server.output_dir`：生成的音频、视频输出目录，相对路径会解析到 `web-app/output`。
+
+Base 模式在页面里会让你上传：
+
+- 参考音频 `ref_audio`
+- 参考文本 `ref_text`
+
+然后模型会根据参考音频克隆音色，再生成你输入的目标文案。
 
 `web-app/config.yaml` 包含密钥，已经被 `.gitignore` 忽略，不要提交到 Git。
 

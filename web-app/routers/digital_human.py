@@ -54,6 +54,13 @@ def _resolve_output_file(public_url: str) -> Path:
     return resolved
 
 
+def _tts_model_path(cfg: dict, tts_mode: str) -> str:
+    tts_cfg = cfg["tts"]
+    if tts_mode == "base":
+        return tts_cfg.get("base_model_path") or tts_cfg.get("model_path") or ""
+    return tts_cfg.get("customvoice_model_path") or tts_cfg.get("model_path") or ""
+
+
 # ---------------------------------------------------------------------------
 # GET /speakers
 # ---------------------------------------------------------------------------
@@ -77,15 +84,22 @@ def get_tts_languages():
 @router.post("/tts/preview")
 async def preview_tts(
     text: str = Form(...),
+    tts_mode: str = Form("customvoice"),
     speaker: str = Form("Uncle_Fu"),
     language: str = Form("Chinese"),
     instruct: Optional[str] = Form(None),
+    ref_audio: Optional[UploadFile] = File(None),
+    ref_text: Optional[str] = Form(None),
 ):
     """Generate local Qwen3-TTS audio and expose it for browser preview."""
     if not text.strip():
         raise HTTPException(status_code=422, detail="text is required")
-    if tts_qwen.get_speaker(speaker) is None:
+    if tts_mode == "customvoice" and tts_qwen.get_speaker(speaker) is None:
         raise HTTPException(status_code=422, detail=f"Unsupported speaker: {speaker}")
+    if tts_mode == "base" and ref_audio is None:
+        raise HTTPException(status_code=422, detail="ref_audio is required in base mode")
+    if tts_mode == "base" and not ref_text:
+        raise HTTPException(status_code=422, detail="ref_text is required in base mode")
 
     cfg = _get_config()
     output_root = _output_root(cfg)
@@ -93,19 +107,28 @@ async def preview_tts(
     audio_dir = output_root / "tts" / audio_id
     audio_path = audio_dir / "preview.wav"
 
+    ref_audio_path: Optional[Path] = None
+    if ref_audio is not None:
+        ref_audio_path = audio_dir / f"ref_audio{Path(ref_audio.filename).suffix or '.wav'}"
+        ref_audio_path.write_bytes(await ref_audio.read())
+
     await tts_qwen.synthesize(
         text=text.strip(),
         output_path=audio_path,
-        model_path=cfg["tts"]["model_path"],
+        model_path=_tts_model_path(cfg, tts_mode),
         device=cfg["tts"]["device"],
+        mode=tts_mode,
         speaker=speaker,
         language=language,
         instruct=instruct.strip() if instruct and instruct.strip() else None,
+        ref_audio=ref_audio_path,
+        ref_text=ref_text,
     )
 
     return {
         "audio_id": audio_id,
         "audio_url": _public_output_url(audio_path),
+        "tts_mode": tts_mode,
         "speaker": speaker,
         "language": language,
     }
@@ -121,9 +144,12 @@ async def generate(
     mode: str = Form(...),              # "text" | "audio"
     text: Optional[str] = Form(None),
     audio: Optional[UploadFile] = File(None),
+    tts_mode: str = Form("customvoice"),
     speaker: str = Form("Uncle_Fu"),
     language: str = Form("Chinese"),
     instruct: Optional[str] = Form(None),
+    ref_audio: Optional[UploadFile] = File(None),
+    ref_text: Optional[str] = Form(None),
 ):
     # --- Validate inputs ---
     if mode not in ("text", "audio"):
@@ -132,6 +158,11 @@ async def generate(
         raise HTTPException(status_code=422, detail="text is required in text mode")
     if mode == "audio" and audio is None:
         raise HTTPException(status_code=422, detail="audio file is required in audio mode")
+    if mode == "text" and tts_mode == "base":
+        if ref_audio is None:
+            raise HTTPException(status_code=422, detail="ref_audio is required in base mode")
+        if not ref_text:
+            raise HTTPException(status_code=422, detail="ref_text is required in base mode")
 
     cfg = _get_config()
     output_root = Path(cfg["server"]["output_dir"])
@@ -146,10 +177,14 @@ async def generate(
 
     # Prepare audio path placeholder
     audio_path: Optional[Path] = None
+    ref_audio_path: Optional[Path] = None
 
     if mode == "audio":
         audio_path = task_dir / f"input_audio{Path(audio.filename).suffix or '.wav'}"
         audio_path.write_bytes(await audio.read())
+    elif tts_mode == "base":
+        ref_audio_path = task_dir / f"ref_audio{Path(ref_audio.filename).suffix or '.wav'}"
+        ref_audio_path.write_bytes(await ref_audio.read())
 
     # Register task
     _tasks[task_id] = {
@@ -169,9 +204,12 @@ async def generate(
             audio_path=audio_path,
             mode=mode,
             text=text,
+            tts_mode=tts_mode,
             speaker=speaker,
             language=language,
             instruct=instruct,
+            ref_audio=ref_audio_path,
+            ref_text=ref_text,
             cfg=cfg,
         )
     )
@@ -258,9 +296,12 @@ async def _run_generation(
     audio_path: Optional[Path],
     mode: str,
     text: Optional[str],
+    tts_mode: str,
     speaker: str,
     language: str,
     instruct: Optional[str],
+    ref_audio: Optional[Path],
+    ref_text: Optional[str],
     cfg: dict,
 ):
     def _update(status: str, progress: int, message: str):
@@ -270,16 +311,22 @@ async def _run_generation(
         _update("running", 10, "开始处理…")
 
         if mode == "text":
-            _update("running", 20, "正在生成语音（Qwen3-TTS）…")
+            if tts_mode == "base":
+                _update("running", 20, "正在使用 Base 模型克隆声音…")
+            else:
+                _update("running", 20, "正在生成语音（Qwen3-TTS）…")
             audio_path = task_dir / "narration.wav"
             await tts_qwen.synthesize(
                 text=text or "",
                 output_path=audio_path,
-                model_path=cfg["tts"]["model_path"],
+                model_path=_tts_model_path(cfg, tts_mode),
                 device=cfg["tts"]["device"],
+                mode=tts_mode,
                 speaker=speaker,
                 language=language,
                 instruct=instruct or None,
+                ref_audio=ref_audio,
+                ref_text=ref_text,
             )
             _update("running", 55, "语音生成完成，提交数字人工作流…")
         else:

@@ -117,7 +117,7 @@ SPEAKERS = [
     },
 ]
 
-_model = None
+_model_cache: dict[tuple[str, str], object] = {}
 _model_lock = asyncio.Lock()
 
 
@@ -142,21 +142,22 @@ def get_speaker(speaker_id: str) -> Optional[dict]:
 
 
 async def _load_model(model_path: str, device: str):
-    """Lazy-load Qwen3-TTS model (loaded once, kept in memory)."""
-    global _model
+    """Lazy-load Qwen3-TTS model (cached per model path and device)."""
+    cache_key = (str(Path(model_path).resolve()), device)
     async with _model_lock:
-        if _model is not None:
-            return _model
+        if cache_key in _model_cache:
+            return _model_cache[cache_key]
         import torch
         from qwen_tts import Qwen3TTSModel
 
         dtype = torch.bfloat16
-        _model = Qwen3TTSModel.from_pretrained(
+        model = Qwen3TTSModel.from_pretrained(
             model_path,
             device_map=device,
             dtype=dtype,
         )
-        return _model
+        _model_cache[cache_key] = model
+        return model
 
 
 async def synthesize(
@@ -164,9 +165,12 @@ async def synthesize(
     output_path: Path,
     model_path: str,
     device: str,
+    mode: str = "customvoice",
     speaker: str = "Uncle_Fu",
     language: str = "Chinese",
     instruct: Optional[str] = None,
+    ref_audio: Optional[Path] = None,
+    ref_text: Optional[str] = None,
 ) -> Path:
     """
     Generate speech and write to output_path (.wav).
@@ -177,10 +181,24 @@ async def synthesize(
     loop = asyncio.get_event_loop()
 
     def _infer():
-        kwargs = {"text": text, "language": language, "speaker": speaker}
-        if instruct:
-            kwargs["instruct"] = instruct
-        wavs, sr = model.generate_custom_voice(**kwargs)
+        if mode == "customvoice":
+            kwargs = {"text": text, "language": language, "speaker": speaker}
+            if instruct:
+                kwargs["instruct"] = instruct
+            wavs, sr = model.generate_custom_voice(**kwargs)
+        elif mode == "base":
+            if ref_audio is None:
+                raise ValueError("ref_audio is required for base voice clone mode")
+            if not ref_text or not ref_text.strip():
+                raise ValueError("ref_text is required for base voice clone mode")
+            wavs, sr = model.generate_voice_clone(
+                text=text,
+                language=language,
+                ref_audio=str(ref_audio),
+                ref_text=ref_text.strip(),
+            )
+        else:
+            raise ValueError(f"Unsupported TTS mode: {mode}")
         return wavs[0], sr
 
     wav, sr = await loop.run_in_executor(None, _infer)
