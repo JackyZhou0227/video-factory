@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Local application config and secrets
+web-app/config.yaml
+.claude/
+
+# Runtime outputs
+web-app/output/
+
+# Frontend dependencies and build output
+web-app/frontend/node_modules/
+web-app/frontend/dist/
+
+# Local OS/editor files
+.DS_Store
+Thumbs.db
+*.log

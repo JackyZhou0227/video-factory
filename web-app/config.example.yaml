@@ -1,0 +1,23 @@
+runninghub:
+  api_key: ""
+  concurrent_limit: 1
+  instance_type: null
+
+tts:
+  # Example Hugging Face cache snapshot path:
+  # "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice/snapshots/<revision>"
+  # Example explicit local-dir path:
+  # "D:/models/huggingface/Qwen3-TTS-12Hz-0.6B-CustomVoice"
+  model_path: ""
+  device: "cpu"
+  default_speaker: "Uncle_Fu"
+  default_language: "Chinese"
+
+workflow:
+  digital_human_id: ""
+
+server:
+  host: "0.0.0.0"
+  port: 8001
+  output_dir: "output"
+

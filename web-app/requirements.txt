@@ -1,0 +1,9 @@
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.9
+pyyaml>=6.0.0
+httpx>=0.28.1
+comfykit>=0.1.12
+qwen-tts>=0.1.1
+soundfile>=0.12.1
+torch>=2.0.0
