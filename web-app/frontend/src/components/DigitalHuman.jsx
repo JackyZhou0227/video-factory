@@ -17,6 +17,103 @@ const STEP_LABELS = {
   failed: "生成失败",
 };
 
+const DEFAULT_LANGUAGES = [
+  { id: "Chinese", label: "中文" },
+  { id: "English", label: "英语" },
+  { id: "Japanese", label: "日语" },
+  { id: "Korean", label: "韩语" },
+  { id: "German", label: "德语" },
+  { id: "French", label: "法语" },
+  { id: "Russian", label: "俄语" },
+  { id: "Portuguese", label: "葡萄牙语" },
+  { id: "Spanish", label: "西班牙语" },
+  { id: "Italian", label: "意大利语" },
+];
+
+const DEFAULT_SPEAKERS = [
+  {
+    id: "Vivian",
+    display_name: "薇薇安 Vivian",
+    native_language: "Chinese",
+    native_language_label: "中文",
+    short_description: "明亮年轻女声，清晰有精神。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Serena",
+    display_name: "赛琳娜 Serena",
+    native_language: "Chinese",
+    native_language_label: "中文",
+    short_description: "温柔年轻女声，亲和舒缓。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Uncle_Fu",
+    display_name: "傅叔 Uncle Fu",
+    native_language: "Chinese",
+    native_language_label: "中文",
+    short_description: "低醇成熟男声，稳重可信。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Dylan",
+    display_name: "迪伦 Dylan",
+    native_language: "Chinese",
+    native_language_label: "中文（北京口音）",
+    short_description: "清朗北京男声，自然生活感。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Eric",
+    display_name: "艾瑞克 Eric",
+    native_language: "Chinese",
+    native_language_label: "中文（四川口音）",
+    short_description: "活泼成都男声，明亮略带方言感。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Ryan",
+    display_name: "瑞安 Ryan",
+    native_language: "English",
+    native_language_label: "英语",
+    short_description: "动感英文男声，节奏感强。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Aiden",
+    display_name: "艾登 Aiden",
+    native_language: "English",
+    native_language_label: "英语（美式）",
+    short_description: "阳光美式男声，清晰自然。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Ono_Anna",
+    display_name: "小野安娜 Ono Anna",
+    native_language: "Japanese",
+    native_language_label: "日语",
+    short_description: "轻盈日文女声，俏皮灵动。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+  {
+    id: "Sohee",
+    display_name: "昭熙 Sohee",
+    native_language: "Korean",
+    native_language_label: "韩语",
+    short_description: "温暖韩文女声，情绪丰富。",
+    supported_language_summary: "10 种语言",
+    supported_language_labels: "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语",
+  },
+];
+
 function pollTask(taskId, signal) {
   return fetch(`${API}/task/${taskId}`, { signal }).then((response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -41,10 +138,13 @@ export default function DigitalHuman() {
   const [text, setText] = useState("");
   const [audioFile, setAudioFile] = useState(null);
   const [audioLocalUrl, setAudioLocalUrl] = useState(null);
-  const [speakers, setSpeakers] = useState([]);
+  const [speakers, setSpeakers] = useState(DEFAULT_SPEAKERS);
   const [speaker, setSpeaker] = useState("Uncle_Fu");
+  const [languages, setLanguages] = useState(DEFAULT_LANGUAGES);
+  const [language, setLanguage] = useState("Chinese");
   const [instruct, setInstruct] = useState("");
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
+  const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
   const [audioPreview, setAudioPreview] = useState(null);
   const [taskStatus, setTaskStatus] = useState("idle");
@@ -59,22 +159,63 @@ export default function DigitalHuman() {
   const imageInputRef = useRef(null);
   const audioInputRef = useRef(null);
   const voiceSelectRef = useRef(null);
+  const languageSelectRef = useRef(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     fetch(`${API}/speakers`)
-      .then((response) => response.json())
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
       .then((list) => {
-        const nextSpeakers = Array.isArray(list) ? list : [];
+        if (cancelled) return;
+        const nextSpeakers = Array.isArray(list) && list.length > 0 ? list : DEFAULT_SPEAKERS;
         setSpeakers(nextSpeakers);
-        if (nextSpeakers.length > 0 && !nextSpeakers.find((item) => item.id === speaker)) {
-          setSpeaker(nextSpeakers[0].id);
-        }
+        setSpeaker((currentSpeaker) =>
+          nextSpeakers.length > 0 && !nextSpeakers.find((item) => item.id === currentSpeaker)
+            ? nextSpeakers[0].id
+            : currentSpeaker
+        );
       })
       .catch(() => {
-        setSpeakers([]);
+        if (cancelled) return;
+        setSpeakers(DEFAULT_SPEAKERS);
       });
 
-  }, [speaker]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetch(`${API}/tts/languages`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((list) => {
+        if (cancelled) return;
+        const nextLanguages = Array.isArray(list) && list.length > 0 ? list : DEFAULT_LANGUAGES;
+        setLanguages(nextLanguages);
+        setLanguage((currentLanguage) =>
+          nextLanguages.length > 0 && !nextLanguages.find((item) => item.id === currentLanguage)
+            ? nextLanguages[0].id
+            : currentLanguage
+        );
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLanguages(DEFAULT_LANGUAGES);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -85,16 +226,22 @@ export default function DigitalHuman() {
   }, [audioLocalUrl, imagePreview]);
 
   useEffect(() => {
-    if (!voiceMenuOpen) return;
+    if (!voiceMenuOpen && !languageMenuOpen) return;
 
     const handlePointerDown = (event) => {
       if (!voiceSelectRef.current?.contains(event.target)) {
         setVoiceMenuOpen(false);
       }
+      if (!languageSelectRef.current?.contains(event.target)) {
+        setLanguageMenuOpen(false);
+      }
     };
 
     const handleKeyDown = (event) => {
-      if (event.key === "Escape") setVoiceMenuOpen(false);
+      if (event.key === "Escape") {
+        setVoiceMenuOpen(false);
+        setLanguageMenuOpen(false);
+      }
     };
 
     document.addEventListener("pointerdown", handlePointerDown);
@@ -104,7 +251,7 @@ export default function DigitalHuman() {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [voiceMenuOpen]);
+  }, [languageMenuOpen, voiceMenuOpen]);
 
   const resetVideoState = useCallback(() => {
     if (pollRef.current) clearTimeout(pollRef.current);
@@ -185,7 +332,14 @@ export default function DigitalHuman() {
     [speaker, speakers]
   );
 
-  const canPreviewAudio = Boolean(mode === "text" && !previewing && text.trim() && speaker);
+  useEffect(() => {
+    if (!selectedSpeaker) return;
+    setLanguage(selectedSpeaker.native_language || "Chinese");
+  }, [selectedSpeaker]);
+
+  const canPreviewAudio = Boolean(
+    mode === "text" && !previewing && text.trim() && speaker && language
+  );
   const hasConfirmedAudio = Boolean(
     mode === "text" ? audioPreview?.audio_url : audioFile
   );
@@ -215,7 +369,7 @@ export default function DigitalHuman() {
       const formData = new FormData();
       formData.append("text", text.trim());
       formData.append("speaker", speaker);
-      formData.append("language", selectedSpeaker?.native_language || "Chinese");
+      formData.append("language", language);
       if (instruct.trim()) formData.append("instruct", instruct.trim());
 
       const response = await fetch(`${API}/tts/preview`, {
@@ -238,7 +392,7 @@ export default function DigitalHuman() {
     } finally {
       setPreviewing(false);
     }
-  }, [canPreviewAudio, instruct, selectedSpeaker, speaker, text]);
+  }, [canPreviewAudio, instruct, language, speaker, text]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
@@ -403,65 +557,125 @@ export default function DigitalHuman() {
                 />
               </div>
 
-              <div className="field">
-                <div className="voice-header">
-                  <label className="field-label" htmlFor="speaker">
-                    音色
-                  </label>
-                  <span className="voice-hint">Qwen3-TTS CustomVoice 内置音色</span>
+              <div className="voice-config">
+                <div className="tts-model-note">
+                  本地 TTS 服务由 Qwen3-TTS CustomVoice 提供
                 </div>
-                <div className="voice-select" ref={voiceSelectRef}>
-                  <button
-                    id="speaker"
-                    className="voice-select-trigger"
-                    type="button"
-                    aria-haspopup="listbox"
-                    aria-expanded={voiceMenuOpen}
-                    onClick={() => setVoiceMenuOpen((open) => !open)}
-                  >
-                    <span className="voice-trigger-main">
-                      <span className="voice-title-row">
-                        <strong>{selectedSpeaker?.display_name || speaker}</strong>
-                        <span className="voice-inline-meta">
-                          推荐 {selectedSpeaker?.native_language_label || "中文"}
-                        </span>
-                      </span>
-                      <span>
-                        {selectedSpeaker?.short_description || "选择本地模型音色"}
-                      </span>
-                    </span>
-                    <span className="voice-select-arrow" aria-hidden="true" />
-                  </button>
-
-                  {voiceMenuOpen && (
-                    <div className="voice-menu" role="listbox" aria-labelledby="speaker">
-                      {speakers.map((item) => (
-                        <button
-                          key={item.id}
-                          type="button"
-                          className={`voice-option ${speaker === item.id ? "is-selected" : ""}`}
-                          role="option"
-                          aria-selected={speaker === item.id}
-                          onClick={() => {
-                            setSpeaker(item.id);
-                            setAudioPreview(null);
-                            setVoiceMenuOpen(false);
-                          }}
-                        >
-                          <span className="voice-option-main">
-                            <span className="voice-title-row">
-                              <strong>{item.display_name || item.label}</strong>
-                              <span className="voice-inline-meta">
-                                推荐 {item.native_language_label}
-                              </span>
-                            </span>
-                            <span>{item.short_description || item.description}</span>
-                          </span>
-                        </button>
-                      ))}
+                <div className="voice-controls-grid">
+                  <div className="field">
+                    <div className="voice-header">
+                      <label className="field-label" htmlFor="speaker">
+                        音色
+                      </label>
                     </div>
-                  )}
+                    <div className="voice-select" ref={voiceSelectRef}>
+                      <button
+                        id="speaker"
+                        className="voice-select-trigger"
+                        type="button"
+                        aria-haspopup="listbox"
+                        aria-expanded={voiceMenuOpen}
+                        onClick={() => setVoiceMenuOpen((open) => !open)}
+                      >
+                        <span className="voice-trigger-main">
+                          <span className="voice-title-row">
+                            <strong>{selectedSpeaker?.display_name || speaker}</strong>
+                            <span className="voice-inline-meta">
+                              推荐 {selectedSpeaker?.native_language_label || "中文"}
+                            </span>
+                          </span>
+                          <span>
+                            {selectedSpeaker?.short_description || "选择本地模型音色"}
+                          </span>
+                        </span>
+                        <span className="voice-select-arrow" aria-hidden="true" />
+                      </button>
+
+                      {voiceMenuOpen && (
+                        <div className="voice-menu" role="listbox" aria-labelledby="speaker">
+                          {speakers.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className={`voice-option ${speaker === item.id ? "is-selected" : ""}`}
+                              role="option"
+                              aria-selected={speaker === item.id}
+                              onClick={() => {
+                                setSpeaker(item.id);
+                                setLanguage(item.native_language || "Chinese");
+                                setAudioPreview(null);
+                                setVoiceMenuOpen(false);
+                                if (taskStatus === "ready") setTaskStatus("idle");
+                              }}
+                            >
+                              <span className="voice-option-main">
+                                <span className="voice-title-row">
+                                  <strong>{item.display_name || item.label}</strong>
+                                  <span className="voice-inline-meta">
+                                    推荐 {item.native_language_label}
+                                  </span>
+                                </span>
+                                <span>{item.short_description || item.description}</span>
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <div className="voice-header">
+                      <label className="field-label" htmlFor="tts-language">
+                        语言
+                      </label>
+                    </div>
+                    <div className="language-select" ref={languageSelectRef}>
+                      <button
+                        id="tts-language"
+                        className="voice-select-trigger language-select-trigger"
+                        type="button"
+                        aria-haspopup="listbox"
+                        aria-expanded={languageMenuOpen}
+                        onClick={() => setLanguageMenuOpen((open) => !open)}
+                      >
+                        <span className="language-trigger-label">
+                          {languages.find((item) => item.id === language)?.label || language}
+                          {selectedSpeaker?.native_language === language ? "（音色推荐）" : ""}
+                        </span>
+                        <span className="voice-select-arrow" aria-hidden="true" />
+                      </button>
+
+                      {languageMenuOpen && (
+                        <div className="voice-menu language-menu" role="listbox" aria-labelledby="tts-language">
+                          {languages.map((item) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              className={`voice-option language-option ${language === item.id ? "is-selected" : ""}`}
+                              role="option"
+                              aria-selected={language === item.id}
+                              onClick={() => {
+                                setLanguage(item.id);
+                                setAudioPreview(null);
+                                setLanguageMenuOpen(false);
+                                if (taskStatus === "ready") setTaskStatus("idle");
+                              }}
+                            >
+                              <span className="language-option-main">
+                                <strong>{item.label}</strong>
+                                {selectedSpeaker?.native_language === item.id && (
+                                  <span className="voice-inline-meta">音色推荐</span>
+                                )}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                 </div>
+
                 {selectedSpeaker && (
                   <div className="voice-summary">
                     <div className="voice-summary-main">
