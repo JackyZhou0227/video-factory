@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
 import Settings from "./components/Settings";
 
@@ -7,11 +8,13 @@ const NAV_ITEMS = [
     id: "digital-human",
     label: "数字人",
     description: "口播视频生成",
+    icon: "digitalHuman",
   },
   {
     id: "settings",
     label: "设置",
     description: "RunningHub 配置",
+    icon: "settings",
   },
 ];
 
@@ -22,6 +25,7 @@ const PAGE_META = {
     description:
       "上传人物形象，输入口播文案或音频，一站式生成数字人口播视频。",
     badge: "本地工作台",
+    badgeIcon: "monitorCog",
   },
   settings: {
     eyebrow: "Settings",
@@ -29,6 +33,7 @@ const PAGE_META = {
     description:
       "配置 RunningHub API Key，视频生成工作流会使用这里保存的云端凭据。",
     badge: "持久化配置",
+    badgeIcon: "serverCog",
   },
 };
 
@@ -39,16 +44,6 @@ export default function App() {
   return (
     <div className="app-layout">
       <aside className="app-sidebar" aria-label="主导航">
-        <div className="brand-block">
-          <div className="brand-mark" aria-hidden="true">
-            VF
-          </div>
-          <div>
-            <strong>Video Factory</strong>
-            <span>AI 视频工厂</span>
-          </div>
-        </div>
-
         <nav className="sidebar-nav">
           {NAV_ITEMS.map((item) => (
             <button
@@ -58,9 +53,11 @@ export default function App() {
               onClick={() => setActivePage(item.id)}
               aria-current={activePage === item.id ? "page" : undefined}
             >
+              <span className="nav-icon">
+                <Icon name={item.icon} size={24} />
+              </span>
               <span className="nav-item-main">
                 <strong>{item.label}</strong>
-                <span>{item.description}</span>
               </span>
             </button>
           ))}
@@ -75,7 +72,7 @@ export default function App() {
             <p className="app-description">{pageMeta.description}</p>
           </div>
           <div className="header-badge">
-            <span className="badge-dot" />
+            <Icon name={pageMeta.badgeIcon} size={15} />
             {pageMeta.badge}
           </div>
         </header>

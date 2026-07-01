@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Icon from "./Icon";
 
 const API = "/api";
 
@@ -91,13 +92,17 @@ export default function Settings() {
           <h2 id="settings-title">云端工作流配置</h2>
         </div>
         <span className={`status-pill ${apiKeyConfigured ? "completed" : "failed"}`}>
+          <Icon name={apiKeyConfigured ? "check" : "alert"} size={14} />
           {apiKeyConfigured ? "已配置" : "未配置"}
         </span>
       </div>
 
       <div className="settings-content">
         <div className="settings-copy">
-          <h3>用于生成视频的 RunningHub API Key</h3>
+          <h3>
+            <Icon name="serverCog" size={18} />
+            用于生成视频的 RunningHub API Key
+          </h3>
           <p>
             当前数字人视频生成会调用 RunningHub 工作流。保存后，配置会写入
             <code>config.yaml</code>，后端提交任务时会读取这里的 key。
@@ -163,7 +168,10 @@ export default function Settings() {
           </div>
 
           <div className="settings-instance-note">
-            <strong>{selectedInstance.label}</strong>
+            <strong>
+              <Icon name="sliders" size={15} />
+              {selectedInstance.label}
+            </strong>
             <span>{selectedInstance.hint}</span>
           </div>
 
@@ -177,6 +185,7 @@ export default function Settings() {
               onClick={loadSettings}
               disabled={loading || saving}
             >
+              <Icon name={loading ? "loading" : "refresh"} size={16} />
               重新读取
             </button>
             <button
@@ -185,6 +194,7 @@ export default function Settings() {
               onClick={handleSave}
               disabled={loading || saving}
             >
+              <Icon name={saving ? "loading" : "save"} size={16} />
               {saving ? "正在保存" : "保存设置"}
             </button>
           </div>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import Icon from "./Icon";
 
 const API = "/api";
 
@@ -454,6 +455,27 @@ export default function DigitalHuman() {
       !savingVoiceProfile
   );
 
+  const pipelineItems = [
+    {
+      label: "素材",
+      detail: imageFile ? imageFile.name : "等待人物形象",
+      state: imageFile ? "completed" : "idle",
+      icon: "image",
+    },
+    {
+      label: "语音",
+      detail: hasConfirmedAudio ? "已确认可用音频" : mode === "text" ? "先生成试听" : "等待上传音频",
+      state: hasConfirmedAudio ? "completed" : taskStatus === "previewing" ? "running" : "idle",
+      icon: "mic",
+    },
+    {
+      label: "云端生成",
+      detail: taskStatus === "completed" ? "视频已生成" : taskStatus === "failed" ? "需要检查任务" : "RunningHub 队列",
+      state: ["pending", "running"].includes(taskStatus) ? "running" : taskStatus,
+      icon: "cloud",
+    },
+  ];
+
   const detailMessage = useMemo(() => {
     if (taskStatus === "failed") return error || "任务执行失败，请检查输入后重试。";
     if (taskStatus === "completed") return "视频已生成，可预览或下载。";
@@ -652,6 +674,21 @@ export default function DigitalHuman() {
           <span className="required-note">先试听，再生成视频</span>
         </div>
 
+        <div className="pipeline-strip" aria-label="生产管线状态">
+          {pipelineItems.map((item, index) => (
+            <div key={item.label} className={`pipeline-step ${item.state}`}>
+              <span className="pipeline-index">
+                <Icon name={item.state === "completed" ? "check" : item.icon} size={14} />
+                <span>{String(index + 1).padStart(2, "0")}</span>
+              </span>
+              <span className="pipeline-copy">
+                <strong>{item.label}</strong>
+                <span>{item.detail}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+
         <div className="form-stack">
           <div className="field">
             <label className="field-label" htmlFor="character-image">
@@ -664,6 +701,7 @@ export default function DigitalHuman() {
                 </span>
               ) : (
                 <span className="upload-placeholder">
+                  <Icon name="imageAdd" size={22} />
                   <strong>选择图片</strong>
                   <small>JPG、PNG 或 WebP</small>
                 </span>
@@ -955,11 +993,13 @@ export default function DigitalHuman() {
                         <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
                           {refAudioFile ? (
                             <span className="upload-placeholder">
+                              <Icon name="audio" size={22} />
                               <strong>{refAudioFile.name}</strong>
                               <small>{formatFileSize(refAudioFile.size)}</small>
                             </span>
                           ) : (
                             <span className="upload-placeholder">
+                              <Icon name="upload" size={22} />
                               <strong>上传参考音频</strong>
                               <small>用于保存新的预设音色</small>
                             </span>
@@ -1003,6 +1043,7 @@ export default function DigitalHuman() {
                           disabled={!canSaveVoiceProfile}
                           onClick={handleSaveVoiceProfile}
                         >
+                          <Icon name={savingVoiceProfile ? "loading" : "save"} size={16} />
                           {savingVoiceProfile ? "正在保存预设音色" : "保存为预设音色"}
                         </button>
 
@@ -1056,6 +1097,7 @@ export default function DigitalHuman() {
                 disabled={!canPreviewAudio}
                 onClick={handlePreviewAudio}
               >
+                <Icon name={previewing ? "loading" : "play"} size={16} />
                 {previewing ? "正在生成试听音频" : "生成试听音频"}
               </button>
             </>
@@ -1067,11 +1109,13 @@ export default function DigitalHuman() {
               <label className={`upload-dropzone compact ${audioFile ? "is-filled" : ""}`}>
                 {audioFile ? (
                   <span className="upload-placeholder">
+                    <Icon name="audio" size={22} />
                     <strong>{audioFile.name}</strong>
                     <small>{formatFileSize(audioFile.size)}</small>
                   </span>
                 ) : (
                   <span className="upload-placeholder">
+                    <Icon name="upload" size={22} />
                     <strong>选择音频</strong>
                     <small>MP3、WAV 或其他常见格式</small>
                   </span>
@@ -1106,12 +1150,21 @@ export default function DigitalHuman() {
             <span className="section-kicker">输出</span>
             <h2 id="output-title">试听与生成</h2>
           </div>
-          <span className={`status-pill ${taskStatus}`}>{STEP_LABELS[taskStatus]}</span>
+          <span className={`status-pill ${taskStatus}`}>
+            <Icon
+              name={taskStatus === "failed" ? "alert" : taskStatus === "completed" ? "check" : ["running", "pending", "previewing"].includes(taskStatus) ? "loading" : "gauge"}
+              size={14}
+            />
+            {STEP_LABELS[taskStatus]}
+          </span>
         </div>
 
         <div className="preview-card">
           <div>
-            <span className="section-kicker">Step 1</span>
+            <span className="section-kicker with-icon">
+              <Icon name="mic" size={13} />
+              Step 1
+            </span>
             <h3>确认口播语音</h3>
             <p>本地语音会先保存在当前机器上，确认效果后再与人物图一起提交给 RunningHub。</p>
           </div>
@@ -1137,6 +1190,7 @@ export default function DigitalHuman() {
           disabled={!canGenerateVideo}
           onClick={handleGenerateVideo}
         >
+          <Icon name={generating ? "loading" : "wand"} size={16} />
           {generating ? "正在生成视频" : "确认语音，生成视频"}
         </button>
 
@@ -1145,13 +1199,20 @@ export default function DigitalHuman() {
             <>
               <video className="result-video" src={videoUrl} controls />
               <a className="download-action" href={videoUrl} download>
+                <Icon name="download" size={16} />
                 下载视频
               </a>
             </>
           ) : (
             <div className="empty-state">
               <div className={`state-orb ${taskStatus}`} aria-hidden="true">
-                {taskStatus === "failed" ? "!" : taskStatus === "running" ? `${progress}%` : "VF"}
+                {taskStatus === "failed" ? (
+                  <Icon name="alert" size={26} />
+                ) : taskStatus === "running" ? (
+                  `${progress}%`
+                ) : (
+                  <Icon name="video" size={28} />
+                )}
               </div>
               <h3>{STEP_LABELS[taskStatus]}</h3>
               <p>{detailMessage}</p>
