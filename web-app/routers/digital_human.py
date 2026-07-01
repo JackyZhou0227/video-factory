@@ -6,8 +6,9 @@ from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi.responses import FileResponse
 
-from services import tts_qwen, runninghub
+from services import tts_qwen, runninghub, voice_profiles
 
 router = APIRouter()
 
@@ -61,6 +62,19 @@ def _tts_model_path(cfg: dict, tts_mode: str) -> str:
     return tts_cfg.get("customvoice_model_path") or tts_cfg.get("model_path") or ""
 
 
+def _resolve_base_voice_inputs(
+    voice_profile_id: Optional[str],
+    ref_audio: Optional[Path],
+    ref_text: Optional[str],
+) -> tuple[Optional[Path], Optional[str]]:
+    if voice_profile_id:
+        voice_profile = voice_profiles.get_voice_profile(voice_profile_id)
+        if voice_profile is None:
+            raise HTTPException(status_code=404, detail="Voice profile not found")
+        return voice_profiles.get_voice_audio_path(voice_profile_id), voice_profile.get("ref_text")
+    return ref_audio, ref_text
+
+
 # ---------------------------------------------------------------------------
 # GET /speakers
 # ---------------------------------------------------------------------------
@@ -77,150 +91,134 @@ def get_tts_languages():
     return tts_qwen.list_languages()
 
 
-# ---------------------------------------------------------------------------
-# POST /tts/preview
-# ---------------------------------------------------------------------------
+@router.get("/voice-profiles")
+def get_voice_profiles():
+    return voice_profiles.list_voice_profiles()
 
-@router.post("/tts/preview")
-async def preview_tts(
-    text: str = Form(...),
-    tts_mode: str = Form("customvoice"),
-    speaker: str = Form("Uncle_Fu"),
+
+@router.get("/voice-profiles/{voice_profile_id}/audio")
+def get_voice_profile_audio(voice_profile_id: str):
+    audio_path = voice_profiles.get_voice_audio_path(voice_profile_id)
+    return FileResponse(audio_path)
+
+
+@router.post("/voice-profiles")
+async def create_voice_profile(
+    name: str = Form(...),
     language: str = Form("Chinese"),
-    instruct: Optional[str] = Form(None),
-    ref_audio: Optional[UploadFile] = File(None),
-    ref_text: Optional[str] = Form(None),
+    ref_text: str = Form(...),
+    ref_audio: UploadFile = File(...),
 ):
-    """Generate local Qwen3-TTS audio and expose it for browser preview."""
-    if not text.strip():
-        raise HTTPException(status_code=422, detail="text is required")
-    if tts_mode == "customvoice" and tts_qwen.get_speaker(speaker) is None:
-        raise HTTPException(status_code=422, detail=f"Unsupported speaker: {speaker}")
-    if tts_mode == "base" and ref_audio is None:
-        raise HTTPException(status_code=422, detail="ref_audio is required in base mode")
-    if tts_mode == "base" and not ref_text:
-        raise HTTPException(status_code=422, detail="ref_text is required in base mode")
+    voice = await voice_profiles.create_voice_profile(
+        name=name,
+        language=language,
+        ref_text=ref_text,
+        ref_audio=ref_audio,
+    )
+    return voice
 
+
+def _new_preview_audio_path() -> tuple[str, Path, Path]:
     cfg = _get_config()
     output_root = _output_root(cfg)
     audio_id = uuid.uuid4().hex
     audio_dir = output_root / "tts" / audio_id
-    audio_path = audio_dir / "preview.wav"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    return audio_id, audio_dir, audio_dir / "preview.wav"
 
-    ref_audio_path: Optional[Path] = None
-    if ref_audio is not None:
-        ref_audio_path = audio_dir / f"ref_audio{Path(ref_audio.filename).suffix or '.wav'}"
-        ref_audio_path.write_bytes(await ref_audio.read())
+
+# ---------------------------------------------------------------------------
+# POST /tts/customvoice/preview
+# ---------------------------------------------------------------------------
+
+@router.post("/tts/customvoice/preview")
+async def preview_customvoice_tts(
+    text: str = Form(...),
+    speaker: str = Form("Uncle_Fu"),
+    language: str = Form("Chinese"),
+    instruct: Optional[str] = Form(None),
+):
+    """Generate preview audio with Qwen3-TTS CustomVoice."""
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="text is required")
+    if tts_qwen.get_speaker(speaker) is None:
+        raise HTTPException(status_code=422, detail=f"Unsupported speaker: {speaker}")
+
+    cfg = _get_config()
+    audio_id, _, audio_path = _new_preview_audio_path()
 
     await tts_qwen.synthesize(
         text=text.strip(),
         output_path=audio_path,
-        model_path=_tts_model_path(cfg, tts_mode),
+        model_path=_tts_model_path(cfg, "customvoice"),
         device=cfg["tts"]["device"],
-        mode=tts_mode,
+        mode="customvoice",
         speaker=speaker,
         language=language,
         instruct=instruct.strip() if instruct and instruct.strip() else None,
-        ref_audio=ref_audio_path,
-        ref_text=ref_text,
     )
 
     return {
         "audio_id": audio_id,
         "audio_url": _public_output_url(audio_path),
-        "tts_mode": tts_mode,
+        "tts_mode": "customvoice",
         "speaker": speaker,
         "language": language,
     }
 
 
 # ---------------------------------------------------------------------------
-# POST /generate
+# POST /tts/voice-clone/preview
 # ---------------------------------------------------------------------------
 
-@router.post("/generate")
-async def generate(
-    image: UploadFile = File(...),
-    mode: str = Form(...),              # "text" | "audio"
-    text: Optional[str] = Form(None),
-    audio: Optional[UploadFile] = File(None),
-    tts_mode: str = Form("customvoice"),
-    speaker: str = Form("Uncle_Fu"),
+@router.post("/tts/voice-clone/preview")
+async def preview_voice_clone_tts(
+    text: str = Form(...),
     language: str = Form("Chinese"),
-    instruct: Optional[str] = Form(None),
+    voice_profile_id: Optional[str] = Form(None),
     ref_audio: Optional[UploadFile] = File(None),
     ref_text: Optional[str] = Form(None),
 ):
-    # --- Validate inputs ---
-    if mode not in ("text", "audio"):
-        raise HTTPException(status_code=422, detail="mode must be 'text' or 'audio'")
-    if mode == "text" and not text:
-        raise HTTPException(status_code=422, detail="text is required in text mode")
-    if mode == "audio" and audio is None:
-        raise HTTPException(status_code=422, detail="audio file is required in audio mode")
-    if mode == "text" and tts_mode == "base":
-        if ref_audio is None:
-            raise HTTPException(status_code=422, detail="ref_audio is required in base mode")
-        if not ref_text:
-            raise HTTPException(status_code=422, detail="ref_text is required in base mode")
+    """Generate preview audio with Qwen3-TTS Base voice clone."""
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="text is required")
+    if not voice_profile_id and ref_audio is None:
+        raise HTTPException(status_code=422, detail="ref_audio or voice_profile_id is required")
+    if not voice_profile_id and not ref_text:
+        raise HTTPException(status_code=422, detail="ref_text is required")
 
     cfg = _get_config()
-    output_root = Path(cfg["server"]["output_dir"])
+    audio_id, audio_dir, audio_path = _new_preview_audio_path()
 
-    task_id = uuid.uuid4().hex
-    task_dir = output_root / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save uploaded image
-    image_path = task_dir / f"character{Path(image.filename).suffix or '.jpg'}"
-    image_path.write_bytes(await image.read())
-
-    # Prepare audio path placeholder
-    audio_path: Optional[Path] = None
     ref_audio_path: Optional[Path] = None
-
-    if mode == "audio":
-        audio_path = task_dir / f"input_audio{Path(audio.filename).suffix or '.wav'}"
-        audio_path.write_bytes(await audio.read())
-    elif tts_mode == "base":
-        ref_audio_path = task_dir / f"ref_audio{Path(ref_audio.filename).suffix or '.wav'}"
+    if ref_audio is not None:
+        ref_audio_path = audio_dir / f"ref_audio{Path(ref_audio.filename).suffix or '.wav'}"
         ref_audio_path.write_bytes(await ref_audio.read())
+    resolved_ref_audio, resolved_ref_text = _resolve_base_voice_inputs(voice_profile_id, ref_audio_path, ref_text)
 
-    # Register task
-    _tasks[task_id] = {
-        "status": "pending",
-        "progress": 0,
-        "message": "任务已创建，等待处理…",
-        "video_url": None,
-        "error": None,
-    }
-
-    # Kick off background generation
-    asyncio.create_task(
-        _run_generation(
-            task_id=task_id,
-            task_dir=task_dir,
-            image_path=image_path,
-            audio_path=audio_path,
-            mode=mode,
-            text=text,
-            tts_mode=tts_mode,
-            speaker=speaker,
-            language=language,
-            instruct=instruct,
-            ref_audio=ref_audio_path,
-            ref_text=ref_text,
-            cfg=cfg,
-        )
+    await tts_qwen.synthesize(
+        text=text.strip(),
+        output_path=audio_path,
+        model_path=_tts_model_path(cfg, "base"),
+        device=cfg["tts"]["device"],
+        mode="base",
+        language=language,
+        ref_audio=resolved_ref_audio,
+        ref_text=resolved_ref_text,
     )
 
-    return {"task_id": task_id}
+    return {
+        "audio_id": audio_id,
+        "audio_url": _public_output_url(audio_path),
+        "tts_mode": "base",
+        "voice_profile_id": voice_profile_id,
+        "language": language,
+    }
 
 
 # ---------------------------------------------------------------------------
 # POST /generate-video
 # ---------------------------------------------------------------------------
-
 @router.post("/generate-video")
 async def generate_video(
     image: UploadFile = File(...),
@@ -255,7 +253,7 @@ async def generate_video(
     _tasks[task_id] = {
         "status": "pending",
         "progress": 0,
-        "message": "任务已创建，等待提交 RunningHub…",
+        "message": "任务已创建，等待提交 RunningHub...",
         "video_url": None,
         "error": None,
     }
@@ -288,79 +286,6 @@ def get_task(task_id: str):
 # ---------------------------------------------------------------------------
 # Background worker
 # ---------------------------------------------------------------------------
-
-async def _run_generation(
-    task_id: str,
-    task_dir: Path,
-    image_path: Path,
-    audio_path: Optional[Path],
-    mode: str,
-    text: Optional[str],
-    tts_mode: str,
-    speaker: str,
-    language: str,
-    instruct: Optional[str],
-    ref_audio: Optional[Path],
-    ref_text: Optional[str],
-    cfg: dict,
-):
-    def _update(status: str, progress: int, message: str):
-        _tasks[task_id].update(status=status, progress=progress, message=message)
-
-    try:
-        _update("running", 10, "开始处理…")
-
-        if mode == "text":
-            if tts_mode == "base":
-                _update("running", 20, "正在使用 Base 模型克隆声音…")
-            else:
-                _update("running", 20, "正在生成语音（Qwen3-TTS）…")
-            audio_path = task_dir / "narration.wav"
-            await tts_qwen.synthesize(
-                text=text or "",
-                output_path=audio_path,
-                model_path=_tts_model_path(cfg, tts_mode),
-                device=cfg["tts"]["device"],
-                mode=tts_mode,
-                speaker=speaker,
-                language=language,
-                instruct=instruct or None,
-                ref_audio=ref_audio,
-                ref_text=ref_text,
-            )
-            _update("running", 55, "语音生成完成，提交数字人工作流…")
-        else:
-            _update("running", 55, "音频已就绪，提交数字人工作流…")
-
-        if audio_path is None:
-            raise RuntimeError("Audio file is missing.")
-
-        video_path = task_dir / "final.mp4"
-        await runninghub.generate_digital_human(
-            image_path=image_path,
-            audio_path=audio_path,
-            output_path=video_path,
-            workflow_id=cfg["workflow"]["digital_human_id"],
-            api_key=cfg["runninghub"]["api_key"],
-            instance_type=cfg["runninghub"].get("instance_type"),
-        )
-
-        _tasks[task_id].update(
-            status="completed",
-            progress=100,
-            message="生成完成！",
-            video_url=f"/output/{task_id}/final.mp4",
-        )
-
-    except Exception as exc:
-        _tasks[task_id].update(
-            status="failed",
-            progress=0,
-            message=f"生成失败：{exc}",
-            error=str(exc),
-        )
-
-
 async def _run_video_generation(
     task_id: str,
     task_dir: Path,
@@ -372,7 +297,7 @@ async def _run_video_generation(
         _tasks[task_id].update(status=status, progress=progress, message=message)
 
     try:
-        _update("running", 55, "音频已确认，正在提交 RunningHub 数字人工作流…")
+        _update("running", 55, "音频已确认，正在提交 RunningHub 数字人工作流...")
 
         video_path = task_dir / "final.mp4"
         await runninghub.generate_digital_human(
@@ -387,7 +312,7 @@ async def _run_video_generation(
         _tasks[task_id].update(
             status="completed",
             progress=100,
-            message="生成完成！",
+            message="生成完成。",
             video_url=f"/output/{task_id}/final.mp4",
         )
 

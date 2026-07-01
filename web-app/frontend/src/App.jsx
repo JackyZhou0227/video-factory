@@ -80,8 +80,13 @@ export default function App() {
           </div>
         </header>
 
-        <div className={activePage === "digital-human" ? "app-main" : "settings-main"}>
-          {activePage === "digital-human" ? <DigitalHuman /> : <Settings />}
+        <div className="page-stack">
+          <div className={`app-main page-panel ${activePage === "digital-human" ? "is-active" : ""}`}>
+            <DigitalHuman />
+          </div>
+          <div className={`settings-main page-panel ${activePage === "settings" ? "is-active" : ""}`}>
+            <Settings />
+          </div>
         </div>
       </main>
     </div>

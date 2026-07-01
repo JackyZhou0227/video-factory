@@ -302,3 +302,13 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_
 - Hugging Face 环境变量: https://huggingface.co/docs/huggingface_hub/en/package_reference/environment_variables
 - Hugging Face 下载说明: https://huggingface.co/docs/huggingface_hub/en/guides/download
 - PyTorch 安装选择器: https://pytorch.org/get-started/locally/
+
+## 预设音色库
+
+Base 模式支持本地预设音色：
+
+- 切到 `Base 语音克隆`
+- 选 `预设音色` 就能直接复用已有声音档案
+- 选 `新音色` 后，上传参考音频和参考文本，点击保存即可加入本地库
+
+预设数据默认保存在 `web-app/data/voice_profiles/`。

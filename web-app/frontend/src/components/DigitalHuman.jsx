@@ -8,8 +8,13 @@ const MODE_OPTIONS = [
 ];
 
 const TTS_MODE_OPTIONS = [
-  { value: "customvoice", label: "CustomVoice" },
-  { value: "base", label: "Base 语音克隆" },
+  { value: "base", label: "语音克隆" },
+  { value: "customvoice", label: "预置音色" },
+];
+
+const BASE_VOICE_SOURCE_OPTIONS = [
+  { value: "preset", label: "预设音色" },
+  { value: "custom", label: "新音色" },
 ];
 
 const STEP_LABELS = {
@@ -38,7 +43,7 @@ const DEFAULT_LANGUAGES = [
 const DEFAULT_SPEAKERS = [
   {
     id: "Vivian",
-    display_name: "薇薇安 Vivian",
+    display_name: "Vivian",
     native_language: "Chinese",
     native_language_label: "中文",
     short_description: "明亮年轻女声，清晰有精神。",
@@ -47,7 +52,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Serena",
-    display_name: "赛琳娜 Serena",
+    display_name: "Serena",
     native_language: "Chinese",
     native_language_label: "中文",
     short_description: "温柔年轻女声，亲和舒缓。",
@@ -56,7 +61,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Uncle_Fu",
-    display_name: "傅叔 Uncle Fu",
+    display_name: "傅叔",
     native_language: "Chinese",
     native_language_label: "中文",
     short_description: "低醇成熟男声，稳重可信。",
@@ -65,7 +70,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Dylan",
-    display_name: "迪伦 Dylan",
+    display_name: "Dylan",
     native_language: "Chinese",
     native_language_label: "中文（北京口音）",
     short_description: "清朗北京男声，自然生活感。",
@@ -74,7 +79,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Eric",
-    display_name: "艾瑞克 Eric",
+    display_name: "Eric",
     native_language: "Chinese",
     native_language_label: "中文（四川口音）",
     short_description: "活泼成都男声，明亮略带方言感。",
@@ -83,7 +88,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Ryan",
-    display_name: "瑞安 Ryan",
+    display_name: "Ryan",
     native_language: "English",
     native_language_label: "英语",
     short_description: "动感英文男声，节奏感强。",
@@ -92,7 +97,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Aiden",
-    display_name: "艾登 Aiden",
+    display_name: "Aiden",
     native_language: "English",
     native_language_label: "英语（美式）",
     short_description: "阳光美式男声，清晰自然。",
@@ -101,7 +106,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Ono_Anna",
-    display_name: "小野安娜 Ono Anna",
+    display_name: "Ono Anna",
     native_language: "Japanese",
     native_language_label: "日语",
     short_description: "轻盈日文女声，俏皮灵动。",
@@ -110,7 +115,7 @@ const DEFAULT_SPEAKERS = [
   },
   {
     id: "Sohee",
-    display_name: "昭熙 Sohee",
+    display_name: "Sohee",
     native_language: "Korean",
     native_language_label: "韩语",
     short_description: "温暖韩文女声，情绪丰富。",
@@ -127,7 +132,7 @@ function pollTask(taskId, signal) {
 }
 
 function isReadableMessage(message) {
-  return typeof message === "string" && message.trim() && !/[�]/.test(message);
+  return typeof message === "string" && message.trim() && !/[锟]/.test(message);
 }
 
 function formatFileSize(size) {
@@ -147,7 +152,15 @@ export default function DigitalHuman() {
   const [speaker, setSpeaker] = useState("Uncle_Fu");
   const [languages, setLanguages] = useState(DEFAULT_LANGUAGES);
   const [language, setLanguage] = useState("Chinese");
-  const [ttsMode, setTtsMode] = useState("customvoice");
+  const [ttsMode, setTtsMode] = useState("base");
+  const [baseVoiceSource, setBaseVoiceSource] = useState("preset");
+  const [voiceProfiles, setVoiceProfiles] = useState([]);
+  const [voiceProfilesLoading, setVoiceProfilesLoading] = useState(false);
+  const [voiceProfileId, setVoiceProfileId] = useState("");
+  const [voiceProfileName, setVoiceProfileName] = useState("");
+  const [voiceProfileError, setVoiceProfileError] = useState("");
+  const [voiceProfileNotice, setVoiceProfileNotice] = useState("");
+  const [savingVoiceProfile, setSavingVoiceProfile] = useState(false);
   const [instruct, setInstruct] = useState("");
   const [refAudioFile, setRefAudioFile] = useState(null);
   const [refAudioUrl, setRefAudioUrl] = useState(null);
@@ -156,6 +169,7 @@ export default function DigitalHuman() {
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
   const [audioPreview, setAudioPreview] = useState(null);
+  const [audioPreviewStale, setAudioPreviewStale] = useState(false);
   const [taskStatus, setTaskStatus] = useState("idle");
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
@@ -170,10 +184,10 @@ export default function DigitalHuman() {
   const refAudioInputRef = useRef(null);
   const voiceSelectRef = useRef(null);
   const languageSelectRef = useRef(null);
+  const audioInputRevisionRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
-
     fetch(`${API}/speakers`)
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -183,15 +197,47 @@ export default function DigitalHuman() {
         if (cancelled) return;
         const nextSpeakers = Array.isArray(list) && list.length > 0 ? list : DEFAULT_SPEAKERS;
         setSpeakers(nextSpeakers);
-        setSpeaker((currentSpeaker) =>
-          nextSpeakers.length > 0 && !nextSpeakers.find((item) => item.id === currentSpeaker)
-            ? nextSpeakers[0].id
-            : currentSpeaker
+        setSpeaker((current) =>
+          nextSpeakers.some((item) => item.id === current) ? current : nextSpeakers[0].id
         );
       })
       .catch(() => {
         if (cancelled) return;
         setSpeakers(DEFAULT_SPEAKERS);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setVoiceProfilesLoading(true);
+    fetch(`${API}/voice-profiles`)
+      .then((response) => {
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      })
+      .then((list) => {
+        if (cancelled) return;
+        const nextProfiles = Array.isArray(list) ? list : [];
+        setVoiceProfiles(nextProfiles);
+        setVoiceProfileId((current) => {
+          if (current && nextProfiles.some((item) => item.id === current)) return current;
+          return nextProfiles[0]?.id || "";
+        });
+        if (nextProfiles.length === 0) {
+          setBaseVoiceSource("custom");
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setVoiceProfiles([]);
+        setVoiceProfileId("");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setVoiceProfilesLoading(false);
       });
 
     return () => {
@@ -201,7 +247,6 @@ export default function DigitalHuman() {
 
   useEffect(() => {
     let cancelled = false;
-
     fetch(`${API}/tts/languages`)
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -211,10 +256,8 @@ export default function DigitalHuman() {
         if (cancelled) return;
         const nextLanguages = Array.isArray(list) && list.length > 0 ? list : DEFAULT_LANGUAGES;
         setLanguages(nextLanguages);
-        setLanguage((currentLanguage) =>
-          nextLanguages.length > 0 && !nextLanguages.find((item) => item.id === currentLanguage)
-            ? nextLanguages[0].id
-            : currentLanguage
+        setLanguage((current) =>
+          nextLanguages.some((item) => item.id === current) ? current : nextLanguages[0].id
         );
       })
       .catch(() => {
@@ -240,12 +283,8 @@ export default function DigitalHuman() {
     if (!voiceMenuOpen && !languageMenuOpen) return;
 
     const handlePointerDown = (event) => {
-      if (!voiceSelectRef.current?.contains(event.target)) {
-        setVoiceMenuOpen(false);
-      }
-      if (!languageSelectRef.current?.contains(event.target)) {
-        setLanguageMenuOpen(false);
-      }
+      if (!voiceSelectRef.current?.contains(event.target)) setVoiceMenuOpen(false);
+      if (!languageSelectRef.current?.contains(event.target)) setLanguageMenuOpen(false);
     };
 
     const handleKeyDown = (event) => {
@@ -257,7 +296,6 @@ export default function DigitalHuman() {
 
     document.addEventListener("pointerdown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
-
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
@@ -275,7 +313,9 @@ export default function DigitalHuman() {
   }, []);
 
   const resetAudioPreview = useCallback(() => {
+    audioInputRevisionRef.current += 1;
     setAudioPreview(null);
+    setAudioPreviewStale(false);
     setVideoUrl(null);
     setProgress(0);
     setError(null);
@@ -283,17 +323,51 @@ export default function DigitalHuman() {
     setTaskStatus("idle");
   }, []);
 
-  const handleRefAudioChange = useCallback((event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setRefAudioFile(file);
-    setRefAudioUrl((prev) => {
-      if (prev) URL.revokeObjectURL(prev);
-      return URL.createObjectURL(file);
-    });
-    setAudioPreview(null);
-    resetVideoState();
-  }, [resetVideoState]);
+  const markAudioPreviewStale = useCallback(() => {
+    audioInputRevisionRef.current += 1;
+    setAudioPreviewStale((wasStale) => (audioPreview ? true : wasStale));
+    setVideoUrl(null);
+    setError(null);
+    if (taskStatus === "ready") {
+      setTaskStatus("idle");
+      setStatusMsg("参数已变更，旧试听仍可播放，请重新生成试听后再生成视频。");
+    }
+  }, [audioPreview, taskStatus]);
+
+  const selectedSpeaker = useMemo(
+    () => speakers.find((item) => item.id === speaker) ?? null,
+    [speaker, speakers]
+  );
+
+  const selectedVoiceProfile = useMemo(
+    () => voiceProfiles.find((item) => item.id === voiceProfileId) ?? null,
+    [voiceProfileId, voiceProfiles]
+  );
+
+  useEffect(() => {
+    if (!selectedSpeaker || ttsMode !== "customvoice") return;
+    setLanguage(selectedSpeaker.native_language || "Chinese");
+  }, [selectedSpeaker, ttsMode]);
+
+  useEffect(() => {
+    if (!selectedVoiceProfile || ttsMode !== "base") return;
+    setLanguage(selectedVoiceProfile.language || "Chinese");
+  }, [selectedVoiceProfile, ttsMode]);
+
+  const handleRefAudioChange = useCallback(
+    (event) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      setRefAudioFile(file);
+      setRefAudioUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(file);
+      });
+      markAudioPreviewStale();
+      resetVideoState();
+    },
+    [markAudioPreviewStale, resetVideoState]
+  );
 
   const removeRefAudio = useCallback(() => {
     setRefAudioFile(null);
@@ -302,14 +376,14 @@ export default function DigitalHuman() {
       return null;
     });
     if (refAudioInputRef.current) refAudioInputRef.current.value = "";
+    markAudioPreviewStale();
     resetVideoState();
-  }, [resetVideoState]);
+  }, [markAudioPreviewStale, resetVideoState]);
 
   const handleImageChange = useCallback(
     (event) => {
       const file = event.target.files?.[0];
       if (!file) return;
-
       const nextPreview = URL.createObjectURL(file);
       setImageFile(file);
       setImagePreview((prev) => {
@@ -321,23 +395,21 @@ export default function DigitalHuman() {
     [resetVideoState]
   );
 
-  const handleAudioChange = useCallback(
-    (event) => {
-      const file = event.target.files?.[0];
-      if (!file) return;
-      setAudioFile(file);
-      setAudioLocalUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return URL.createObjectURL(file);
-      });
-      setAudioPreview(null);
-      setTaskStatus("ready");
-      setVideoUrl(null);
-      setError(null);
-      setStatusMsg("上传音频已就绪，可以直接生成视频。");
-    },
-    []
-  );
+  const handleAudioChange = useCallback((event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setAudioFile(file);
+    setAudioLocalUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return URL.createObjectURL(file);
+    });
+    setAudioPreview(null);
+    setAudioPreviewStale(false);
+    setTaskStatus("ready");
+    setVideoUrl(null);
+    setError(null);
+    setStatusMsg("上传音频已就绪，可以直接生成视频。");
+  }, []);
 
   const removeImage = useCallback(() => {
     setImageFile(null);
@@ -352,6 +424,7 @@ export default function DigitalHuman() {
   const removeAudio = useCallback(() => {
     setAudioFile(null);
     setAudioPreview(null);
+    setAudioPreviewStale(false);
     setAudioLocalUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -360,57 +433,114 @@ export default function DigitalHuman() {
     resetVideoState();
   }, [resetVideoState]);
 
-  const selectedSpeaker = useMemo(
-    () => speakers.find((item) => item.id === speaker) ?? null,
-    [speaker, speakers]
-  );
-
-  useEffect(() => {
-    if (!selectedSpeaker) return;
-    setLanguage(selectedSpeaker.native_language || "Chinese");
-  }, [selectedSpeaker]);
+  const basePresetReady = baseVoiceSource === "preset" ? Boolean(voiceProfileId) : Boolean(refAudioFile && refText.trim());
 
   const canPreviewAudio = Boolean(
-    mode === "text" && !previewing && text.trim() && language && (ttsMode === "customvoice" ? speaker : refAudioFile && refText.trim())
+    mode === "text" &&
+      !previewing &&
+      text.trim() &&
+      language &&
+      (ttsMode === "customvoice" ? speaker : basePresetReady)
   );
-  const hasConfirmedAudio = Boolean(
-    mode === "text" ? audioPreview?.audio_url : audioFile
-  );
+  const hasConfirmedAudio = Boolean(mode === "text" ? audioPreview?.audio_url && !audioPreviewStale : audioFile);
   const canGenerateVideo = Boolean(!generating && imageFile && hasConfirmedAudio);
+
+  const canSaveVoiceProfile = Boolean(
+    ttsMode === "base" &&
+      baseVoiceSource === "custom" &&
+      refAudioFile &&
+      refText.trim() &&
+      voiceProfileName.trim() &&
+      !savingVoiceProfile
+  );
 
   const detailMessage = useMemo(() => {
     if (taskStatus === "failed") return error || "任务执行失败，请检查输入后重试。";
     if (taskStatus === "completed") return "视频已生成，可预览或下载。";
     if (isReadableMessage(statusMsg)) return statusMsg;
-    if (taskStatus === "previewing") return "正在调用本地 Qwen3-TTS 生成试听音频。";
+    if (taskStatus === "previewing") return "正在调用本地 TTS 生成试听音频。";
     if (taskStatus === "ready") return "试听音频已生成，确认无误后即可提交视频生成。";
     if (taskStatus === "running") return "正在把人物图和确认后的音频提交给 RunningHub。";
-    return "先生成并试听语音，再确认生成数字人口播视频。";
+    return "先生成并试听语音，再确认生成数字人视频。";
   }, [error, statusMsg, taskStatus]);
+
+  const buildBaseVoiceForm = useCallback(
+    (formData) => {
+      if (baseVoiceSource === "preset") {
+        formData.append("voice_profile_id", voiceProfileId);
+      } else {
+        formData.append("ref_audio", refAudioFile);
+        formData.append("ref_text", refText.trim());
+      }
+    },
+    [baseVoiceSource, refAudioFile, refText, voiceProfileId]
+  );
 
   const handlePreviewAudio = useCallback(async () => {
     if (!canPreviewAudio) return;
 
+    const requestRevision = audioInputRevisionRef.current;
     setPreviewing(true);
     setAudioPreview(null);
+    setAudioPreviewStale(false);
     setVideoUrl(null);
     setError(null);
     setTaskStatus("previewing");
-    setStatusMsg("正在生成试听音频…");
+    setStatusMsg("正在生成试听音频...");
 
     try {
       const formData = new FormData();
       formData.append("text", text.trim());
-      formData.append("tts_mode", ttsMode);
-      formData.append("speaker", speaker);
       formData.append("language", language);
-      if (ttsMode === "customvoice" && instruct.trim()) formData.append("instruct", instruct.trim());
-      if (ttsMode === "base") {
-        formData.append("ref_audio", refAudioFile);
-        formData.append("ref_text", refText.trim());
+      let previewEndpoint = `${API}/tts/customvoice/preview`;
+
+      if (ttsMode === "customvoice") {
+        formData.append("speaker", speaker);
+        if (instruct.trim()) formData.append("instruct", instruct.trim());
+      } else {
+        previewEndpoint = `${API}/tts/voice-clone/preview`;
+        buildBaseVoiceForm(formData);
       }
 
-      const response = await fetch(`${API}/tts/preview`, {
+      const response = await fetch(previewEndpoint, { method: "POST", body: formData });
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const isCurrentPreview = audioInputRevisionRef.current === requestRevision;
+      setAudioPreview(data);
+      setAudioPreviewStale(!isCurrentPreview);
+      setTaskStatus(isCurrentPreview ? "ready" : "idle");
+      setStatusMsg(
+        isCurrentPreview
+          ? "试听音频已生成，请先播放确认。"
+          : "试听已生成，但参数已变更。旧试听仍可播放，请重新生成试听后再生成视频。"
+      );
+    } catch (err) {
+      setTaskStatus("failed");
+      setError(err.message);
+    } finally {
+      setPreviewing(false);
+    }
+  }, [buildBaseVoiceForm, canPreviewAudio, instruct, language, speaker, text, ttsMode]);
+
+  const handleSaveVoiceProfile = useCallback(async () => {
+    if (!canSaveVoiceProfile) return;
+
+    setSavingVoiceProfile(true);
+    setVoiceProfileError("");
+    setVoiceProfileNotice("");
+
+    try {
+      const formData = new FormData();
+      formData.append("name", voiceProfileName.trim());
+      formData.append("language", language);
+      formData.append("ref_text", refText.trim());
+      formData.append("ref_audio", refAudioFile);
+
+      const response = await fetch(`${API}/voice-profiles`, {
         method: "POST",
         body: formData,
       });
@@ -420,17 +550,19 @@ export default function DigitalHuman() {
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
-      setAudioPreview(data);
-      setTaskStatus("ready");
-      setStatusMsg("试听音频已生成，请先播放确认。");
+      const savedProfile = await response.json();
+      setVoiceProfiles((current) => [savedProfile, ...current.filter((item) => item.id !== savedProfile.id)]);
+      setVoiceProfileId(savedProfile.id);
+      setBaseVoiceSource("preset");
+      setVoiceProfileName("");
+      setVoiceProfileNotice(`已保存预设音色：${savedProfile.name}`);
+      setLanguage(savedProfile.language || language || "Chinese");
     } catch (err) {
-      setTaskStatus("failed");
-      setError(err.message);
+      setVoiceProfileError(err.message || "保存音色失败");
     } finally {
-      setPreviewing(false);
+      setSavingVoiceProfile(false);
     }
-  }, [canPreviewAudio, instruct, language, refAudioFile, refText, speaker, text, ttsMode]);
+  }, [canSaveVoiceProfile, language, refAudioFile, refText, voiceProfileName]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
@@ -440,7 +572,7 @@ export default function DigitalHuman() {
     setVideoUrl(null);
     setProgress(0);
     setTaskStatus("pending");
-    setStatusMsg("正在提交视频生成任务…");
+    setStatusMsg("正在提交视频生成任务...");
 
     try {
       const formData = new FormData();
@@ -449,11 +581,6 @@ export default function DigitalHuman() {
       if (mode === "text") {
         formData.append("mode", "preview");
         formData.append("audio_url", audioPreview.audio_url);
-        formData.append("tts_mode", ttsMode);
-        if (ttsMode === "base") {
-          formData.append("ref_audio", refAudioFile);
-          formData.append("ref_text", refText.trim());
-        }
       } else {
         formData.append("mode", "audio");
         formData.append("audio", audioFile);
@@ -512,7 +639,7 @@ export default function DigitalHuman() {
       setError(err.message);
       setGenerating(false);
     }
-  }, [audioFile, audioPreview, canGenerateVideo, imageFile, mode, refAudioFile, refText, ttsMode]);
+  }, [audioFile, audioPreview, buildBaseVoiceForm, canGenerateVideo, imageFile, mode, ttsMode]);
 
   return (
     <>
@@ -592,8 +719,7 @@ export default function DigitalHuman() {
                       className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
                       onClick={() => {
                         setTtsMode(option.value);
-                        setAudioPreview(null);
-                        if (taskStatus === "ready") setTaskStatus("idle");
+                        markAudioPreviewStale();
                       }}
                       role="tab"
                       aria-selected={ttsMode === option.value}
@@ -616,24 +742,20 @@ export default function DigitalHuman() {
                   value={text}
                   onChange={(event) => {
                     setText(event.target.value);
-                    setAudioPreview(null);
-                    if (taskStatus === "ready") setTaskStatus("idle");
+                    markAudioPreviewStale();
                   }}
                 />
               </div>
 
               {ttsMode === "customvoice" ? (
                 <div className="voice-config">
-                  <div className="tts-model-note">
-                    本地 TTS 服务由 Qwen3-TTS CustomVoice 提供
-                  </div>
+                  <div className="tts-model-note">本地 TTS 服务由 Qwen3-TTS CustomVoice 提供</div>
+
                   <div className="voice-controls-grid">
                     <div className="field">
-                      <div className="voice-header">
-                        <label className="field-label" htmlFor="speaker">
-                          音色
-                        </label>
-                      </div>
+                      <label className="field-label" htmlFor="speaker">
+                        音色
+                      </label>
                       <div className="voice-select" ref={voiceSelectRef}>
                         <button
                           id="speaker"
@@ -650,9 +772,7 @@ export default function DigitalHuman() {
                                 推荐 {selectedSpeaker?.native_language_label || "中文"}
                               </span>
                             </span>
-                            <span>
-                              {selectedSpeaker?.short_description || "选择本地模型音色"}
-                            </span>
+                            <span>{selectedSpeaker?.short_description || "选择本地模型音色"}</span>
                           </span>
                           <span className="voice-select-arrow" aria-hidden="true" />
                         </button>
@@ -669,9 +789,8 @@ export default function DigitalHuman() {
                                 onClick={() => {
                                   setSpeaker(item.id);
                                   setLanguage(item.native_language || "Chinese");
-                                  setAudioPreview(null);
+                                  markAudioPreviewStale();
                                   setVoiceMenuOpen(false);
-                                  if (taskStatus === "ready") setTaskStatus("idle");
                                 }}
                               >
                                 <span className="voice-option-main">
@@ -691,11 +810,9 @@ export default function DigitalHuman() {
                     </div>
 
                     <div className="field">
-                      <div className="voice-header">
-                        <label className="field-label" htmlFor="tts-language">
-                          语言
-                        </label>
-                      </div>
+                      <label className="field-label" htmlFor="tts-language">
+                        语言
+                      </label>
                       <div className="language-select" ref={languageSelectRef}>
                         <button
                           id="tts-language"
@@ -707,7 +824,6 @@ export default function DigitalHuman() {
                         >
                           <span className="language-trigger-label">
                             {languages.find((item) => item.id === language)?.label || language}
-                            {selectedSpeaker?.native_language === language ? "（音色推荐）" : ""}
                           </span>
                           <span className="voice-select-arrow" aria-hidden="true" />
                         </button>
@@ -723,9 +839,8 @@ export default function DigitalHuman() {
                                 aria-selected={language === item.id}
                                 onClick={() => {
                                   setLanguage(item.id);
-                                  setAudioPreview(null);
+                                  markAudioPreviewStale();
                                   setLanguageMenuOpen(false);
-                                  if (taskStatus === "ready") setTaskStatus("idle");
                                 }}
                               >
                                 <span className="language-option-main">
@@ -746,92 +861,194 @@ export default function DigitalHuman() {
                     <div className="voice-summary">
                       <div className="voice-summary-main">
                         <strong>{selectedSpeaker.display_name}</strong>
-                        <span>已选择：{selectedSpeaker.short_description || selectedSpeaker.description}</span>
+                        <span>{selectedSpeaker.short_description || selectedSpeaker.description}</span>
                       </div>
                       <div className="voice-summary-tags">
-                        <span>推荐：{selectedSpeaker.native_language_label}</span>
-                        <span>
-                          支持：{selectedSpeaker.supported_language_summary || "10 种语言"}
-                        </span>
+                        <span>推荐 {selectedSpeaker.native_language_label}</span>
+                        <span>{selectedSpeaker.supported_language_summary || "10 种语言"}</span>
                       </div>
-                      <p>
-                        支持语言包括：{selectedSpeaker.supported_language_labels || "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语"}。
-                      </p>
+                      <p>{selectedSpeaker.supported_language_labels || "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语"}</p>
                     </div>
                   )}
                 </div>
               ) : (
                 <div className="field-grid">
                   <div className="field">
-                    <label className="field-label" htmlFor="ref-audio">
-                      参考音频 *
-                    </label>
-                    <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
-                      {refAudioFile ? (
-                        <span className="upload-placeholder">
-                          <strong>{refAudioFile.name}</strong>
-                          <small>{formatFileSize(refAudioFile.size)}</small>
-                        </span>
-                      ) : (
-                        <span className="upload-placeholder">
-                          <strong>上传参考音频</strong>
-                          <small>用于 Base 语音克隆</small>
-                        </span>
-                      )}
-                      <input
-                        ref={refAudioInputRef}
-                        id="ref-audio"
-                        type="file"
-                        accept="audio/*"
-                        onChange={handleRefAudioChange}
-                      />
-                    </label>
-                    {refAudioFile && (
-                      <div className="file-row">
-                        <span>{refAudioFile.name}</span>
-                        <button type="button" className="text-button" onClick={removeRefAudio}>
-                          移除
+                    <div className="field-label">Base 音色档案</div>
+                    <div className="segmented-control" role="tablist" aria-label="Base 音色来源">
+                      {BASE_VOICE_SOURCE_OPTIONS.map((option) => (
+                        <button
+                          key={option.value}
+                          type="button"
+                          className={`segment ${baseVoiceSource === option.value ? "is-active" : ""}`}
+                          onClick={() => {
+                            setBaseVoiceSource(option.value);
+                            markAudioPreviewStale();
+                            setVoiceProfileError("");
+                            setVoiceProfileNotice("");
+                          }}
+                          role="tab"
+                          aria-selected={baseVoiceSource === option.value}
+                        >
+                          {option.label}
                         </button>
+                      ))}
+                    </div>
+
+                    {baseVoiceSource === "preset" ? (
+                      <div className="base-voice-panel">
+                        <label className="field-label" htmlFor="voice-profile-select">
+                          选择预设音色
+                        </label>
+                        <select
+                          id="voice-profile-select"
+                          className="control"
+                          value={voiceProfileId}
+                          onChange={(event) => {
+                            setVoiceProfileId(event.target.value);
+                            markAudioPreviewStale();
+                          }}
+                          disabled={voiceProfilesLoading}
+                        >
+                          <option value="">{voiceProfilesLoading ? "加载中..." : "请选择一个预设音色"}</option>
+                          {voiceProfiles.map((profile) => (
+                            <option key={profile.id} value={profile.id}>
+                              {profile.name} · {languages.find((item) => item.id === profile.language)?.label || profile.language}
+                            </option>
+                          ))}
+                        </select>
+
+                        {selectedVoiceProfile && (
+                          <div className="voice-summary">
+                            <div className="voice-summary-main">
+                              <strong>{selectedVoiceProfile.name}</strong>
+                              <span>{selectedVoiceProfile.ref_text}</span>
+                            </div>
+                            <div className="voice-summary-tags">
+                              <span>{languages.find((item) => item.id === selectedVoiceProfile.language)?.label || selectedVoiceProfile.language}</span>
+                            </div>
+                            <audio className="audio-player" src={selectedVoiceProfile.audio_url} controls />
+                          </div>
+                        )}
+
+                        {!voiceProfilesLoading && voiceProfiles.length === 0 && (
+                          <div className="audio-empty">还没有预设音色，切到“新音色”先保存一个。</div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="base-voice-panel">
+                        <label className="field-label" htmlFor="voice-profile-name">
+                          预设音色名称
+                        </label>
+                        <input
+                          id="voice-profile-name"
+                          className="control"
+                          type="text"
+                          placeholder="例如：中年中医"
+                          value={voiceProfileName}
+                          onChange={(event) => setVoiceProfileName(event.target.value)}
+                        />
+
+                        <label className="field-label" htmlFor="ref-audio">
+                          参考音频 *
+                        </label>
+                        <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
+                          {refAudioFile ? (
+                            <span className="upload-placeholder">
+                              <strong>{refAudioFile.name}</strong>
+                              <small>{formatFileSize(refAudioFile.size)}</small>
+                            </span>
+                          ) : (
+                            <span className="upload-placeholder">
+                              <strong>上传参考音频</strong>
+                              <small>用于保存新的预设音色</small>
+                            </span>
+                          )}
+                          <input
+                            ref={refAudioInputRef}
+                            id="ref-audio"
+                            type="file"
+                            accept="audio/*"
+                            onChange={handleRefAudioChange}
+                          />
+                        </label>
+                        {refAudioFile && (
+                          <div className="file-row">
+                            <span>{refAudioFile.name}</span>
+                            <button type="button" className="text-button" onClick={removeRefAudio}>
+                              移除
+                            </button>
+                          </div>
+                        )}
+                        {refAudioUrl && <audio className="audio-player" src={refAudioUrl} controls />}
+
+                        <label className="field-label" htmlFor="ref-text">
+                          参考文本 *
+                        </label>
+                        <textarea
+                          id="ref-text"
+                          className="control textarea"
+                          rows={4}
+                          placeholder="写下这段参考音频实际说的话"
+                          value={refText}
+                          onChange={(event) => {
+                            setRefText(event.target.value);
+                            markAudioPreviewStale();
+                          }}
+                        />
+
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          disabled={!canSaveVoiceProfile}
+                          onClick={handleSaveVoiceProfile}
+                        >
+                          {savingVoiceProfile ? "正在保存预设音色" : "保存为预设音色"}
+                        </button>
+
+                        {voiceProfileError && <div className="form-alert failed">{voiceProfileError}</div>}
+                        {voiceProfileNotice && <div className="form-alert completed">{voiceProfileNotice}</div>}
                       </div>
                     )}
                   </div>
 
                   <div className="field">
-                    <label className="field-label" htmlFor="ref-text">
-                      参考文本 *
+                    <label className="field-label" htmlFor="base-voice-text">
+                      口播文案
                     </label>
                     <textarea
-                      id="ref-text"
+                      id="base-voice-text"
                       className="control textarea"
                       rows={6}
-                      placeholder="参考音频里实际说的话"
-                      value={refText}
+                      placeholder="输入要合成的文本"
+                      value={text}
                       onChange={(event) => {
-                        setRefText(event.target.value);
-                        setAudioPreview(null);
+                        setText(event.target.value);
+                        markAudioPreviewStale();
                       }}
                     />
                   </div>
                 </div>
               )}
 
-              <div className="field">
-                <label className="field-label" htmlFor="voice-instruct">
-                  语气指令
-                </label>
-                <input
-                  id="voice-instruct"
-                  className="control"
-                  type="text"
-                  placeholder="例如：语速稍快，语气自信"
-                  value={instruct}
-                  onChange={(event) => {
-                    setInstruct(event.target.value);
-                    setAudioPreview(null);
-                  }}
-                  disabled={ttsMode === "base"}
-                />
-              </div>
+              {ttsMode === "customvoice" && (
+                <div className="field">
+                  <label className="field-label" htmlFor="voice-instruct">
+                    语气指令
+                  </label>
+                  <input
+                    id="voice-instruct"
+                    className="control"
+                    type="text"
+                    placeholder="例如：语速稍快，语气自信"
+                    value={instruct}
+                    onChange={(event) => {
+                      setInstruct(event.target.value);
+                      markAudioPreviewStale();
+                    }}
+                  />
+                </div>
+              )}
 
               <button
                 className="secondary-action"
@@ -856,7 +1073,7 @@ export default function DigitalHuman() {
                 ) : (
                   <span className="upload-placeholder">
                     <strong>选择音频</strong>
-                    <small>MP3、WAV 或其他常见音频格式</small>
+                    <small>MP3、WAV 或其他常见格式</small>
                   </span>
                 )}
                 <input
@@ -896,12 +1113,17 @@ export default function DigitalHuman() {
           <div>
             <span className="section-kicker">Step 1</span>
             <h3>确认口播语音</h3>
-            <p>
-              使用本地模型生成的语音会先保存在本机，确认效果后才会和人物图一起提交到 RunningHub。
-            </p>
+            <p>本地语音会先保存在当前机器上，确认效果后再与人物图一起提交给 RunningHub。</p>
           </div>
           {mode === "text" && audioPreview?.audio_url ? (
-            <audio className="audio-player" src={audioPreview.audio_url} controls />
+            <>
+              <audio className="audio-player" src={audioPreview.audio_url} controls />
+              {audioPreviewStale && (
+                <div className="form-alert failed">
+                  参数已变更，这段试听仅供参考。请重新生成试听后再生成视频。
+                </div>
+              )}
+            </>
           ) : mode === "audio" && audioLocalUrl ? (
             <audio className="audio-player" src={audioLocalUrl} controls />
           ) : (
