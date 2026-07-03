@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -215,31 +216,41 @@ def _create_speech_rate_variant(audio_path: Path, speech_rate: float) -> Path:
     variant_path = audio_path.with_name(f"preview_{rate_label}x{audio_path.suffix}")
     temp_path = audio_path.with_name(f".{variant_path.stem}.tmp{audio_path.suffix}")
 
+    if variant_path.exists():
+        return variant_path
+
+    audio = AudioSegment.from_wav(audio_path)
+
     if rate > NORMAL_SPEECH_RATE:
-        audio = AudioSegment.from_wav(audio_path)
         audio_fast = speedup(audio, playback_speed=rate, chunk_size=50, crossfade=25)
         audio_fast.export(temp_path, format="wav")
     else:
-        try:
-            subprocess.run(
-                [
-                    "ffmpeg",
-                    "-y",
-                    "-i",
-                    str(audio_path),
-                    "-filter:a",
-                    f"atempo={rate:.2f}",
-                    str(temp_path),
-                ],
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except FileNotFoundError:
-            raise HTTPException(status_code=500, detail="ffmpeg is required for speech slowdown") from None
-        except subprocess.CalledProcessError as err:
-            detail = err.stderr.strip() or err.stdout.strip() or "speech slowdown failed"
-            raise HTTPException(status_code=500, detail=detail) from None
+        ffmpeg_path = shutil.which("ffmpeg")
+        if ffmpeg_path:
+            try:
+                subprocess.run(
+                    [
+                        ffmpeg_path,
+                        "-y",
+                        "-i",
+                        str(audio_path),
+                        "-filter:a",
+                        f"atempo={rate:.2f}",
+                        str(temp_path),
+                    ],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                )
+            except subprocess.CalledProcessError as err:
+                detail = err.stderr.strip() or err.stdout.strip() or "speech slowdown failed"
+                raise HTTPException(status_code=500, detail=detail) from None
+        else:
+            slowed = audio._spawn(
+                audio.raw_data,
+                overrides={"frame_rate": max(1, int(audio.frame_rate * rate))},
+            ).set_frame_rate(audio.frame_rate)
+            slowed.export(temp_path, format="wav")
 
     temp_path.replace(variant_path)
     return variant_path
