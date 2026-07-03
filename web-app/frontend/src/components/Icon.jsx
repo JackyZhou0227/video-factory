@@ -23,6 +23,7 @@ import {
   Video,
   WandSparkles,
   Waves,
+  X,
 } from "lucide-react";
 
 function DigitalHumanIcon({ size = 16, strokeWidth: _strokeWidth, className = "", ...props }) {
@@ -71,6 +72,7 @@ const ICONS = {
   video: Video,
   wand: WandSparkles,
   waves: Waves,
+  x: X,
 };
 
 export default function Icon({ name, size = 16, strokeWidth = 1.8, className = "", ...props }) {

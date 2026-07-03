@@ -6,4 +6,5 @@ httpx>=0.28.1
 comfykit>=0.1.12
 qwen-tts>=0.1.1
 soundfile>=0.12.1
+pydub>=0.25.1
 torch>=2.0.0

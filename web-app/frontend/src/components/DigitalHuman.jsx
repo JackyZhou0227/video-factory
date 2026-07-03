@@ -13,10 +13,7 @@ const TTS_MODE_OPTIONS = [
   { value: "customvoice", label: "预置音色" },
 ];
 
-const BASE_VOICE_SOURCE_OPTIONS = [
-  { value: "preset", label: "预设音色" },
-  { value: "custom", label: "新音色" },
-];
+const SPEECH_RATE_OPTIONS = [0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5];
 
 const STEP_LABELS = {
   idle: "等待素材",
@@ -25,6 +22,15 @@ const STEP_LABELS = {
   pending: "任务排队中",
   running: "正在生成视频",
   completed: "生成完成",
+  failed: "生成失败",
+};
+
+const VIDEO_STEP_LABELS = {
+  idle: "等待素材",
+  ready: "可生成视频",
+  pending: "任务排队中",
+  running: "正在生成视频",
+  completed: "视频已生成",
   failed: "生成失败",
 };
 
@@ -154,7 +160,7 @@ export default function DigitalHuman() {
   const [languages, setLanguages] = useState(DEFAULT_LANGUAGES);
   const [language, setLanguage] = useState("Chinese");
   const [ttsMode, setTtsMode] = useState("base");
-  const [baseVoiceSource, setBaseVoiceSource] = useState("preset");
+  const [speechRate, setSpeechRate] = useState(1.0);
   const [voiceProfiles, setVoiceProfiles] = useState([]);
   const [voiceProfilesLoading, setVoiceProfilesLoading] = useState(false);
   const [voiceProfileId, setVoiceProfileId] = useState("");
@@ -166,6 +172,7 @@ export default function DigitalHuman() {
   const [refAudioFile, setRefAudioFile] = useState(null);
   const [refAudioUrl, setRefAudioUrl] = useState(null);
   const [refText, setRefText] = useState("");
+  const [voiceProfileDialogOpen, setVoiceProfileDialogOpen] = useState(false);
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
@@ -227,9 +234,6 @@ export default function DigitalHuman() {
           if (current && nextProfiles.some((item) => item.id === current)) return current;
           return nextProfiles[0]?.id || "";
         });
-        if (nextProfiles.length === 0) {
-          setBaseVoiceSource("custom");
-        }
       })
       .catch(() => {
         if (cancelled) return;
@@ -335,6 +339,21 @@ export default function DigitalHuman() {
     }
   }, [audioPreview, taskStatus]);
 
+  const updateSpeechRate = useCallback(
+    (nextRate) => {
+      setSpeechRate(nextRate);
+      markAudioPreviewStale();
+    },
+    [markAudioPreviewStale]
+  );
+
+  const handleSpeechRateChange = useCallback(
+    (event) => {
+      updateSpeechRate(Number(event.currentTarget.value));
+    },
+    [updateSpeechRate]
+  );
+
   const selectedSpeaker = useMemo(
     () => speakers.find((item) => item.id === speaker) ?? null,
     [speaker, speakers]
@@ -364,10 +383,8 @@ export default function DigitalHuman() {
         if (prev) URL.revokeObjectURL(prev);
         return URL.createObjectURL(file);
       });
-      markAudioPreviewStale();
-      resetVideoState();
     },
-    [markAudioPreviewStale, resetVideoState]
+    []
   );
 
   const removeRefAudio = useCallback(() => {
@@ -377,9 +394,7 @@ export default function DigitalHuman() {
       return null;
     });
     if (refAudioInputRef.current) refAudioInputRef.current.value = "";
-    markAudioPreviewStale();
-    resetVideoState();
-  }, [markAudioPreviewStale, resetVideoState]);
+  }, []);
 
   const handleImageChange = useCallback(
     (event) => {
@@ -434,7 +449,7 @@ export default function DigitalHuman() {
     resetVideoState();
   }, [resetVideoState]);
 
-  const basePresetReady = baseVoiceSource === "preset" ? Boolean(voiceProfileId) : Boolean(refAudioFile && refText.trim());
+  const basePresetReady = Boolean(voiceProfileId);
 
   const canPreviewAudio = Boolean(
     mode === "text" &&
@@ -448,7 +463,6 @@ export default function DigitalHuman() {
 
   const canSaveVoiceProfile = Boolean(
     ttsMode === "base" &&
-      baseVoiceSource === "custom" &&
       refAudioFile &&
       refText.trim() &&
       voiceProfileName.trim() &&
@@ -486,16 +500,36 @@ export default function DigitalHuman() {
     return "先生成并试听语音，再确认生成数字人视频。";
   }, [error, statusMsg, taskStatus]);
 
+  const videoPanelStatus = useMemo(() => {
+    if (taskStatus === "completed" && videoUrl) return "completed";
+    if (taskStatus === "pending" || taskStatus === "running") return taskStatus;
+    if (taskStatus === "failed" && hasConfirmedAudio) return "failed";
+    if (imageFile && hasConfirmedAudio) return "ready";
+    return "idle";
+  }, [hasConfirmedAudio, imageFile, taskStatus, videoUrl]);
+
+  const videoPanelMessage = useMemo(() => {
+    if (videoPanelStatus === "completed") return "视频已生成，可在右侧预览或下载。";
+    if (videoPanelStatus === "failed") return error || "视频生成失败，请检查素材后重试。";
+    if (videoPanelStatus === "pending" || videoPanelStatus === "running") return detailMessage;
+    if (imageFile && hasConfirmedAudio) return "图片和口播语音都已就绪，可以提交生成视频。";
+    if (imageFile) return "人物图片已就绪，请先在上方完成口播语音。";
+    if (hasConfirmedAudio) return "口播语音已就绪，请补充人物图片后再生成视频。";
+    return "先在上方完成图片和口播语音，底部只负责生成、预览和下载视频。";
+  }, [detailMessage, error, hasConfirmedAudio, imageFile, videoPanelStatus]);
+
+  const previewSpeechRate = Number(audioPreview?.speech_rate ?? 1.0);
+  const originalPreviewUrl = audioPreview?.original_audio_url || audioPreview?.audio_url || "";
+  const ratePreviewUrl =
+    audioPreview?.processed_audio_url ||
+    (Math.abs(previewSpeechRate - 1.0) > 0.001 ? audioPreview?.audio_url : "");
+  const hasRatePreview = Boolean(ratePreviewUrl && ratePreviewUrl !== originalPreviewUrl);
+
   const buildBaseVoiceForm = useCallback(
     (formData) => {
-      if (baseVoiceSource === "preset") {
-        formData.append("voice_profile_id", voiceProfileId);
-      } else {
-        formData.append("ref_audio", refAudioFile);
-        formData.append("ref_text", refText.trim());
-      }
+      formData.append("voice_profile_id", voiceProfileId);
     },
-    [baseVoiceSource, refAudioFile, refText, voiceProfileId]
+    [voiceProfileId]
   );
 
   const handlePreviewAudio = useCallback(async () => {
@@ -514,6 +548,7 @@ export default function DigitalHuman() {
       const formData = new FormData();
       formData.append("text", text.trim());
       formData.append("language", language);
+      formData.append("speech_rate", speechRate.toFixed(1));
       let previewEndpoint = `${API}/tts/customvoice/preview`;
 
       if (ttsMode === "customvoice") {
@@ -546,7 +581,7 @@ export default function DigitalHuman() {
     } finally {
       setPreviewing(false);
     }
-  }, [buildBaseVoiceForm, canPreviewAudio, instruct, language, speaker, text, ttsMode]);
+  }, [buildBaseVoiceForm, canPreviewAudio, instruct, language, speaker, speechRate, text, ttsMode]);
 
   const handleSaveVoiceProfile = useCallback(async () => {
     if (!canSaveVoiceProfile) return;
@@ -575,16 +610,19 @@ export default function DigitalHuman() {
       const savedProfile = await response.json();
       setVoiceProfiles((current) => [savedProfile, ...current.filter((item) => item.id !== savedProfile.id)]);
       setVoiceProfileId(savedProfile.id);
-      setBaseVoiceSource("preset");
       setVoiceProfileName("");
       setVoiceProfileNotice(`已保存预设音色：${savedProfile.name}`);
       setLanguage(savedProfile.language || language || "Chinese");
+      setVoiceProfileDialogOpen(false);
+      removeRefAudio();
+      setRefText("");
+      markAudioPreviewStale();
     } catch (err) {
       setVoiceProfileError(err.message || "保存音色失败");
     } finally {
       setSavingVoiceProfile(false);
     }
-  }, [canSaveVoiceProfile, language, refAudioFile, refText, voiceProfileName]);
+  }, [canSaveVoiceProfile, language, markAudioPreviewStale, refAudioFile, refText, removeRefAudio, voiceProfileName]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
@@ -665,11 +703,11 @@ export default function DigitalHuman() {
 
   return (
     <>
-      <section className="workspace-panel input-panel" aria-labelledby="input-title">
+      <section className="workspace-panel production-panel" aria-labelledby="production-title">
         <div className="panel-heading">
           <div>
-            <span className="section-kicker">输入</span>
-            <h2 id="input-title">素材与语音</h2>
+            <span className="section-kicker">制作</span>
+            <h2 id="production-title">素材与口播</h2>
           </div>
           <span className="required-note">先试听，再生成视频</span>
         </div>
@@ -689,292 +727,327 @@ export default function DigitalHuman() {
           ))}
         </div>
 
-        <div className="form-stack">
-          <div className="field">
-            <label className="field-label" htmlFor="character-image">
-              人物形象图片 *
-            </label>
-            <label className={`upload-dropzone ${imagePreview ? "is-filled" : ""}`}>
-              {imagePreview ? (
-                <span className="image-preview-frame">
-                  <img src={imagePreview} alt="人物形象预览" className="preview-img" />
-                </span>
-              ) : (
-                <span className="upload-placeholder">
-                  <Icon name="imageAdd" size={22} />
-                  <strong>选择图片</strong>
-                  <small>JPG、PNG 或 WebP</small>
-                </span>
+        <div className="production-grid">
+          <div className="workflow-card media-workflow">
+            <div className="control-section-heading">
+              <span>01</span>
+              <strong>人物素材</strong>
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="character-image">
+                人物形象图片 *
+              </label>
+              <label className={`upload-dropzone ${imagePreview ? "is-filled" : ""}`}>
+                {imagePreview ? (
+                  <span className="image-preview-frame">
+                    <img src={imagePreview} alt="人物形象预览" className="preview-img" />
+                  </span>
+                ) : (
+                  <span className="upload-placeholder">
+                    <Icon name="imageAdd" size={22} />
+                    <strong>选择图片</strong>
+                    <small>JPG、PNG 或 WebP</small>
+                  </span>
+                )}
+                <input
+                  ref={imageInputRef}
+                  id="character-image"
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  onChange={handleImageChange}
+                />
+              </label>
+              {imageFile && (
+                <div className="file-row">
+                  <span>{imageFile.name}</span>
+                  <button type="button" className="text-button" onClick={removeImage}>
+                    移除
+                  </button>
+                </div>
               )}
-              <input
-                ref={imageInputRef}
-                id="character-image"
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={handleImageChange}
-              />
-            </label>
-            {imageFile && (
-              <div className="file-row">
-                <span>{imageFile.name}</span>
-                <button type="button" className="text-button" onClick={removeImage}>
-                  移除
-                </button>
+            </div>
+          </div>
+
+          <div className="workflow-card script-workflow">
+            <div className="control-section-heading">
+              <span>02</span>
+              <strong>口播内容</strong>
+            </div>
+
+            <div className="field">
+              <span className="field-label">语音来源</span>
+              <div className="segmented-control" role="tablist" aria-label="语音来源">
+                {MODE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`segment ${mode === option.value ? "is-active" : ""}`}
+                    onClick={() => {
+                      setMode(option.value);
+                      resetAudioPreview();
+                    }}
+                    role="tab"
+                    aria-selected={mode === option.value}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {mode === "text" ? (
+              <>
+                <div className="field">
+                  <label className="field-label" htmlFor="script-text">
+                    口播文案 *
+                  </label>
+                  <textarea
+                    id="script-text"
+                    className="control textarea script-textarea"
+                    rows={10}
+                    placeholder="请输入口播文案内容"
+                    value={text}
+                    onChange={(event) => {
+                      setText(event.target.value);
+                      markAudioPreviewStale();
+                    }}
+                  />
+                </div>
+              </>
+            ) : (
+              <div className="workflow-note">
+                直接上传已经确认好的口播音频，后续会与人物图片一起生成数字人视频。
               </div>
             )}
           </div>
 
-          <div className="field">
-            <span className="field-label">语音来源</span>
-            <div className="segmented-control" role="tablist" aria-label="语音来源">
-              {MODE_OPTIONS.map((option) => (
-                <button
-                  key={option.value}
-                  type="button"
-                  className={`segment ${mode === option.value ? "is-active" : ""}`}
-                  onClick={() => {
-                    setMode(option.value);
-                    resetAudioPreview();
-                  }}
-                  role="tab"
-                  aria-selected={mode === option.value}
-                >
-                  {option.label}
-                </button>
-              ))}
+          <div className="workflow-card voice-workflow">
+            <div className="control-section-heading">
+              <span>03</span>
+              <strong>语音设置</strong>
             </div>
-          </div>
 
-          {mode === "text" ? (
-            <>
-              <div className="field">
-                <span className="field-label">TTS 模式</span>
-                <div className="segmented-control" role="tablist" aria-label="TTS 模式">
-                  {TTS_MODE_OPTIONS.map((option) => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
-                      onClick={() => {
-                        setTtsMode(option.value);
+            {mode === "text" ? (
+              <>
+                <div className="field">
+                  <span className="field-label">TTS 模式</span>
+                  <div className="segmented-control" role="tablist" aria-label="TTS 模式">
+                    {TTS_MODE_OPTIONS.map((option) => (
+                      <button
+                        key={option.value}
+                        type="button"
+                        className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
+                        onClick={() => {
+                          setTtsMode(option.value);
+                          markAudioPreviewStale();
+                        }}
+                        role="tab"
+                        aria-selected={ttsMode === option.value}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {ttsMode === "customvoice" ? (
+                  <div className="voice-config">
+                    <div className="tts-model-note">本地 TTS 服务由 Qwen3-TTS CustomVoice 提供</div>
+
+                    <div className="voice-controls-grid">
+                      <div className="field">
+                        <label className="field-label" htmlFor="speaker">
+                          音色
+                        </label>
+                        <div className="voice-select" ref={voiceSelectRef}>
+                          <button
+                            id="speaker"
+                            className="voice-select-trigger"
+                            type="button"
+                            aria-haspopup="listbox"
+                            aria-expanded={voiceMenuOpen}
+                            onClick={() => setVoiceMenuOpen((open) => !open)}
+                          >
+                            <span className="voice-trigger-main">
+                              <span className="voice-title-row">
+                                <strong>{selectedSpeaker?.display_name || speaker}</strong>
+                                <span className="voice-inline-meta">
+                                  推荐 {selectedSpeaker?.native_language_label || "中文"}
+                                </span>
+                              </span>
+                              <span>{selectedSpeaker?.short_description || "选择本地模型音色"}</span>
+                            </span>
+                            <span className="voice-select-arrow" aria-hidden="true" />
+                          </button>
+
+                          {voiceMenuOpen && (
+                            <div className="voice-menu" role="listbox" aria-labelledby="speaker">
+                              {speakers.map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  className={`voice-option ${speaker === item.id ? "is-selected" : ""}`}
+                                  role="option"
+                                  aria-selected={speaker === item.id}
+                                  onClick={() => {
+                                    setSpeaker(item.id);
+                                    setLanguage(item.native_language || "Chinese");
+                                    markAudioPreviewStale();
+                                    setVoiceMenuOpen(false);
+                                  }}
+                                >
+                                  <span className="voice-option-main">
+                                    <span className="voice-title-row">
+                                      <strong>{item.display_name || item.label}</strong>
+                                      <span className="voice-inline-meta">
+                                        推荐 {item.native_language_label}
+                                      </span>
+                                    </span>
+                                    <span>{item.short_description || item.description}</span>
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="field">
+                        <label className="field-label" htmlFor="tts-language">
+                          语言
+                        </label>
+                        <div className="language-select" ref={languageSelectRef}>
+                          <button
+                            id="tts-language"
+                            className="voice-select-trigger language-select-trigger"
+                            type="button"
+                            aria-haspopup="listbox"
+                            aria-expanded={languageMenuOpen}
+                            onClick={() => setLanguageMenuOpen((open) => !open)}
+                          >
+                            <span className="language-trigger-label">
+                              {languages.find((item) => item.id === language)?.label || language}
+                            </span>
+                            <span className="voice-select-arrow" aria-hidden="true" />
+                          </button>
+
+                          {languageMenuOpen && (
+                            <div className="voice-menu language-menu" role="listbox" aria-labelledby="tts-language">
+                              {languages.map((item) => (
+                                <button
+                                  key={item.id}
+                                  type="button"
+                                  className={`voice-option language-option ${language === item.id ? "is-selected" : ""}`}
+                                  role="option"
+                                  aria-selected={language === item.id}
+                                  onClick={() => {
+                                    setLanguage(item.id);
+                                    markAudioPreviewStale();
+                                    setLanguageMenuOpen(false);
+                                  }}
+                                >
+                                  <span className="language-option-main">
+                                    <strong>{item.label}</strong>
+                                    {selectedSpeaker?.native_language === item.id && (
+                                      <span className="voice-inline-meta">音色推荐</span>
+                                    )}
+                                  </span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+
+                    {selectedSpeaker && (
+                      <div className="voice-summary">
+                        <div className="voice-summary-main">
+                          <strong>{selectedSpeaker.display_name}</strong>
+                          <span>{selectedSpeaker.short_description || selectedSpeaker.description}</span>
+                        </div>
+                        <div className="voice-summary-tags">
+                          <span>推荐 {selectedSpeaker.native_language_label}</span>
+                          <span>{selectedSpeaker.supported_language_summary || "10 种语言"}</span>
+                        </div>
+                        <p>{selectedSpeaker.supported_language_labels || "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语"}</p>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="base-voice-panel">
+                    <label className="field-label" htmlFor="voice-profile-select">
+                      Base 音色档案
+                    </label>
+                    <select
+                      id="voice-profile-select"
+                      className="control"
+                      value={voiceProfileId}
+                      onChange={(event) => {
+                        if (event.target.value === "__create__") {
+                          setVoiceProfileDialogOpen(true);
+                          setVoiceProfileError("");
+                          setVoiceProfileNotice("");
+                          return;
+                        }
+                        setVoiceProfileId(event.target.value);
                         markAudioPreviewStale();
                       }}
-                      role="tab"
-                      aria-selected={ttsMode === option.value}
+                      disabled={voiceProfilesLoading}
                     >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="field">
-                <label className="field-label" htmlFor="script-text">
-                  口播文案 *
-                </label>
-                <textarea
-                  id="script-text"
-                  className="control textarea"
-                  rows={6}
-                  placeholder="请输入口播文案内容"
-                  value={text}
-                  onChange={(event) => {
-                    setText(event.target.value);
-                    markAudioPreviewStale();
-                  }}
-                />
-              </div>
-
-              {ttsMode === "customvoice" ? (
-                <div className="voice-config">
-                  <div className="tts-model-note">本地 TTS 服务由 Qwen3-TTS CustomVoice 提供</div>
-
-                  <div className="voice-controls-grid">
-                    <div className="field">
-                      <label className="field-label" htmlFor="speaker">
-                        音色
-                      </label>
-                      <div className="voice-select" ref={voiceSelectRef}>
-                        <button
-                          id="speaker"
-                          className="voice-select-trigger"
-                          type="button"
-                          aria-haspopup="listbox"
-                          aria-expanded={voiceMenuOpen}
-                          onClick={() => setVoiceMenuOpen((open) => !open)}
-                        >
-                          <span className="voice-trigger-main">
-                            <span className="voice-title-row">
-                              <strong>{selectedSpeaker?.display_name || speaker}</strong>
-                              <span className="voice-inline-meta">
-                                推荐 {selectedSpeaker?.native_language_label || "中文"}
-                              </span>
-                            </span>
-                            <span>{selectedSpeaker?.short_description || "选择本地模型音色"}</span>
-                          </span>
-                          <span className="voice-select-arrow" aria-hidden="true" />
-                        </button>
-
-                        {voiceMenuOpen && (
-                          <div className="voice-menu" role="listbox" aria-labelledby="speaker">
-                            {speakers.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                className={`voice-option ${speaker === item.id ? "is-selected" : ""}`}
-                                role="option"
-                                aria-selected={speaker === item.id}
-                                onClick={() => {
-                                  setSpeaker(item.id);
-                                  setLanguage(item.native_language || "Chinese");
-                                  markAudioPreviewStale();
-                                  setVoiceMenuOpen(false);
-                                }}
-                              >
-                                <span className="voice-option-main">
-                                  <span className="voice-title-row">
-                                    <strong>{item.display_name || item.label}</strong>
-                                    <span className="voice-inline-meta">
-                                      推荐 {item.native_language_label}
-                                    </span>
-                                  </span>
-                                  <span>{item.short_description || item.description}</span>
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="field">
-                      <label className="field-label" htmlFor="tts-language">
-                        语言
-                      </label>
-                      <div className="language-select" ref={languageSelectRef}>
-                        <button
-                          id="tts-language"
-                          className="voice-select-trigger language-select-trigger"
-                          type="button"
-                          aria-haspopup="listbox"
-                          aria-expanded={languageMenuOpen}
-                          onClick={() => setLanguageMenuOpen((open) => !open)}
-                        >
-                          <span className="language-trigger-label">
-                            {languages.find((item) => item.id === language)?.label || language}
-                          </span>
-                          <span className="voice-select-arrow" aria-hidden="true" />
-                        </button>
-
-                        {languageMenuOpen && (
-                          <div className="voice-menu language-menu" role="listbox" aria-labelledby="tts-language">
-                            {languages.map((item) => (
-                              <button
-                                key={item.id}
-                                type="button"
-                                className={`voice-option language-option ${language === item.id ? "is-selected" : ""}`}
-                                role="option"
-                                aria-selected={language === item.id}
-                                onClick={() => {
-                                  setLanguage(item.id);
-                                  markAudioPreviewStale();
-                                  setLanguageMenuOpen(false);
-                                }}
-                              >
-                                <span className="language-option-main">
-                                  <strong>{item.label}</strong>
-                                  {selectedSpeaker?.native_language === item.id && (
-                                    <span className="voice-inline-meta">音色推荐</span>
-                                  )}
-                                </span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                  {selectedSpeaker && (
-                    <div className="voice-summary">
-                      <div className="voice-summary-main">
-                        <strong>{selectedSpeaker.display_name}</strong>
-                        <span>{selectedSpeaker.short_description || selectedSpeaker.description}</span>
-                      </div>
-                      <div className="voice-summary-tags">
-                        <span>推荐 {selectedSpeaker.native_language_label}</span>
-                        <span>{selectedSpeaker.supported_language_summary || "10 种语言"}</span>
-                      </div>
-                      <p>{selectedSpeaker.supported_language_labels || "中文、英语、日语、韩语、德语、法语、俄语、葡萄牙语、西班牙语、意大利语"}</p>
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <div className="field-grid">
-                  <div className="field">
-                    <div className="field-label">Base 音色档案</div>
-                    <div className="segmented-control" role="tablist" aria-label="Base 音色来源">
-                      {BASE_VOICE_SOURCE_OPTIONS.map((option) => (
-                        <button
-                          key={option.value}
-                          type="button"
-                          className={`segment ${baseVoiceSource === option.value ? "is-active" : ""}`}
-                          onClick={() => {
-                            setBaseVoiceSource(option.value);
-                            markAudioPreviewStale();
-                            setVoiceProfileError("");
-                            setVoiceProfileNotice("");
-                          }}
-                          role="tab"
-                          aria-selected={baseVoiceSource === option.value}
-                        >
-                          {option.label}
-                        </button>
+                      <option value="">{voiceProfilesLoading ? "加载中..." : "请选择一个预设音色"}</option>
+                      {voiceProfiles.map((profile) => (
+                        <option key={profile.id} value={profile.id}>
+                          {profile.name} · {languages.find((item) => item.id === profile.language)?.label || profile.language}
+                        </option>
                       ))}
-                    </div>
+                      <option value="__create__">+ 新增音色</option>
+                    </select>
 
-                    {baseVoiceSource === "preset" ? (
-                      <div className="base-voice-panel">
-                        <label className="field-label" htmlFor="voice-profile-select">
-                          选择预设音色
-                        </label>
-                        <select
-                          id="voice-profile-select"
-                          className="control"
-                          value={voiceProfileId}
-                          onChange={(event) => {
-                            setVoiceProfileId(event.target.value);
-                            markAudioPreviewStale();
-                          }}
-                          disabled={voiceProfilesLoading}
-                        >
-                          <option value="">{voiceProfilesLoading ? "加载中..." : "请选择一个预设音色"}</option>
-                          {voiceProfiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>
-                              {profile.name} · {languages.find((item) => item.id === profile.language)?.label || profile.language}
-                            </option>
-                          ))}
-                        </select>
-
-                        {selectedVoiceProfile && (
-                          <div className="voice-summary">
-                            <div className="voice-summary-main">
-                              <strong>{selectedVoiceProfile.name}</strong>
-                              <span>{selectedVoiceProfile.ref_text}</span>
-                            </div>
-                            <div className="voice-summary-tags">
-                              <span>{languages.find((item) => item.id === selectedVoiceProfile.language)?.label || selectedVoiceProfile.language}</span>
-                            </div>
-                            <audio className="audio-player" src={selectedVoiceProfile.audio_url} controls />
-                          </div>
-                        )}
-
-                        {!voiceProfilesLoading && voiceProfiles.length === 0 && (
-                          <div className="audio-empty">还没有预设音色，切到“新音色”先保存一个。</div>
-                        )}
+                    {selectedVoiceProfile && (
+                      <div className="voice-summary">
+                        <div className="voice-summary-main">
+                          <strong>{selectedVoiceProfile.name}</strong>
+                          <span>{selectedVoiceProfile.ref_text}</span>
+                        </div>
+                        <div className="voice-summary-tags">
+                          <span>{languages.find((item) => item.id === selectedVoiceProfile.language)?.label || selectedVoiceProfile.language}</span>
+                        </div>
+                        <audio className="audio-player" src={selectedVoiceProfile.audio_url} controls />
                       </div>
-                    ) : (
-                      <div className="base-voice-panel">
+                    )}
+
+                    {!voiceProfilesLoading && voiceProfiles.length === 0 && (
+                      <div className="audio-empty">还没有预设音色，请在下拉菜单中新增一个。</div>
+                    )}
+
+                    {voiceProfileNotice && <div className="form-alert completed">{voiceProfileNotice}</div>}
+                  </div>
+                )}
+
+                {voiceProfileDialogOpen && (
+                  <div className="modal-backdrop" role="presentation">
+                    <div className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="voice-profile-dialog-title">
+                      <div className="modal-heading">
+                        <div>
+                          <span className="section-kicker">Base 音色</span>
+                          <h3 id="voice-profile-dialog-title">新增预设音色</h3>
+                        </div>
+                        <button
+                          className="icon-button"
+                          type="button"
+                          aria-label="关闭新增音色弹窗"
+                          onClick={() => {
+                            setVoiceProfileDialogOpen(false);
+                            setVoiceProfileError("");
+                          }}
+                        >
+                          <Icon name="x" size={17} />
+                        </button>
+                      </div>
+
+                      <div className="modal-body">
                         <label className="field-label" htmlFor="voice-profile-name">
                           预设音色名称
                         </label>
@@ -1031,116 +1104,176 @@ export default function DigitalHuman() {
                           rows={4}
                           placeholder="写下这段参考音频实际说的话"
                           value={refText}
-                          onChange={(event) => {
-                            setRefText(event.target.value);
-                            markAudioPreviewStale();
-                          }}
+                          onChange={(event) => setRefText(event.target.value)}
                         />
 
+                        {voiceProfileError && <div className="form-alert failed">{voiceProfileError}</div>}
+                      </div>
+
+                      <div className="modal-actions">
                         <button
                           className="secondary-action"
+                          type="button"
+                          onClick={() => {
+                            setVoiceProfileDialogOpen(false);
+                            setVoiceProfileError("");
+                          }}
+                        >
+                          取消
+                        </button>
+                        <button
+                          className="primary-action"
                           type="button"
                           disabled={!canSaveVoiceProfile}
                           onClick={handleSaveVoiceProfile}
                         >
                           <Icon name={savingVoiceProfile ? "loading" : "save"} size={16} />
-                          {savingVoiceProfile ? "正在保存预设音色" : "保存为预设音色"}
+                          {savingVoiceProfile ? "正在保存" : "保存音色"}
                         </button>
-
-                        {voiceProfileError && <div className="form-alert failed">{voiceProfileError}</div>}
-                        {voiceProfileNotice && <div className="form-alert completed">{voiceProfileNotice}</div>}
                       </div>
-                    )}
+                    </div>
                   </div>
+                )}
 
+                {ttsMode === "customvoice" && (
                   <div className="field">
-                    <label className="field-label" htmlFor="base-voice-text">
-                      口播文案
+                    <label className="field-label" htmlFor="voice-instruct">
+                      语气指令
                     </label>
-                    <textarea
-                      id="base-voice-text"
-                      className="control textarea"
-                      rows={6}
-                      placeholder="输入要合成的文本"
-                      value={text}
+                    <input
+                      id="voice-instruct"
+                      className="control"
+                      type="text"
+                      placeholder="例如：语速稍快，语气自信"
+                      value={instruct}
                       onChange={(event) => {
-                        setText(event.target.value);
+                        setInstruct(event.target.value);
                         markAudioPreviewStale();
                       }}
                     />
                   </div>
-                </div>
-              )}
+                )}
+              </>
+            ) : (
+              <div className="workflow-note">
+                直接上传音频时，不需要配置 TTS 音色。
+              </div>
+            )}
+          </div>
 
-              {ttsMode === "customvoice" && (
-                <div className="field">
-                  <label className="field-label" htmlFor="voice-instruct">
-                    语气指令
-                  </label>
+          <div className="workflow-card audio-workflow">
+            <div className="control-section-heading">
+              <span>04</span>
+              <strong>生成与试听</strong>
+            </div>
+
+            {mode === "text" ? (
+              <>
+                <div className="speed-control">
+                  <div className="speed-control-heading">
+                    <label className="field-label" htmlFor="speech-rate">
+                      语速
+                    </label>
+                    <strong>{speechRate.toFixed(1)}x</strong>
+                  </div>
                   <input
-                    id="voice-instruct"
-                    className="control"
-                    type="text"
-                    placeholder="例如：语速稍快，语气自信"
-                    value={instruct}
-                    onChange={(event) => {
-                      setInstruct(event.target.value);
-                      markAudioPreviewStale();
-                    }}
+                    id="speech-rate"
+                    className="speed-slider"
+                    type="range"
+                    min={SPEECH_RATE_OPTIONS[0]}
+                    max={SPEECH_RATE_OPTIONS[SPEECH_RATE_OPTIONS.length - 1]}
+                    step="0.1"
+                    value={speechRate}
+                    onInput={handleSpeechRateChange}
+                    onChange={handleSpeechRateChange}
                   />
                 </div>
-              )}
 
-              <button
-                className="secondary-action"
-                type="button"
-                disabled={!canPreviewAudio}
-                onClick={handlePreviewAudio}
-              >
-                <Icon name={previewing ? "loading" : "play"} size={16} />
-                {previewing ? "正在生成试听音频" : "生成试听音频"}
-              </button>
-            </>
-          ) : (
-            <div className="field">
-              <label className="field-label" htmlFor="audio-file">
-                音频文件 *
-              </label>
-              <label className={`upload-dropzone compact ${audioFile ? "is-filled" : ""}`}>
-                {audioFile ? (
-                  <span className="upload-placeholder">
-                    <Icon name="audio" size={22} />
-                    <strong>{audioFile.name}</strong>
-                    <small>{formatFileSize(audioFile.size)}</small>
-                  </span>
-                ) : (
-                  <span className="upload-placeholder">
-                    <Icon name="upload" size={22} />
-                    <strong>选择音频</strong>
-                    <small>MP3、WAV 或其他常见格式</small>
-                  </span>
-                )}
-                <input
-                  ref={audioInputRef}
-                  id="audio-file"
-                  type="file"
-                  accept="audio/*"
-                  onChange={handleAudioChange}
-                />
-              </label>
-              {audioFile && (
-                <>
-                  <div className="file-row">
-                    <span>{audioFile.name}</span>
-                    <button type="button" className="text-button" onClick={removeAudio}>
-                      移除
-                    </button>
+                <button
+                  className="secondary-action"
+                  type="button"
+                  disabled={!canPreviewAudio}
+                  onClick={handlePreviewAudio}
+                >
+                  <Icon name={previewing ? "loading" : "play"} size={16} />
+                  {previewing ? "正在生成试听音频" : "生成试听音频"}
+                </button>
+
+                <div className="audio-preview-block">
+                  <div>
+                    <span className="section-kicker with-icon">
+                      <Icon name="mic" size={13} />
+                      试听
+                    </span>
+                    <h3>确认口播语音</h3>
+                    <p>确认效果后，再与人物图一起提交给 RunningHub。</p>
                   </div>
-                  <audio className="audio-player" src={audioLocalUrl} controls />
-                </>
-              )}
-            </div>
-          )}
+                  {audioPreview?.audio_url ? (
+                    <>
+                      <div className={`audio-compare-grid ${hasRatePreview ? "has-variant" : ""}`}>
+                        <div className="audio-preview-item">
+                          <span>原始语音</span>
+                          <audio className="audio-player" src={originalPreviewUrl} controls />
+                        </div>
+                        {hasRatePreview && (
+                          <div className="audio-preview-item is-selected">
+                            <span>当前语速 {previewSpeechRate.toFixed(1)}x</span>
+                            <audio className="audio-player" src={ratePreviewUrl} controls />
+                          </div>
+                        )}
+                      </div>
+                      {audioPreviewStale && (
+                        <div className="form-alert failed">
+                          参数已变更，这段试听仅供参考。请重新生成试听后再生成视频。
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <div className="audio-empty">还没有可试听的音频</div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <div className="field">
+                <label className="field-label" htmlFor="audio-file">
+                  音频文件 *
+                </label>
+                <label className={`upload-dropzone compact ${audioFile ? "is-filled" : ""}`}>
+                  {audioFile ? (
+                    <span className="upload-placeholder">
+                      <Icon name="audio" size={22} />
+                      <strong>{audioFile.name}</strong>
+                      <small>{formatFileSize(audioFile.size)}</small>
+                    </span>
+                  ) : (
+                    <span className="upload-placeholder">
+                      <Icon name="upload" size={22} />
+                      <strong>选择音频</strong>
+                      <small>MP3、WAV 或其他常见格式</small>
+                    </span>
+                  )}
+                  <input
+                    ref={audioInputRef}
+                    id="audio-file"
+                    type="file"
+                    accept="audio/*"
+                    onChange={handleAudioChange}
+                  />
+                </label>
+                {audioFile && (
+                  <>
+                    <div className="file-row">
+                      <span>{audioFile.name}</span>
+                      <button type="button" className="text-button" onClick={removeAudio}>
+                        移除
+                      </button>
+                    </div>
+                    <audio className="audio-player" src={audioLocalUrl} controls />
+                  </>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </section>
 
@@ -1148,89 +1281,83 @@ export default function DigitalHuman() {
         <div className="panel-heading">
           <div>
             <span className="section-kicker">输出</span>
-            <h2 id="output-title">试听与生成</h2>
+            <h2 id="output-title">生成数字人视频</h2>
           </div>
-          <span className={`status-pill ${taskStatus}`}>
+          <span className={`status-pill ${videoPanelStatus}`}>
             <Icon
-              name={taskStatus === "failed" ? "alert" : taskStatus === "completed" ? "check" : ["running", "pending", "previewing"].includes(taskStatus) ? "loading" : "gauge"}
+              name={
+                videoPanelStatus === "failed"
+                  ? "alert"
+                  : videoPanelStatus === "completed"
+                    ? "check"
+                    : ["running", "pending"].includes(videoPanelStatus)
+                      ? "loading"
+                      : "gauge"
+              }
               size={14}
             />
-            {STEP_LABELS[taskStatus]}
+            {VIDEO_STEP_LABELS[videoPanelStatus]}
           </span>
         </div>
 
-        <div className="preview-card">
-          <div>
+        <div className="video-workflow">
+          <div className="video-status-card">
             <span className="section-kicker with-icon">
-              <Icon name="mic" size={13} />
-              Step 1
+              <Icon name="cloud" size={13} />
+              Video
             </span>
-            <h3>确认口播语音</h3>
-            <p>本地语音会先保存在当前机器上，确认效果后再与人物图一起提交给 RunningHub。</p>
-          </div>
-          {mode === "text" && audioPreview?.audio_url ? (
-            <>
-              <audio className="audio-player" src={audioPreview.audio_url} controls />
-              {audioPreviewStale && (
-                <div className="form-alert failed">
-                  参数已变更，这段试听仅供参考。请重新生成试听后再生成视频。
+            <h3>提交生成任务</h3>
+            <p>{videoPanelMessage}</p>
+
+            <button
+              className="primary-action"
+              type="button"
+              disabled={!canGenerateVideo}
+              onClick={handleGenerateVideo}
+            >
+              <Icon name={generating ? "loading" : "wand"} size={16} />
+              {generating ? "正在生成视频" : "生成数字人视频"}
+            </button>
+
+            {(taskStatus === "running" || taskStatus === "pending") && (
+              <div className="progress-area" aria-label="生成进度">
+                <div className="progress-meta">
+                  <span>{detailMessage}</span>
+                  <strong>{progress}%</strong>
                 </div>
-              )}
-            </>
-          ) : mode === "audio" && audioLocalUrl ? (
-            <audio className="audio-player" src={audioLocalUrl} controls />
-          ) : (
-            <div className="audio-empty">还没有可试听的音频</div>
-          )}
-        </div>
-
-        <button
-          className="primary-action"
-          type="button"
-          disabled={!canGenerateVideo}
-          onClick={handleGenerateVideo}
-        >
-          <Icon name={generating ? "loading" : "wand"} size={16} />
-          {generating ? "正在生成视频" : "确认语音，生成视频"}
-        </button>
-
-        <div className={`result-surface ${videoUrl ? "has-video" : ""}`}>
-          {taskStatus === "completed" && videoUrl ? (
-            <>
-              <video className="result-video" src={videoUrl} controls />
-              <a className="download-action" href={videoUrl} download>
-                <Icon name="download" size={16} />
-                下载视频
-              </a>
-            </>
-          ) : (
-            <div className="empty-state">
-              <div className={`state-orb ${taskStatus}`} aria-hidden="true">
-                {taskStatus === "failed" ? (
-                  <Icon name="alert" size={26} />
-                ) : taskStatus === "running" ? (
-                  `${progress}%`
-                ) : (
-                  <Icon name="video" size={28} />
-                )}
+                <div className="progress-track">
+                  <div className="progress-fill" style={{ width: `${progress}%` }} />
+                </div>
               </div>
-              <h3>{STEP_LABELS[taskStatus]}</h3>
-              <p>{detailMessage}</p>
-            </div>
-          )}
-        </div>
-
-        {(taskStatus === "running" || taskStatus === "pending") && (
-          <div className="progress-area" aria-label="生成进度">
-            <div className="progress-meta">
-              <span>{detailMessage}</span>
-              <strong>{progress}%</strong>
-            </div>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${progress}%` }} />
-            </div>
+            )}
           </div>
-        )}
+
+          <div className={`result-surface ${videoUrl ? "has-video" : ""}`}>
+            {taskStatus === "completed" && videoUrl ? (
+              <>
+                <video className="result-video" src={videoUrl} controls />
+                <a className="download-action" href={videoUrl} download>
+                  <Icon name="download" size={16} />
+                  下载视频
+                </a>
+              </>
+            ) : (
+              <div className="empty-state">
+                <div className={`state-orb ${videoPanelStatus}`} aria-hidden="true">
+                  {videoPanelStatus === "failed" ? (
+                    <Icon name="alert" size={26} />
+                  ) : videoPanelStatus === "running" || videoPanelStatus === "pending" ? (
+                    `${progress}%`
+                  ) : (
+                    <Icon name="video" size={28} />
+                  )}
+                </div>
+                <h3>{VIDEO_STEP_LABELS[videoPanelStatus]}</h3>
+                <p>{videoPanelMessage}</p>
+              </div>
+            )}
+          </div>
+        </div>
       </section>
     </>
   );

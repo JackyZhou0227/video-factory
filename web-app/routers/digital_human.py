@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -11,6 +12,10 @@ from fastapi.responses import FileResponse
 from services import tts_qwen, runninghub, voice_profiles
 
 router = APIRouter()
+
+MIN_SPEECH_RATE = 0.8
+NORMAL_SPEECH_RATE = 1.0
+MAX_SPEECH_RATE = 1.5
 
 # In-memory task store: task_id -> task state dict
 _tasks: dict[str, dict] = {}
@@ -124,7 +129,66 @@ def _new_preview_audio_path() -> tuple[str, Path, Path]:
     audio_id = uuid.uuid4().hex
     audio_dir = output_root / "tts" / audio_id
     audio_dir.mkdir(parents=True, exist_ok=True)
-    return audio_id, audio_dir, audio_dir / "preview.wav"
+    return audio_id, audio_dir, audio_dir / "preview_original.wav"
+
+
+def _normalize_speech_rate(speech_rate: float) -> float:
+    try:
+        rate = float(speech_rate)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=422, detail="speech_rate must be a number") from None
+
+    if rate < MIN_SPEECH_RATE or rate > MAX_SPEECH_RATE:
+        raise HTTPException(
+            status_code=422,
+            detail=f"speech_rate must be between {MIN_SPEECH_RATE:.1f} and {MAX_SPEECH_RATE:.1f}",
+        )
+    return round(rate, 2)
+
+
+def _create_speech_rate_variant(audio_path: Path, speech_rate: float) -> Path:
+    rate = _normalize_speech_rate(speech_rate)
+    if rate == NORMAL_SPEECH_RATE:
+        return audio_path
+
+    try:
+        from pydub import AudioSegment
+        from pydub.effects import speedup
+    except ImportError:
+        raise HTTPException(status_code=500, detail="pydub is required for speech speed adjustment") from None
+
+    rate_label = f"{rate:.1f}".replace(".", "_")
+    variant_path = audio_path.with_name(f"preview_{rate_label}x{audio_path.suffix}")
+    temp_path = audio_path.with_name(f".{variant_path.stem}.tmp{audio_path.suffix}")
+
+    if rate > NORMAL_SPEECH_RATE:
+        audio = AudioSegment.from_wav(audio_path)
+        audio_fast = speedup(audio, playback_speed=rate, chunk_size=50, crossfade=25)
+        audio_fast.export(temp_path, format="wav")
+    else:
+        try:
+            subprocess.run(
+                [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    str(audio_path),
+                    "-filter:a",
+                    f"atempo={rate:.2f}",
+                    str(temp_path),
+                ],
+                check=True,
+                capture_output=True,
+                text=True,
+            )
+        except FileNotFoundError:
+            raise HTTPException(status_code=500, detail="ffmpeg is required for speech slowdown") from None
+        except subprocess.CalledProcessError as err:
+            detail = err.stderr.strip() or err.stdout.strip() or "speech slowdown failed"
+            raise HTTPException(status_code=500, detail=detail) from None
+
+    temp_path.replace(variant_path)
+    return variant_path
 
 
 # ---------------------------------------------------------------------------
@@ -137,6 +201,7 @@ async def preview_customvoice_tts(
     speaker: str = Form("Uncle_Fu"),
     language: str = Form("Chinese"),
     instruct: Optional[str] = Form(None),
+    speech_rate: float = Form(1.0),
 ):
     """Generate preview audio with Qwen3-TTS CustomVoice."""
     if not text.strip():
@@ -157,13 +222,17 @@ async def preview_customvoice_tts(
         language=language,
         instruct=instruct.strip() if instruct and instruct.strip() else None,
     )
+    output_audio_path = _create_speech_rate_variant(audio_path, speech_rate)
 
     return {
         "audio_id": audio_id,
-        "audio_url": _public_output_url(audio_path),
+        "audio_url": _public_output_url(output_audio_path),
+        "original_audio_url": _public_output_url(audio_path),
+        "processed_audio_url": _public_output_url(output_audio_path) if output_audio_path != audio_path else None,
         "tts_mode": "customvoice",
         "speaker": speaker,
         "language": language,
+        "speech_rate": _normalize_speech_rate(speech_rate),
     }
 
 
@@ -178,6 +247,7 @@ async def preview_voice_clone_tts(
     voice_profile_id: Optional[str] = Form(None),
     ref_audio: Optional[UploadFile] = File(None),
     ref_text: Optional[str] = Form(None),
+    speech_rate: float = Form(1.0),
 ):
     """Generate preview audio with Qwen3-TTS Base voice clone."""
     if not text.strip():
@@ -206,13 +276,17 @@ async def preview_voice_clone_tts(
         ref_audio=resolved_ref_audio,
         ref_text=resolved_ref_text,
     )
+    output_audio_path = _create_speech_rate_variant(audio_path, speech_rate)
 
     return {
         "audio_id": audio_id,
-        "audio_url": _public_output_url(audio_path),
+        "audio_url": _public_output_url(output_audio_path),
+        "original_audio_url": _public_output_url(audio_path),
+        "processed_audio_url": _public_output_url(output_audio_path) if output_audio_path != audio_path else None,
         "tts_mode": "base",
         "voice_profile_id": voice_profile_id,
         "language": language,
+        "speech_rate": _normalize_speech_rate(speech_rate),
     }
 
 
