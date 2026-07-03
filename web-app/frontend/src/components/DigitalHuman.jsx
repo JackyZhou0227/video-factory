@@ -187,6 +187,7 @@ export default function DigitalHuman() {
   const [error, setError] = useState(null);
   const [audioPreviewError, setAudioPreviewError] = useState("");
   const [previewing, setPreviewing] = useState(false);
+  const [applyingSpeechRate, setApplyingSpeechRate] = useState(false);
   const [generating, setGenerating] = useState(false);
 
   const pollRef = useRef(null);
@@ -325,6 +326,7 @@ export default function DigitalHuman() {
     setAudioPreview(null);
     setAudioPreviewStale(false);
     setAudioPreviewError("");
+    setApplyingSpeechRate(false);
     setVideoUrl(null);
     setProgress(0);
     setError(null);
@@ -347,9 +349,8 @@ export default function DigitalHuman() {
   const updateSpeechRate = useCallback(
     (nextRate) => {
       setSpeechRate(nextRate);
-      markAudioPreviewStale();
     },
-    [markAudioPreviewStale]
+    []
   );
 
   const handleSpeechRateChange = useCallback(
@@ -568,7 +569,7 @@ export default function DigitalHuman() {
       const formData = new FormData();
       formData.append("text", text.trim());
       formData.append("language", language);
-      formData.append("speech_rate", speechRate.toFixed(1));
+      formData.append("speech_rate", "1.0");
       let previewEndpoint = "/api/tts/customvoice/preview";
 
       if (ttsMode === "customvoice") {
@@ -592,6 +593,7 @@ export default function DigitalHuman() {
 
       const isCurrentPreview = audioInputRevisionRef.current === requestRevision;
       setAudioPreview(data);
+      setSpeechRate(Number(data.speech_rate ?? 1.0));
       setAudioPreviewError("");
       setAudioPreviewStale(!isCurrentPreview);
       setTaskStatus(isCurrentPreview ? "ready" : "idle");
@@ -608,7 +610,52 @@ export default function DigitalHuman() {
     } finally {
       setPreviewing(false);
     }
-  }, [backendBaseUrl, buildBaseVoiceForm, canPreviewAudio, instruct, language, speaker, speechRate, text, ttsMode]);
+  }, [backendBaseUrl, buildBaseVoiceForm, canPreviewAudio, instruct, language, speaker, text, ttsMode]);
+
+  const handleApplySpeechRate = useCallback(async () => {
+    if (!audioPreview?.original_audio_url || applyingSpeechRate) return;
+
+    setApplyingSpeechRate(true);
+    setAudioPreviewError("");
+    setError(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("audio_url", audioPreview.original_audio_url);
+      formData.append("speech_rate", speechRate.toFixed(1));
+
+      const response = await apiFetch("/api/tts/preview/speech-rate", {
+        method: "POST",
+        body: formData,
+      }, backendBaseUrl);
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      if (!data?.audio_url) {
+        throw new Error("后端没有返回调速后的音频地址。");
+      }
+
+      setAudioPreview((current) => ({
+        ...current,
+        audio_url: data.audio_url,
+        processed_audio_url: data.processed_audio_url,
+        speech_rate: data.speech_rate,
+      }));
+      setAudioPreviewStale(false);
+      setTaskStatus("ready");
+      setStatusMsg("语速已应用，请播放确认。");
+    } catch (err) {
+      const message = err.message || "应用语速失败";
+      setError(message);
+      setAudioPreviewError(message);
+    } finally {
+      setApplyingSpeechRate(false);
+    }
+  }, [applyingSpeechRate, audioPreview, backendBaseUrl, speechRate]);
 
   const handleSaveVoiceProfile = useCallback(async () => {
     if (!canSaveVoiceProfile) return;
@@ -1212,26 +1259,6 @@ export default function DigitalHuman() {
 
             {mode === "text" ? (
               <>
-                <div className="speed-control">
-                  <div className="speed-control-heading">
-                    <label className="field-label" htmlFor="speech-rate">
-                      语速
-                    </label>
-                    <strong>{speechRate.toFixed(1)}x</strong>
-                  </div>
-                  <input
-                    id="speech-rate"
-                    className="speed-slider"
-                    type="range"
-                    min={SPEECH_RATE_OPTIONS[0]}
-                    max={SPEECH_RATE_OPTIONS[SPEECH_RATE_OPTIONS.length - 1]}
-                    step="0.1"
-                    value={speechRate}
-                    onInput={handleSpeechRateChange}
-                    onChange={handleSpeechRateChange}
-                  />
-                </div>
-
                 <button
                   className="secondary-action"
                   type="button"
@@ -1253,6 +1280,36 @@ export default function DigitalHuman() {
                   </div>
                   {audioPreview?.audio_url ? (
                     <>
+                      <div className="speech-rate-panel">
+                        <div className="speed-control">
+                          <div className="speed-control-heading">
+                            <label className="field-label" htmlFor="speech-rate">
+                              调整语速
+                            </label>
+                            <strong>{speechRate.toFixed(1)}x</strong>
+                          </div>
+                          <input
+                            id="speech-rate"
+                            className="speed-slider"
+                            type="range"
+                            min={SPEECH_RATE_OPTIONS[0]}
+                            max={SPEECH_RATE_OPTIONS[SPEECH_RATE_OPTIONS.length - 1]}
+                            step="0.1"
+                            value={speechRate}
+                            onInput={handleSpeechRateChange}
+                            onChange={handleSpeechRateChange}
+                          />
+                        </div>
+                        <button
+                          className="secondary-action"
+                          type="button"
+                          disabled={applyingSpeechRate || Math.abs(speechRate - previewSpeechRate) < 0.001}
+                          onClick={handleApplySpeechRate}
+                        >
+                          <Icon name={applyingSpeechRate ? "loading" : "sliders"} size={16} />
+                          {applyingSpeechRate ? "正在应用语速" : "应用语速"}
+                        </button>
+                      </div>
                       <div className={`audio-compare-grid ${hasRatePreview ? "has-variant" : ""}`}>
                         <div className="audio-preview-item">
                           <span>原始语音</span>

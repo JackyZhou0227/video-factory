@@ -245,6 +245,22 @@ def _create_speech_rate_variant(audio_path: Path, speech_rate: float) -> Path:
     return variant_path
 
 
+@router.post("/tts/preview/speech-rate")
+async def update_preview_speech_rate(
+    audio_url: str = Form(...),
+    speech_rate: float = Form(1.0),
+):
+    """Create a speech-rate variant from an existing preview audio file."""
+    audio_path = _resolve_output_file(audio_url)
+    output_audio_path = _create_speech_rate_variant(audio_path, speech_rate)
+
+    return {
+        "audio_url": _public_output_url(output_audio_path),
+        "processed_audio_url": _public_output_url(output_audio_path) if output_audio_path != audio_path else None,
+        "speech_rate": _normalize_speech_rate(speech_rate),
+    }
+
+
 # ---------------------------------------------------------------------------
 # POST /tts/customvoice/preview
 # ---------------------------------------------------------------------------

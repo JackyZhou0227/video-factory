@@ -437,6 +437,21 @@ a {
   background: var(--surface-muted);
 }
 
+.speech-rate-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 10px;
+}
+
+.speech-rate-panel .speed-control {
+  min-width: 0;
+}
+
+.speech-rate-panel .secondary-action {
+  min-height: 50px;
+}
+
 .speed-control-heading {
   display: flex;
   align-items: center;
