@@ -47,17 +47,18 @@ from routers.digital_human import router as digital_human_router
 
 app.include_router(digital_human_router, prefix="/api")
 
+
+@app.get("/api/health")
+def health():
+    return {"status": "ok"}
+
+
 app.mount("/output", StaticFiles(directory=str(output_dir)), name="output")
 
 # Mount frontend static files (must be last)
 frontend_dist = ROOT / "frontend" / "dist"
 if frontend_dist.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dist), html=True), name="frontend")
-
-
-@app.get("/api/health")
-def health():
-    return {"status": "ok"}
 
 
 # ---------------------------------------------------------------------------

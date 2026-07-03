@@ -28,9 +28,23 @@ export function normalizeBackendBaseUrl(value) {
   }
 }
 
+export function getDefaultBackendBaseUrl() {
+  if (!isBrowser()) return "";
+
+  const { hostname, port, protocol } = window.location;
+  const isLocalFrontend =
+    port === "5173" &&
+    (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]");
+
+  return isLocalFrontend ? `${protocol}//127.0.0.1:8001` : "";
+}
+
 export function getBackendBaseUrl() {
   if (!isBrowser()) return "";
-  return normalizeBackendBaseUrl(window.localStorage.getItem(BACKEND_BASE_URL_STORAGE_KEY));
+  return (
+    normalizeBackendBaseUrl(window.localStorage.getItem(BACKEND_BASE_URL_STORAGE_KEY)) ||
+    getDefaultBackendBaseUrl()
+  );
 }
 
 export function saveBackendBaseUrl(value) {
@@ -65,13 +79,29 @@ export function resolveBackendAssetUrl(path, baseUrl = getBackendBaseUrl()) {
   return buildBackendUrl(path, baseUrl);
 }
 
-export function apiFetch(path, options) {
-  return fetch(buildBackendUrl(path), options);
+export function buildApiUrl(path, baseUrl = getBackendBaseUrl()) {
+  const normalizedBaseUrl = normalizeBackendBaseUrl(baseUrl);
+  return buildBackendUrl(path, normalizedBaseUrl);
+}
+
+export async function apiFetch(path, options, baseUrl = getBackendBaseUrl()) {
+  let requestUrl = "";
+
+  try {
+    requestUrl = buildApiUrl(path, baseUrl);
+    return await fetch(requestUrl, options);
+  } catch (err) {
+    if (err?.name === "AbortError" || !requestUrl) throw err;
+
+    throw new Error(
+      `无法连接后端服务：${requestUrl}。请确认设置里的后端地址能从当前浏览器访问，且后端服务已启动。`
+    );
+  }
 }
 
 export function getBackendDisplayUrl(baseUrl = getBackendBaseUrl()) {
   if (baseUrl) return baseUrl;
-  return "当前前端同源地址";
+  return "当前页面同源地址";
 }
 
 export function useBackendBaseUrl() {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
 import {
+  apiFetch,
   getBackendDisplayUrl,
   normalizeBackendBaseUrl,
   saveBackendBaseUrl,
@@ -23,6 +24,7 @@ export default function Settings() {
   const [notice, setNotice] = useState("");
   const [backendUrlDraft, setBackendUrlDraft] = useState(backendBaseUrl);
   const [backendUrlError, setBackendUrlError] = useState("");
+  const [checkingBackendUrl, setCheckingBackendUrl] = useState(false);
   const [apiKey, setApiKey] = useState(runningHubSettings.apiKey);
   const [workflowId, setWorkflowId] = useState(runningHubSettings.workflowId);
   const [concurrentLimit, setConcurrentLimit] = useState(runningHubSettings.concurrentLimit);
@@ -56,11 +58,28 @@ export default function Settings() {
       const normalized = normalizeBackendBaseUrl(backendUrlDraft);
       const saved = saveBackendBaseUrl(normalized);
       setBackendUrlDraft(saved);
-      setNotice(saved ? `后端地址已保存：${saved}` : "已切回当前前端同源后端。");
+      setNotice(saved ? `后端地址已保存：${saved}` : "已清空后端地址，请重新配置后端服务地址。");
     } catch (err) {
       setBackendUrlError(err.message || "后端地址格式不正确");
     }
   }, [backendUrlDraft]);
+
+  const handleCheckBackendUrl = useCallback(async () => {
+    setBackendUrlError("");
+    setNotice("");
+    setCheckingBackendUrl(true);
+
+    try {
+      const normalized = normalizeBackendBaseUrl(backendUrlDraft || backendBaseUrl);
+      const response = await apiFetch("/api/health", undefined, normalized);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      setNotice(`后端连接正常：${normalized}`);
+    } catch (err) {
+      setBackendUrlError(err.message || "后端连接失败");
+    } finally {
+      setCheckingBackendUrl(false);
+    }
+  }, [backendBaseUrl, backendUrlDraft]);
 
   const handleSaveRunningHub = useCallback(() => {
     const saved = saveRunningHubSettings({
@@ -105,7 +124,7 @@ export default function Settings() {
             <Icon name="serverCog" size={18} />
             后端服务地址
           </h3>
-          <p>前端会把接口请求和生成文件预览都发送到这里。留空时使用当前前端同源地址。</p>
+          <p>前端会把接口请求和生成文件预览都发送到这里。请填写后端服务地址后再使用生成与保存功能。</p>
           <strong>{backendDisplayUrl}</strong>
         </div>
 
@@ -132,6 +151,10 @@ export default function Settings() {
             <button className="primary-action" type="button" onClick={handleSaveBackendUrl}>
               <Icon name="save" size={16} />
               保存后端地址
+            </button>
+            <button className="secondary-action" type="button" onClick={handleCheckBackendUrl} disabled={checkingBackendUrl}>
+              <Icon name={checkingBackendUrl ? "loading" : "refresh"} size={16} />
+              {checkingBackendUrl ? "检查中" : "检查连接"}
             </button>
           </div>
 

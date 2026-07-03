@@ -63,8 +63,43 @@ def _resolve_output_file(public_url: str) -> Path:
 def _tts_model_path(cfg: dict, tts_mode: str) -> str:
     tts_cfg = cfg["tts"]
     if tts_mode == "base":
-        return tts_cfg.get("base_model_path") or tts_cfg.get("model_path") or ""
+        return tts_cfg.get("base_model_path") or ""
     return tts_cfg.get("customvoice_model_path") or tts_cfg.get("model_path") or ""
+
+
+def _require_tts_model_path(cfg: dict, tts_mode: str) -> str:
+    model_path = _tts_model_path(cfg, tts_mode)
+    if model_path:
+        return model_path
+
+    if tts_mode == "base":
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "语音克隆需要配置 tts.base_model_path。当前后端只配置了 CustomVoice 模型，"
+                "请切换到“预置音色”，或配置 Qwen3-TTS Base 模型路径后重启后端。"
+            ),
+        )
+
+    raise HTTPException(
+        status_code=422,
+        detail="预置音色需要配置 tts.customvoice_model_path 或旧版 tts.model_path。",
+    )
+
+
+def _raise_tts_model_error(exc: ValueError, tts_mode: str):
+    detail = str(exc)
+    if tts_mode == "base" and "does not support generate_voice_clone" in detail:
+        detail = (
+            "当前后端加载的是 CustomVoice 模型，不支持语音克隆。"
+            "请切换到“预置音色”，或在 config.yaml 中配置 tts.base_model_path 为 Qwen3-TTS Base 模型路径后重启后端。"
+        )
+    elif tts_mode == "customvoice" and "generate_custom_voice" in detail:
+        detail = (
+            "当前后端加载的模型不支持预置音色。"
+            "请检查 config.yaml 中的 tts.customvoice_model_path 是否指向 Qwen3-TTS CustomVoice 模型。"
+        )
+    raise HTTPException(status_code=422, detail=detail) from None
 
 
 def _resolve_base_voice_inputs(
@@ -231,16 +266,19 @@ async def preview_customvoice_tts(
     cfg = _get_config()
     audio_id, _, audio_path = _new_preview_audio_path()
 
-    await tts_qwen.synthesize(
-        text=text.strip(),
-        output_path=audio_path,
-        model_path=_tts_model_path(cfg, "customvoice"),
-        device=cfg["tts"]["device"],
-        mode="customvoice",
-        speaker=speaker,
-        language=language,
-        instruct=instruct.strip() if instruct and instruct.strip() else None,
-    )
+    try:
+        await tts_qwen.synthesize(
+            text=text.strip(),
+            output_path=audio_path,
+            model_path=_require_tts_model_path(cfg, "customvoice"),
+            device=cfg["tts"]["device"],
+            mode="customvoice",
+            speaker=speaker,
+            language=language,
+            instruct=instruct.strip() if instruct and instruct.strip() else None,
+        )
+    except ValueError as exc:
+        _raise_tts_model_error(exc, "customvoice")
     output_audio_path = _create_speech_rate_variant(audio_path, speech_rate)
 
     return {
@@ -285,16 +323,19 @@ async def preview_voice_clone_tts(
         ref_audio_path.write_bytes(await ref_audio.read())
     resolved_ref_audio, resolved_ref_text = _resolve_base_voice_inputs(voice_profile_id, ref_audio_path, ref_text)
 
-    await tts_qwen.synthesize(
-        text=text.strip(),
-        output_path=audio_path,
-        model_path=_tts_model_path(cfg, "base"),
-        device=cfg["tts"]["device"],
-        mode="base",
-        language=language,
-        ref_audio=resolved_ref_audio,
-        ref_text=resolved_ref_text,
-    )
+    try:
+        await tts_qwen.synthesize(
+            text=text.strip(),
+            output_path=audio_path,
+            model_path=_require_tts_model_path(cfg, "base"),
+            device=cfg["tts"]["device"],
+            mode="base",
+            language=language,
+            ref_audio=resolved_ref_audio,
+            ref_text=resolved_ref_text,
+        )
+    except ValueError as exc:
+        _raise_tts_model_error(exc, "base")
     output_audio_path = _create_speech_rate_variant(audio_path, speech_rate)
 
     return {

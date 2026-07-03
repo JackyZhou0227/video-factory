@@ -131,8 +131,8 @@ const DEFAULT_SPEAKERS = [
   },
 ];
 
-function pollTask(taskId, signal) {
-  return apiFetch(`/api/task/${taskId}`, { signal }).then((response) => {
+function pollTask(taskId, signal, backendBaseUrl) {
+  return apiFetch(`/api/task/${taskId}`, { signal }, backendBaseUrl).then((response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
   });
@@ -161,7 +161,7 @@ export default function DigitalHuman() {
   const [speaker, setSpeaker] = useState("Uncle_Fu");
   const [languages, setLanguages] = useState(DEFAULT_LANGUAGES);
   const [language, setLanguage] = useState("Chinese");
-  const [ttsMode, setTtsMode] = useState("base");
+  const [ttsMode, setTtsMode] = useState("customvoice");
   const [speechRate, setSpeechRate] = useState(1.0);
   const [voiceProfiles, setVoiceProfiles] = useState([]);
   const [voiceProfilesLoading, setVoiceProfilesLoading] = useState(false);
@@ -185,6 +185,7 @@ export default function DigitalHuman() {
   const [statusMsg, setStatusMsg] = useState("");
   const [videoUrl, setVideoUrl] = useState(null);
   const [error, setError] = useState(null);
+  const [audioPreviewError, setAudioPreviewError] = useState("");
   const [previewing, setPreviewing] = useState(false);
   const [generating, setGenerating] = useState(false);
 
@@ -198,7 +199,7 @@ export default function DigitalHuman() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch("/api/speakers")
+    apiFetch("/api/speakers", undefined, backendBaseUrl)
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -223,7 +224,7 @@ export default function DigitalHuman() {
   useEffect(() => {
     let cancelled = false;
     setVoiceProfilesLoading(true);
-    apiFetch("/api/voice-profiles")
+    apiFetch("/api/voice-profiles", undefined, backendBaseUrl)
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -254,7 +255,7 @@ export default function DigitalHuman() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch("/api/tts/languages")
+    apiFetch("/api/tts/languages", undefined, backendBaseUrl)
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -323,6 +324,7 @@ export default function DigitalHuman() {
     audioInputRevisionRef.current += 1;
     setAudioPreview(null);
     setAudioPreviewStale(false);
+    setAudioPreviewError("");
     setVideoUrl(null);
     setProgress(0);
     setError(null);
@@ -333,6 +335,7 @@ export default function DigitalHuman() {
   const markAudioPreviewStale = useCallback(() => {
     audioInputRevisionRef.current += 1;
     setAudioPreviewStale((wasStale) => (audioPreview ? true : wasStale));
+    setAudioPreviewError("");
     setVideoUrl(null);
     setError(null);
     if (taskStatus === "ready") {
@@ -423,6 +426,7 @@ export default function DigitalHuman() {
     });
     setAudioPreview(null);
     setAudioPreviewStale(false);
+    setAudioPreviewError("");
     setTaskStatus("ready");
     setVideoUrl(null);
     setError(null);
@@ -443,6 +447,7 @@ export default function DigitalHuman() {
     setAudioFile(null);
     setAudioPreview(null);
     setAudioPreviewStale(false);
+    setAudioPreviewError("");
     setAudioLocalUrl((prev) => {
       if (prev) URL.revokeObjectURL(prev);
       return null;
@@ -532,6 +537,13 @@ export default function DigitalHuman() {
       : "");
   const hasRatePreview = Boolean(ratePreviewUrl && ratePreviewUrl !== originalPreviewUrl);
 
+  const handleAudioPreviewLoadError = useCallback(
+    (url) => {
+      setAudioPreviewError(`试听音频已生成，但浏览器无法加载音频文件：${url}`);
+    },
+    []
+  );
+
   const buildBaseVoiceForm = useCallback(
     (formData) => {
       formData.append("voice_profile_id", voiceProfileId);
@@ -546,6 +558,7 @@ export default function DigitalHuman() {
     setPreviewing(true);
     setAudioPreview(null);
     setAudioPreviewStale(false);
+    setAudioPreviewError("");
     setVideoUrl(null);
     setError(null);
     setTaskStatus("previewing");
@@ -566,15 +579,20 @@ export default function DigitalHuman() {
         buildBaseVoiceForm(formData);
       }
 
-      const response = await apiFetch(previewEndpoint, { method: "POST", body: formData });
+      const response = await apiFetch(previewEndpoint, { method: "POST", body: formData }, backendBaseUrl);
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `HTTP ${response.status}`);
       }
 
       const data = await response.json();
+      if (!data?.audio_url) {
+        throw new Error("后端没有返回试听音频地址，请检查 TTS 服务输出。");
+      }
+
       const isCurrentPreview = audioInputRevisionRef.current === requestRevision;
       setAudioPreview(data);
+      setAudioPreviewError("");
       setAudioPreviewStale(!isCurrentPreview);
       setTaskStatus(isCurrentPreview ? "ready" : "idle");
       setStatusMsg(
@@ -584,11 +602,13 @@ export default function DigitalHuman() {
       );
     } catch (err) {
       setTaskStatus("failed");
-      setError(err.message);
+      const message = err.message || "生成试听音频失败";
+      setError(message);
+      setAudioPreviewError(message);
     } finally {
       setPreviewing(false);
     }
-  }, [buildBaseVoiceForm, canPreviewAudio, instruct, language, speaker, speechRate, text, ttsMode]);
+  }, [backendBaseUrl, buildBaseVoiceForm, canPreviewAudio, instruct, language, speaker, speechRate, text, ttsMode]);
 
   const handleSaveVoiceProfile = useCallback(async () => {
     if (!canSaveVoiceProfile) return;
@@ -607,7 +627,7 @@ export default function DigitalHuman() {
       const response = await apiFetch("/api/voice-profiles", {
         method: "POST",
         body: formData,
-      });
+      }, backendBaseUrl);
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -629,7 +649,7 @@ export default function DigitalHuman() {
     } finally {
       setSavingVoiceProfile(false);
     }
-  }, [canSaveVoiceProfile, language, markAudioPreviewStale, refAudioFile, refText, removeRefAudio, voiceProfileName]);
+  }, [backendBaseUrl, canSaveVoiceProfile, language, markAudioPreviewStale, refAudioFile, refText, removeRefAudio, voiceProfileName]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
@@ -668,7 +688,7 @@ export default function DigitalHuman() {
       const response = await apiFetch("/api/generate-video", {
         method: "POST",
         body: formData,
-      });
+      }, backendBaseUrl);
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -682,7 +702,7 @@ export default function DigitalHuman() {
       const controller = new AbortController();
       const poll = async () => {
         try {
-          const data = await pollTask(taskId, controller.signal);
+          const data = await pollTask(taskId, controller.signal, backendBaseUrl);
           setProgress(data.progress ?? 0);
           setStatusMsg(data.message ?? "");
 
@@ -718,7 +738,7 @@ export default function DigitalHuman() {
       setError(err.message);
       setGenerating(false);
     }
-  }, [audioFile, audioPreview, canGenerateVideo, imageFile, mode, runningHubSettings]);
+  }, [audioFile, audioPreview, backendBaseUrl, canGenerateVideo, imageFile, mode, runningHubSettings]);
 
   return (
     <>
@@ -1236,21 +1256,42 @@ export default function DigitalHuman() {
                       <div className={`audio-compare-grid ${hasRatePreview ? "has-variant" : ""}`}>
                         <div className="audio-preview-item">
                           <span>原始语音</span>
-                          <audio className="audio-player" src={originalPreviewUrl} controls />
+                          <audio
+                            className="audio-player"
+                            src={originalPreviewUrl}
+                            controls
+                            preload="metadata"
+                            onError={() => handleAudioPreviewLoadError(originalPreviewUrl)}
+                          />
+                          <a className="audio-source-link" href={originalPreviewUrl} target="_blank" rel="noreferrer">
+                            打开音频文件
+                          </a>
                         </div>
                         {hasRatePreview && (
                           <div className="audio-preview-item is-selected">
                             <span>当前语速 {previewSpeechRate.toFixed(1)}x</span>
-                            <audio className="audio-player" src={ratePreviewUrl} controls />
+                            <audio
+                              className="audio-player"
+                              src={ratePreviewUrl}
+                              controls
+                              preload="metadata"
+                              onError={() => handleAudioPreviewLoadError(ratePreviewUrl)}
+                            />
+                            <a className="audio-source-link" href={ratePreviewUrl} target="_blank" rel="noreferrer">
+                              打开音频文件
+                            </a>
                           </div>
                         )}
                       </div>
+                      {audioPreviewError && <div className="form-alert failed">{audioPreviewError}</div>}
                       {audioPreviewStale && (
                         <div className="form-alert failed">
                           参数已变更，这段试听仅供参考。请重新生成试听后再生成视频。
                         </div>
                       )}
                     </>
+                  ) : audioPreviewError ? (
+                    <div className="form-alert failed">{audioPreviewError}</div>
                   ) : (
                     <div className="audio-empty">还没有可试听的音频</div>
                   )}

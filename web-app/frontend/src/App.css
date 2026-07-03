@@ -1157,6 +1157,14 @@ a {
   width: 100%;
 }
 
+.audio-source-link {
+  color: var(--accent-dark);
+  font-size: 12px;
+  font-weight: 720;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
