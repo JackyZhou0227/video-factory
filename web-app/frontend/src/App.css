@@ -1347,6 +1347,54 @@ a {
   margin-bottom: 22px;
 }
 
+.settings-backend-bar {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
+  gap: 24px;
+  margin-bottom: 24px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settings-backend-copy,
+.settings-backend-form {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+
+.settings-backend-copy h3 {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 720;
+}
+
+.settings-backend-copy p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.settings-backend-copy strong {
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.settings-backend-actions {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: 12px;
+}
+
 .settings-content {
   display: grid;
   grid-template-columns: minmax(280px, 0.85fr) minmax(420px, 1.15fr);
@@ -1538,6 +1586,10 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .settings-backend-bar {
+    grid-template-columns: 1fr;
+  }
+
   .result-surface {
     min-height: 360px;
   }
@@ -1610,7 +1662,8 @@ a {
   }
 
   .sidebar-nav,
-  .settings-actions {
+  .settings-actions,
+  .settings-backend-actions {
     grid-template-columns: 1fr;
   }
 

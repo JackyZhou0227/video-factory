@@ -44,10 +44,8 @@ app.add_middleware(
 # Register routers & static mounts
 # ---------------------------------------------------------------------------
 from routers.digital_human import router as digital_human_router
-from routers.settings import router as settings_router
 
 app.include_router(digital_human_router, prefix="/api")
-app.include_router(settings_router, prefix="/api")
 
 app.mount("/output", StaticFiles(directory=str(output_dir)), name="output")
 

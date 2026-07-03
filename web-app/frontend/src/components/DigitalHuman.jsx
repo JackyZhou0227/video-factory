@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Icon from "./Icon";
-
-const API = "/api";
+import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
+import { useRunningHubSettings } from "../lib/runninghubSettings";
 
 const MODE_OPTIONS = [
   { value: "text", label: "本地模型生成语音" },
@@ -132,7 +132,7 @@ const DEFAULT_SPEAKERS = [
 ];
 
 function pollTask(taskId, signal) {
-  return fetch(`${API}/task/${taskId}`, { signal }).then((response) => {
+  return apiFetch(`/api/task/${taskId}`, { signal }).then((response) => {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.json();
   });
@@ -149,6 +149,8 @@ function formatFileSize(size) {
 }
 
 export default function DigitalHuman() {
+  const backendBaseUrl = useBackendBaseUrl();
+  const runningHubSettings = useRunningHubSettings();
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [mode, setMode] = useState("text");
@@ -196,7 +198,7 @@ export default function DigitalHuman() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API}/speakers`)
+    apiFetch("/api/speakers")
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -216,12 +218,12 @@ export default function DigitalHuman() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backendBaseUrl]);
 
   useEffect(() => {
     let cancelled = false;
     setVoiceProfilesLoading(true);
-    fetch(`${API}/voice-profiles`)
+    apiFetch("/api/voice-profiles")
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -248,11 +250,11 @@ export default function DigitalHuman() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backendBaseUrl]);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API}/tts/languages`)
+    apiFetch("/api/tts/languages")
       .then((response) => {
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.json();
@@ -273,7 +275,7 @@ export default function DigitalHuman() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [backendBaseUrl]);
 
   useEffect(() => {
     return () => {
@@ -519,10 +521,15 @@ export default function DigitalHuman() {
   }, [detailMessage, error, hasConfirmedAudio, imageFile, videoPanelStatus]);
 
   const previewSpeechRate = Number(audioPreview?.speech_rate ?? 1.0);
-  const originalPreviewUrl = audioPreview?.original_audio_url || audioPreview?.audio_url || "";
+  const originalPreviewUrl = resolveBackendAssetUrl(
+    audioPreview?.original_audio_url || audioPreview?.audio_url || "",
+    backendBaseUrl
+  );
   const ratePreviewUrl =
-    audioPreview?.processed_audio_url ||
-    (Math.abs(previewSpeechRate - 1.0) > 0.001 ? audioPreview?.audio_url : "");
+    resolveBackendAssetUrl(audioPreview?.processed_audio_url || "", backendBaseUrl) ||
+    (Math.abs(previewSpeechRate - 1.0) > 0.001
+      ? resolveBackendAssetUrl(audioPreview?.audio_url || "", backendBaseUrl)
+      : "");
   const hasRatePreview = Boolean(ratePreviewUrl && ratePreviewUrl !== originalPreviewUrl);
 
   const buildBaseVoiceForm = useCallback(
@@ -549,17 +556,17 @@ export default function DigitalHuman() {
       formData.append("text", text.trim());
       formData.append("language", language);
       formData.append("speech_rate", speechRate.toFixed(1));
-      let previewEndpoint = `${API}/tts/customvoice/preview`;
+      let previewEndpoint = "/api/tts/customvoice/preview";
 
       if (ttsMode === "customvoice") {
         formData.append("speaker", speaker);
         if (instruct.trim()) formData.append("instruct", instruct.trim());
       } else {
-        previewEndpoint = `${API}/tts/voice-clone/preview`;
+        previewEndpoint = "/api/tts/voice-clone/preview";
         buildBaseVoiceForm(formData);
       }
 
-      const response = await fetch(previewEndpoint, { method: "POST", body: formData });
+      const response = await apiFetch(previewEndpoint, { method: "POST", body: formData });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || `HTTP ${response.status}`);
@@ -597,7 +604,7 @@ export default function DigitalHuman() {
       formData.append("ref_text", refText.trim());
       formData.append("ref_audio", refAudioFile);
 
-      const response = await fetch(`${API}/voice-profiles`, {
+      const response = await apiFetch("/api/voice-profiles", {
         method: "POST",
         body: formData,
       });
@@ -627,6 +634,12 @@ export default function DigitalHuman() {
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
 
+    if (!runningHubSettings.apiKey || !runningHubSettings.workflowId) {
+      setTaskStatus("failed");
+      setError("请先在设置页配置 RunningHub API Key 和工作流 ID。");
+      return;
+    }
+
     setGenerating(true);
     setError(null);
     setVideoUrl(null);
@@ -637,6 +650,12 @@ export default function DigitalHuman() {
     try {
       const formData = new FormData();
       formData.append("image", imageFile);
+      formData.append("runninghub_api_key", runningHubSettings.apiKey);
+      formData.append("runninghub_workflow_id", runningHubSettings.workflowId);
+      formData.append("runninghub_concurrent_limit", String(runningHubSettings.concurrentLimit || 1));
+      if (runningHubSettings.instanceType) {
+        formData.append("runninghub_instance_type", runningHubSettings.instanceType);
+      }
 
       if (mode === "text") {
         formData.append("mode", "preview");
@@ -646,7 +665,7 @@ export default function DigitalHuman() {
         formData.append("audio", audioFile);
       }
 
-      const response = await fetch(`${API}/generate-video`, {
+      const response = await apiFetch("/api/generate-video", {
         method: "POST",
         body: formData,
       });
@@ -699,7 +718,7 @@ export default function DigitalHuman() {
       setError(err.message);
       setGenerating(false);
     }
-  }, [audioFile, audioPreview, buildBaseVoiceForm, canGenerateVideo, imageFile, mode, ttsMode]);
+  }, [audioFile, audioPreview, canGenerateVideo, imageFile, mode, runningHubSettings]);
 
   return (
     <>
@@ -1014,7 +1033,11 @@ export default function DigitalHuman() {
                         <div className="voice-summary-tags">
                           <span>{languages.find((item) => item.id === selectedVoiceProfile.language)?.label || selectedVoiceProfile.language}</span>
                         </div>
-                        <audio className="audio-player" src={selectedVoiceProfile.audio_url} controls />
+                        <audio
+                          className="audio-player"
+                          src={resolveBackendAssetUrl(selectedVoiceProfile.audio_url, backendBaseUrl)}
+                          controls
+                        />
                       </div>
                     )}
 
@@ -1335,8 +1358,8 @@ export default function DigitalHuman() {
           <div className={`result-surface ${videoUrl ? "has-video" : ""}`}>
             {taskStatus === "completed" && videoUrl ? (
               <>
-                <video className="result-video" src={videoUrl} controls />
-                <a className="download-action" href={videoUrl} download>
+                <video className="result-video" src={resolveBackendAssetUrl(videoUrl, backendBaseUrl)} controls />
+                <a className="download-action" href={resolveBackendAssetUrl(videoUrl, backendBaseUrl)} download>
                   <Icon name="download" size={16} />
                   下载视频
                 </a>

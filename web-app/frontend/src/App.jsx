@@ -31,8 +31,8 @@ const PAGE_META = {
     eyebrow: "Settings",
     title: "系统设置",
     description:
-      "配置 RunningHub API Key，视频生成工作流会使用这里保存的云端凭据。",
-    badge: "持久化配置",
+      "配置本机浏览器的后端地址、RunningHub API Key 和数字人工作流。",
+    badge: "本机配置",
     badgeIcon: "serverCog",
   },
 };

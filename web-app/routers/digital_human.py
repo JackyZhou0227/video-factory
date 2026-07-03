@@ -80,6 +80,25 @@ def _resolve_base_voice_inputs(
     return ref_audio, ref_text
 
 
+def _resolve_runninghub_inputs(
+    api_key: Optional[str],
+    workflow_id: Optional[str],
+    instance_type: Optional[str],
+) -> tuple[str, str, Optional[str]]:
+    resolved_api_key = (api_key or "").strip()
+    resolved_workflow_id = (workflow_id or "").strip()
+    resolved_instance_type = instance_type
+    if isinstance(resolved_instance_type, str):
+        resolved_instance_type = resolved_instance_type.strip() or None
+
+    if not resolved_api_key:
+        raise HTTPException(status_code=422, detail="runninghub_api_key is required")
+    if not resolved_workflow_id:
+        raise HTTPException(status_code=422, detail="runninghub_workflow_id is required")
+
+    return resolved_api_key, resolved_workflow_id, resolved_instance_type
+
+
 # ---------------------------------------------------------------------------
 # GET /speakers
 # ---------------------------------------------------------------------------
@@ -299,6 +318,10 @@ async def generate_video(
     mode: str = Form("preview"),  # "preview" | "audio"
     audio_url: Optional[str] = Form(None),
     audio: Optional[UploadFile] = File(None),
+    runninghub_api_key: Optional[str] = Form(None),
+    runninghub_workflow_id: Optional[str] = Form(None),
+    runninghub_instance_type: Optional[str] = Form(None),
+    runninghub_concurrent_limit: int = Form(1),
 ):
     """Generate video from confirmed audio and character image."""
     if mode not in ("preview", "audio"):
@@ -307,8 +330,15 @@ async def generate_video(
         raise HTTPException(status_code=422, detail="audio_url is required in preview mode")
     if mode == "audio" and audio is None:
         raise HTTPException(status_code=422, detail="audio file is required in audio mode")
+    if runninghub_concurrent_limit < 1 or runninghub_concurrent_limit > 10:
+        raise HTTPException(status_code=422, detail="runninghub_concurrent_limit must be between 1 and 10")
 
     cfg = _get_config()
+    runninghub_api_key, runninghub_workflow_id, runninghub_instance_type = _resolve_runninghub_inputs(
+        api_key=runninghub_api_key,
+        workflow_id=runninghub_workflow_id,
+        instance_type=runninghub_instance_type,
+    )
     output_root = _output_root(cfg)
 
     task_id = uuid.uuid4().hex
@@ -338,7 +368,9 @@ async def generate_video(
             task_dir=task_dir,
             image_path=image_path,
             audio_path=audio_path,
-            cfg=cfg,
+            api_key=runninghub_api_key,
+            workflow_id=runninghub_workflow_id,
+            instance_type=runninghub_instance_type,
         )
     )
 
@@ -365,7 +397,9 @@ async def _run_video_generation(
     task_dir: Path,
     image_path: Path,
     audio_path: Path,
-    cfg: dict,
+    api_key: str,
+    workflow_id: str,
+    instance_type: Optional[str],
 ):
     def _update(status: str, progress: int, message: str):
         _tasks[task_id].update(status=status, progress=progress, message=message)
@@ -378,9 +412,9 @@ async def _run_video_generation(
             image_path=image_path,
             audio_path=audio_path,
             output_path=video_path,
-            workflow_id=cfg["workflow"]["digital_human_id"],
-            api_key=cfg["runninghub"]["api_key"],
-            instance_type=cfg["runninghub"].get("instance_type"),
+            workflow_id=workflow_id,
+            api_key=api_key,
+            instance_type=instance_type,
         )
 
         _tasks[task_id].update(

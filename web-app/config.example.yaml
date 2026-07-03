@@ -1,8 +1,3 @@
-runninghub:
-  api_key: ""
-  concurrent_limit: 1
-  instance_type: null
-
 tts:
   # CustomVoice model path:
   customvoice_model_path: ""
@@ -11,9 +6,6 @@ tts:
   device: "cpu"
   default_speaker: "Uncle_Fu"
   default_language: "Chinese"
-
-workflow:
-  digital_human_id: ""
 
 server:
   host: "0.0.0.0"

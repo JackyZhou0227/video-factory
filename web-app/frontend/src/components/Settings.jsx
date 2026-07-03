@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
-
-const API = "/api";
+import {
+  getBackendDisplayUrl,
+  normalizeBackendBaseUrl,
+  saveBackendBaseUrl,
+  useBackendBaseUrl,
+} from "../lib/backend";
+import {
+  maskApiKey,
+  saveRunningHubSettings,
+  useRunningHubSettings,
+} from "../lib/runninghubSettings";
 
 const INSTANCE_OPTIONS = [
   { value: "", label: "默认规格", hint: "使用 RunningHub 默认机器规格" },
@@ -9,107 +18,143 @@ const INSTANCE_OPTIONS = [
 ];
 
 export default function Settings() {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+  const backendBaseUrl = useBackendBaseUrl();
+  const runningHubSettings = useRunningHubSettings();
   const [notice, setNotice] = useState("");
-  const [apiKey, setApiKey] = useState("");
-  const [maskedApiKey, setMaskedApiKey] = useState("");
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
-  const [concurrentLimit, setConcurrentLimit] = useState(1);
-  const [instanceType, setInstanceType] = useState("");
+  const [backendUrlDraft, setBackendUrlDraft] = useState(backendBaseUrl);
+  const [backendUrlError, setBackendUrlError] = useState("");
+  const [apiKey, setApiKey] = useState(runningHubSettings.apiKey);
+  const [workflowId, setWorkflowId] = useState(runningHubSettings.workflowId);
+  const [concurrentLimit, setConcurrentLimit] = useState(runningHubSettings.concurrentLimit);
+  const [instanceType, setInstanceType] = useState(runningHubSettings.instanceType);
 
   const selectedInstance = useMemo(
     () => INSTANCE_OPTIONS.find((option) => option.value === instanceType) ?? INSTANCE_OPTIONS[0],
     [instanceType]
   );
-
-  const loadSettings = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const response = await fetch(`${API}/settings/runninghub`);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const data = await response.json();
-      setApiKey("");
-      setMaskedApiKey(data.masked_api_key || "");
-      setApiKeyConfigured(Boolean(data.api_key_configured));
-      setConcurrentLimit(data.concurrent_limit || 1);
-      setInstanceType(data.instance_type || "");
-    } catch (err) {
-      setError(err.message || "读取设置失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const backendDisplayUrl = useMemo(() => getBackendDisplayUrl(backendBaseUrl), [backendBaseUrl]);
+  const apiKeyConfigured = Boolean(runningHubSettings.apiKey);
+  const workflowConfigured = Boolean(runningHubSettings.workflowId);
+  const runningHubConfigured = apiKeyConfigured && workflowConfigured;
 
   useEffect(() => {
-    loadSettings();
-  }, [loadSettings]);
+    setBackendUrlDraft(backendBaseUrl);
+  }, [backendBaseUrl]);
 
-  const handleSave = useCallback(async () => {
-    setSaving(true);
-    setError("");
+  useEffect(() => {
+    setApiKey(runningHubSettings.apiKey);
+    setWorkflowId(runningHubSettings.workflowId);
+    setConcurrentLimit(runningHubSettings.concurrentLimit);
+    setInstanceType(runningHubSettings.instanceType);
+  }, [runningHubSettings]);
+
+  const handleSaveBackendUrl = useCallback(() => {
+    setBackendUrlError("");
     setNotice("");
 
     try {
-      const payload = {
-        concurrent_limit: Number(concurrentLimit),
-        instance_type: instanceType,
-      };
-      if (apiKey.trim()) payload.api_key = apiKey.trim();
-
-      const response = await fetch(`${API}/settings/runninghub`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.detail || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      setApiKey("");
-      setMaskedApiKey(data.masked_api_key || "");
-      setApiKeyConfigured(Boolean(data.api_key_configured));
-      setConcurrentLimit(data.concurrent_limit || 1);
-      setInstanceType(data.instance_type || "");
-      setNotice("RunningHub 设置已保存。后续生成视频会使用新的配置。");
+      const normalized = normalizeBackendBaseUrl(backendUrlDraft);
+      const saved = saveBackendBaseUrl(normalized);
+      setBackendUrlDraft(saved);
+      setNotice(saved ? `后端地址已保存：${saved}` : "已切回当前前端同源后端。");
     } catch (err) {
-      setError(err.message || "保存失败");
-    } finally {
-      setSaving(false);
+      setBackendUrlError(err.message || "后端地址格式不正确");
     }
-  }, [apiKey, concurrentLimit, instanceType]);
+  }, [backendUrlDraft]);
+
+  const handleSaveRunningHub = useCallback(() => {
+    const saved = saveRunningHubSettings({
+      apiKey,
+      workflowId,
+      concurrentLimit,
+      instanceType,
+    });
+
+    setApiKey(saved.apiKey);
+    setWorkflowId(saved.workflowId);
+    setConcurrentLimit(saved.concurrentLimit);
+    setInstanceType(saved.instanceType);
+    setNotice("RunningHub 设置已保存在当前浏览器。后续生成视频会随请求发送这组配置。");
+  }, [apiKey, concurrentLimit, instanceType, workflowId]);
+
+  const handleReloadRunningHub = useCallback(() => {
+    setApiKey(runningHubSettings.apiKey);
+    setWorkflowId(runningHubSettings.workflowId);
+    setConcurrentLimit(runningHubSettings.concurrentLimit);
+    setInstanceType(runningHubSettings.instanceType);
+    setNotice("已重新读取当前浏览器里的 RunningHub 设置。");
+  }, [runningHubSettings]);
 
   return (
     <section className="workspace-panel settings-panel" aria-labelledby="settings-title">
       <div className="panel-heading settings-heading">
         <div>
           <span className="section-kicker">RunningHub</span>
-          <h2 id="settings-title">云端工作流配置</h2>
+          <h2 id="settings-title">本机设置</h2>
         </div>
-        <span className={`status-pill ${apiKeyConfigured ? "completed" : "failed"}`}>
-          <Icon name={apiKeyConfigured ? "check" : "alert"} size={14} />
-          {apiKeyConfigured ? "已配置" : "未配置"}
+        <span className={`status-pill ${runningHubConfigured ? "completed" : "failed"}`}>
+          <Icon name={runningHubConfigured ? "check" : "alert"} size={14} />
+          {runningHubConfigured ? "已配置" : "未配置"}
         </span>
+      </div>
+
+      <div className="settings-backend-bar">
+        <div className="settings-backend-copy">
+          <span className="section-kicker">Backend</span>
+          <h3>
+            <Icon name="serverCog" size={18} />
+            后端服务地址
+          </h3>
+          <p>前端会把接口请求和生成文件预览都发送到这里。留空时使用当前前端同源地址。</p>
+          <strong>{backendDisplayUrl}</strong>
+        </div>
+
+        <div className="settings-backend-form">
+          <div className="field">
+            <label className="field-label" htmlFor="backend-base-url">
+              后端地址
+            </label>
+            <input
+              id="backend-base-url"
+              className="control"
+              type="text"
+              placeholder="例如 http://192.168.1.20:8001"
+              value={backendUrlDraft}
+              onChange={(event) => setBackendUrlDraft(event.target.value)}
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="settings-backend-actions">
+            <button className="secondary-action" type="button" onClick={() => setBackendUrlDraft("")}>
+              清空
+            </button>
+            <button className="primary-action" type="button" onClick={handleSaveBackendUrl}>
+              <Icon name="save" size={16} />
+              保存后端地址
+            </button>
+          </div>
+
+          {backendUrlError && <div className="form-alert failed">{backendUrlError}</div>}
+        </div>
       </div>
 
       <div className="settings-content">
         <div className="settings-copy">
           <h3>
             <Icon name="serverCog" size={18} />
-            用于生成视频的 RunningHub API Key
+            当前电脑的 RunningHub 配置
           </h3>
           <p>
-            当前数字人视频生成会调用 RunningHub 工作流。保存后，配置会写入
-            <code>config.yaml</code>，后端提交任务时会读取这里的 key。
+            这些配置只保存在当前浏览器，不写入后端 <code>config.yaml</code>。生成视频时，前端会把它们随任务一起发送给后端。
           </p>
           <div className="settings-current-key">
             <span>当前 Key</span>
-            <strong>{maskedApiKey || "尚未配置"}</strong>
+            <strong>{maskApiKey(runningHubSettings.apiKey) || "尚未配置"}</strong>
+          </div>
+          <div className="settings-current-key">
+            <span>当前工作流 ID</span>
+            <strong>{runningHubSettings.workflowId || "尚未配置"}</strong>
           </div>
         </div>
 
@@ -122,10 +167,24 @@ export default function Settings() {
               id="runninghub-api-key"
               className="control"
               type="password"
-              placeholder={apiKeyConfigured ? "留空则保持当前 Key" : "请输入 RunningHub API Key"}
+              placeholder="请输入 RunningHub API Key"
               value={apiKey}
               onChange={(event) => setApiKey(event.target.value)}
-              disabled={loading || saving}
+              autoComplete="off"
+            />
+          </div>
+
+          <div className="field">
+            <label className="field-label" htmlFor="runninghub-workflow-id">
+              RunningHub 工作流 ID
+            </label>
+            <input
+              id="runninghub-workflow-id"
+              className="control"
+              type="text"
+              placeholder="请输入数字人工作流 ID"
+              value={workflowId}
+              onChange={(event) => setWorkflowId(event.target.value)}
               autoComplete="off"
             />
           </div>
@@ -143,7 +202,6 @@ export default function Settings() {
                 max="10"
                 value={concurrentLimit}
                 onChange={(event) => setConcurrentLimit(event.target.value)}
-                disabled={loading || saving}
               />
             </div>
 
@@ -156,7 +214,6 @@ export default function Settings() {
                 className="control"
                 value={instanceType}
                 onChange={(event) => setInstanceType(event.target.value)}
-                disabled={loading || saving}
               >
                 {INSTANCE_OPTIONS.map((option) => (
                   <option key={option.value || "default"} value={option.value}>
@@ -175,27 +232,16 @@ export default function Settings() {
             <span>{selectedInstance.hint}</span>
           </div>
 
-          {error && <div className="form-alert failed">{error}</div>}
           {notice && <div className="form-alert completed">{notice}</div>}
 
           <div className="settings-actions">
-            <button
-              className="secondary-action"
-              type="button"
-              onClick={loadSettings}
-              disabled={loading || saving}
-            >
-              <Icon name={loading ? "loading" : "refresh"} size={16} />
+            <button className="secondary-action" type="button" onClick={handleReloadRunningHub}>
+              <Icon name="refresh" size={16} />
               重新读取
             </button>
-            <button
-              className="primary-action"
-              type="button"
-              onClick={handleSave}
-              disabled={loading || saving}
-            >
-              <Icon name={saving ? "loading" : "save"} size={16} />
-              {saving ? "正在保存" : "保存设置"}
+            <button className="primary-action" type="button" onClick={handleSaveRunningHub}>
+              <Icon name="save" size={16} />
+              保存设置
             </button>
           </div>
         </div>
