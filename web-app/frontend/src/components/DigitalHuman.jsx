@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import Icon from "./Icon";
 import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
-import { useRunningHubSettings } from "../lib/runninghubSettings";
 
 const MODE_OPTIONS = [
   { value: "text", label: "本地模型生成语音" },
@@ -30,9 +29,13 @@ const VIDEO_STEP_LABELS = {
   ready: "可生成视频",
   pending: "任务排队中",
   running: "正在生成视频",
+  submitted: "任务已提交",
   completed: "视频已生成",
   failed: "生成失败",
 };
+
+const RUNNINGHUB_TASKS_URL = "https://www.runninghub.cn/bill-task";
+const RUNNINGHUB_WORKS_URL = "https://www.runninghub.cn/user-center";
 
 const DEFAULT_LANGUAGES = [
   { id: "Chinese", label: "中文" },
@@ -150,7 +153,6 @@ function formatFileSize(size) {
 
 export default function DigitalHuman() {
   const backendBaseUrl = useBackendBaseUrl();
-  const runningHubSettings = useRunningHubSettings();
   const [imageFile, setImageFile] = useState(null);
   const [imagePreview, setImagePreview] = useState(null);
   const [mode, setMode] = useState("text");
@@ -184,6 +186,7 @@ export default function DigitalHuman() {
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
   const [videoUrl, setVideoUrl] = useState(null);
+  const [runningHubResult, setRunningHubResult] = useState(null);
   const [error, setError] = useState(null);
   const [audioPreviewError, setAudioPreviewError] = useState("");
   const [previewing, setPreviewing] = useState(false);
@@ -317,6 +320,7 @@ export default function DigitalHuman() {
     setProgress(0);
     setStatusMsg("");
     setVideoUrl(null);
+    setRunningHubResult(null);
     setError(null);
     setGenerating(false);
   }, []);
@@ -328,6 +332,7 @@ export default function DigitalHuman() {
     setAudioPreviewError("");
     setApplyingSpeechRate(false);
     setVideoUrl(null);
+    setRunningHubResult(null);
     setProgress(0);
     setError(null);
     setStatusMsg("");
@@ -339,6 +344,7 @@ export default function DigitalHuman() {
     setAudioPreviewStale((wasStale) => (audioPreview ? true : wasStale));
     setAudioPreviewError("");
     setVideoUrl(null);
+    setRunningHubResult(null);
     setError(null);
     if (taskStatus === "ready") {
       setTaskStatus("idle");
@@ -430,6 +436,7 @@ export default function DigitalHuman() {
     setAudioPreviewError("");
     setTaskStatus("ready");
     setVideoUrl(null);
+    setRunningHubResult(null);
     setError(null);
     setStatusMsg("上传音频已就绪，可以直接生成视频。");
   }, []);
@@ -467,7 +474,7 @@ export default function DigitalHuman() {
       (ttsMode === "customvoice" ? speaker : basePresetReady)
   );
   const hasConfirmedAudio = Boolean(mode === "text" ? audioPreview?.audio_url && !audioPreviewStale : audioFile);
-  const canGenerateVideo = Boolean(!generating && imageFile && hasConfirmedAudio);
+  const canGenerateVideo = Boolean(!generating && taskStatus !== "submitted" && imageFile && hasConfirmedAudio);
 
   const canSaveVoiceProfile = Boolean(
     ttsMode === "base" &&
@@ -492,7 +499,7 @@ export default function DigitalHuman() {
     },
     {
       label: "云端生成",
-      detail: taskStatus === "completed" ? "视频已生成" : taskStatus === "failed" ? "需要检查任务" : "RunningHub 队列",
+      detail: taskStatus === "submitted" ? "已提交 RunningHub" : taskStatus === "completed" ? "视频已生成" : taskStatus === "failed" ? "需要检查任务" : "RunningHub 队列",
       state: ["pending", "running"].includes(taskStatus) ? "running" : taskStatus,
       icon: "cloud",
     },
@@ -500,6 +507,7 @@ export default function DigitalHuman() {
 
   const detailMessage = useMemo(() => {
     if (taskStatus === "failed") return error || "任务执行失败，请检查输入后重试。";
+    if (taskStatus === "submitted") return statusMsg || "RunningHub 任务已提交成功，请到 RunningHub 查看进度和作品。";
     if (taskStatus === "completed") return "视频已生成，可预览或下载。";
     if (isReadableMessage(statusMsg)) return statusMsg;
     if (taskStatus === "previewing") return "正在调用本地 TTS 生成试听音频。";
@@ -510,6 +518,7 @@ export default function DigitalHuman() {
 
   const videoPanelStatus = useMemo(() => {
     if (taskStatus === "completed" && videoUrl) return "completed";
+    if (taskStatus === "submitted") return "submitted";
     if (taskStatus === "pending" || taskStatus === "running") return taskStatus;
     if (taskStatus === "failed" && hasConfirmedAudio) return "failed";
     if (imageFile && hasConfirmedAudio) return "ready";
@@ -518,6 +527,7 @@ export default function DigitalHuman() {
 
   const videoPanelMessage = useMemo(() => {
     if (videoPanelStatus === "completed") return "视频已生成，可在右侧预览或下载。";
+    if (videoPanelStatus === "submitted") return "任务已成功提交到 RunningHub。生成时间较长，请打开任务进度或我的作品查看结果。";
     if (videoPanelStatus === "failed") return error || "视频生成失败，请检查素材后重试。";
     if (videoPanelStatus === "pending" || videoPanelStatus === "running") return detailMessage;
     if (imageFile && hasConfirmedAudio) return "图片和口播语音都已就绪，可以提交生成视频。";
@@ -561,6 +571,7 @@ export default function DigitalHuman() {
     setAudioPreviewStale(false);
     setAudioPreviewError("");
     setVideoUrl(null);
+    setRunningHubResult(null);
     setError(null);
     setTaskStatus("previewing");
     setStatusMsg("正在生成试听音频...");
@@ -701,15 +712,10 @@ export default function DigitalHuman() {
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
 
-    if (!runningHubSettings.apiKey || !runningHubSettings.workflowId) {
-      setTaskStatus("failed");
-      setError("请先在设置页配置 RunningHub API Key 和工作流 ID。");
-      return;
-    }
-
     setGenerating(true);
     setError(null);
     setVideoUrl(null);
+    setRunningHubResult(null);
     setProgress(0);
     setTaskStatus("pending");
     setStatusMsg("正在提交视频生成任务...");
@@ -717,12 +723,6 @@ export default function DigitalHuman() {
     try {
       const formData = new FormData();
       formData.append("image", imageFile);
-      formData.append("runninghub_api_key", runningHubSettings.apiKey);
-      formData.append("runninghub_workflow_id", runningHubSettings.workflowId);
-      formData.append("runninghub_concurrent_limit", String(runningHubSettings.concurrentLimit || 1));
-      if (runningHubSettings.instanceType) {
-        formData.append("runninghub_instance_type", runningHubSettings.instanceType);
-      }
 
       if (mode === "text") {
         formData.append("mode", "preview");
@@ -744,7 +744,7 @@ export default function DigitalHuman() {
 
       const { task_id: taskId } = await response.json();
       setTaskStatus("running");
-      setStatusMsg("任务已提交，等待 RunningHub 处理。");
+      setStatusMsg("正在上传素材并创建 RunningHub 任务...");
 
       const controller = new AbortController();
       const poll = async () => {
@@ -753,9 +753,23 @@ export default function DigitalHuman() {
           setProgress(data.progress ?? 0);
           setStatusMsg(data.message ?? "");
 
+          if (data.status === "submitted") {
+            setTaskStatus("submitted");
+            setRunningHubResult({
+              taskId: data.runninghub_task_id ?? null,
+              taskUrl: data.runninghub_task_url || RUNNINGHUB_TASKS_URL,
+              worksUrl: data.runninghub_works_url || RUNNINGHUB_WORKS_URL,
+            });
+            setStatusMsg(data.message || "RunningHub 任务已提交成功。");
+            setProgress(100);
+            setGenerating(false);
+            return;
+          }
+
           if (data.status === "completed") {
             setTaskStatus("completed");
             setVideoUrl(data.video_url ?? null);
+            setRunningHubResult(null);
             setStatusMsg("生成完成");
             setProgress(100);
             setGenerating(false);
@@ -785,7 +799,7 @@ export default function DigitalHuman() {
       setError(err.message);
       setGenerating(false);
     }
-  }, [audioFile, audioPreview, backendBaseUrl, canGenerateVideo, imageFile, mode, runningHubSettings]);
+  }, [audioFile, audioPreview, backendBaseUrl, canGenerateVideo, imageFile, mode]);
 
   return (
     <>
@@ -1409,7 +1423,7 @@ export default function DigitalHuman() {
               name={
                 videoPanelStatus === "failed"
                   ? "alert"
-                  : videoPanelStatus === "completed"
+                  : videoPanelStatus === "completed" || videoPanelStatus === "submitted"
                     ? "check"
                     : ["running", "pending"].includes(videoPanelStatus)
                       ? "loading"
@@ -1437,7 +1451,7 @@ export default function DigitalHuman() {
               onClick={handleGenerateVideo}
             >
               <Icon name={generating ? "loading" : "wand"} size={16} />
-              {generating ? "正在生成视频" : "生成数字人视频"}
+              {taskStatus === "submitted" ? "任务已提交" : generating ? "正在生成视频" : "生成数字人视频"}
             </button>
 
             {(taskStatus === "running" || taskStatus === "pending") && (
@@ -1454,7 +1468,31 @@ export default function DigitalHuman() {
           </div>
 
           <div className={`result-surface ${videoUrl ? "has-video" : ""}`}>
-            {taskStatus === "completed" && videoUrl ? (
+            {taskStatus === "submitted" ? (
+              <div className="submitted-state">
+                <div className="state-orb submitted" aria-hidden="true">
+                  <Icon name="check" size={28} />
+                </div>
+                <h3>RunningHub 任务已提交</h3>
+                <p>{videoPanelMessage}</p>
+                {runningHubResult?.taskId && (
+                  <div className="runninghub-task-id">
+                    <span>任务 ID</span>
+                    <strong>{runningHubResult.taskId}</strong>
+                  </div>
+                )}
+                <div className="runninghub-link-row">
+                  <a className="download-action" href={runningHubResult?.taskUrl || RUNNINGHUB_TASKS_URL} target="_blank" rel="noreferrer">
+                    <Icon name="external" size={16} />
+                    查看任务进度
+                  </a>
+                  <a className="secondary-link-action" href={runningHubResult?.worksUrl || RUNNINGHUB_WORKS_URL} target="_blank" rel="noreferrer">
+                    <Icon name="external" size={16} />
+                    查看我的作品
+                  </a>
+                </div>
+              </div>
+            ) : taskStatus === "completed" && videoUrl ? (
               <>
                 <video className="result-video" src={resolveBackendAssetUrl(videoUrl, backendBaseUrl)} controls />
                 <a className="download-action" href={resolveBackendAssetUrl(videoUrl, backendBaseUrl)} download>

@@ -7,30 +7,37 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
+from pydantic import BaseModel, Field
 
-from services import tts_qwen, runninghub, voice_profiles
+from app.api.auth import require_current_user
+from app.core.config import ROOT, app_config
+from app.services import tts_qwen, runninghub, voice_profiles, settings_store
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_current_user)])
 
 MIN_SPEECH_RATE = 0.8
 NORMAL_SPEECH_RATE = 1.0
 MAX_SPEECH_RATE = 1.5
+RUNNINGHUB_TASKS_URL = "https://www.runninghub.cn/bill-task"
+RUNNINGHUB_WORKS_URL = "https://www.runninghub.cn/user-center"
 
 # In-memory task store: task_id -> task state dict
 _tasks: dict[str, dict] = {}
 
 
+class RunningHubSettingsUpdate(BaseModel):
+    api_key: Optional[str] = Field(default=None)
+    concurrent_limit: Optional[int] = Field(default=None, ge=1, le=10)
+    instance_type: Optional[str] = Field(default=None)
+
+
 def _get_config():
-    """Import config lazily to avoid circular imports."""
-    from main import app_config
     return app_config
 
 
 def _output_root(cfg: dict) -> Path:
-    from main import ROOT
-
     output_root = Path(cfg["server"]["output_dir"])
     if not output_root.is_absolute():
         output_root = ROOT / output_root
@@ -117,22 +124,46 @@ def _resolve_base_voice_inputs(
 
 
 def _resolve_runninghub_inputs(
+    user_id: str,
     api_key: Optional[str],
-    workflow_id: Optional[str],
     instance_type: Optional[str],
 ) -> tuple[str, str, Optional[str]]:
-    resolved_api_key = (api_key or "").strip()
-    resolved_workflow_id = (workflow_id or "").strip()
+    stored = settings_store.get_runninghub_settings(user_id)
+
+    resolved_api_key = (api_key or stored["api_key"]).strip()
+    resolved_workflow_id = settings_store.FIXED_DIGITAL_HUMAN_WORKFLOW_ID
     resolved_instance_type = instance_type
     if isinstance(resolved_instance_type, str):
         resolved_instance_type = resolved_instance_type.strip() or None
+    if resolved_instance_type is None:
+        resolved_instance_type = stored["instance_type"] or None
 
     if not resolved_api_key:
-        raise HTTPException(status_code=422, detail="runninghub_api_key is required")
-    if not resolved_workflow_id:
-        raise HTTPException(status_code=422, detail="runninghub_workflow_id is required")
+        raise HTTPException(status_code=422, detail="请先在设置页配置 RunningHub API Key")
 
     return resolved_api_key, resolved_workflow_id, resolved_instance_type
+
+
+# ---------------------------------------------------------------------------
+# GET/PUT /settings
+# ---------------------------------------------------------------------------
+
+@router.get("/settings")
+def get_settings(user: dict = Depends(require_current_user)):
+    return {
+        "runninghub": settings_store.public_runninghub_settings(user=user, user_id=user["id"]),
+    }
+
+
+@router.put("/settings/runninghub")
+def update_runninghub_settings(payload: RunningHubSettingsUpdate, user: dict = Depends(require_current_user)):
+    updated = settings_store.update_runninghub_settings(
+        user_id=user["id"],
+        api_key=payload.api_key,
+        concurrent_limit=payload.concurrent_limit,
+        instance_type=payload.instance_type,
+    )
+    return settings_store.public_runninghub_settings(updated, user=user, user_id=user["id"])
 
 
 # ---------------------------------------------------------------------------
@@ -382,12 +413,12 @@ async def preview_voice_clone_tts(
 # ---------------------------------------------------------------------------
 @router.post("/generate-video")
 async def generate_video(
+    user: dict = Depends(require_current_user),
     image: UploadFile = File(...),
     mode: str = Form("preview"),  # "preview" | "audio"
     audio_url: Optional[str] = Form(None),
     audio: Optional[UploadFile] = File(None),
     runninghub_api_key: Optional[str] = Form(None),
-    runninghub_workflow_id: Optional[str] = Form(None),
     runninghub_instance_type: Optional[str] = Form(None),
     runninghub_concurrent_limit: int = Form(1),
 ):
@@ -403,8 +434,8 @@ async def generate_video(
 
     cfg = _get_config()
     runninghub_api_key, runninghub_workflow_id, runninghub_instance_type = _resolve_runninghub_inputs(
+        user_id=user["id"],
         api_key=runninghub_api_key,
-        workflow_id=runninghub_workflow_id,
         instance_type=runninghub_instance_type,
     )
     output_root = _output_root(cfg)
@@ -423,10 +454,14 @@ async def generate_video(
         audio_path.write_bytes(await audio.read())
 
     _tasks[task_id] = {
+        "user_id": user["id"],
         "status": "pending",
         "progress": 0,
         "message": "任务已创建，等待提交 RunningHub...",
         "video_url": None,
+        "runninghub_task_id": None,
+        "runninghub_task_url": RUNNINGHUB_TASKS_URL,
+        "runninghub_works_url": RUNNINGHUB_WORKS_URL,
         "error": None,
     }
 
@@ -450,9 +485,11 @@ async def generate_video(
 # ---------------------------------------------------------------------------
 
 @router.get("/task/{task_id}")
-def get_task(task_id: str):
+def get_task(task_id: str, user: dict = Depends(require_current_user)):
     task = _tasks.get(task_id)
     if task is None:
+        raise HTTPException(status_code=404, detail="Task not found")
+    if task.get("user_id") != user["id"]:
         raise HTTPException(status_code=404, detail="Task not found")
     return task
 
@@ -475,21 +512,21 @@ async def _run_video_generation(
     try:
         _update("running", 55, "音频已确认，正在提交 RunningHub 数字人工作流...")
 
-        video_path = task_dir / "final.mp4"
-        await runninghub.generate_digital_human(
+        runninghub_task_id = await runninghub.submit_digital_human(
             image_path=image_path,
             audio_path=audio_path,
-            output_path=video_path,
             workflow_id=workflow_id,
             api_key=api_key,
             instance_type=instance_type,
         )
 
         _tasks[task_id].update(
-            status="completed",
+            status="submitted",
             progress=100,
-            message="生成完成。",
-            video_url=f"/output/{task_id}/final.mp4",
+            message="RunningHub 任务已提交成功。生成通常需要较长时间，请到 RunningHub 查看进度和作品。",
+            runninghub_task_id=runninghub_task_id,
+            runninghub_task_url=RUNNINGHUB_TASKS_URL,
+            runninghub_works_url=RUNNINGHUB_WORKS_URL,
         )
 
     except Exception as exc:

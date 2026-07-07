@@ -13,6 +13,7 @@ web-app/config.yaml
 .claude/
 
 # Runtime outputs
+web-app/data/
 web-app/output/
 
 # Frontend dependencies and build output

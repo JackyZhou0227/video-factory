@@ -13,7 +13,7 @@ _voice_lock = asyncio.Lock()
 
 
 def _root() -> Path:
-    from main import ROOT
+    from app.core.config import ROOT
 
     return ROOT
 

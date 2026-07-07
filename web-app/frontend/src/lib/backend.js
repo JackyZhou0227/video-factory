@@ -1,8 +1,5 @@
 import { useEffect, useState } from "react";
 
-export const BACKEND_BASE_URL_STORAGE_KEY = "videoFactory.backendBaseUrl";
-export const BACKEND_BASE_URL_EVENT = "video-factory-backend-base-url-change";
-
 function isBrowser() {
   return typeof window !== "undefined";
 }
@@ -41,29 +38,7 @@ export function getDefaultBackendBaseUrl() {
 
 export function getBackendBaseUrl() {
   if (!isBrowser()) return "";
-  return (
-    normalizeBackendBaseUrl(window.localStorage.getItem(BACKEND_BASE_URL_STORAGE_KEY)) ||
-    getDefaultBackendBaseUrl()
-  );
-}
-
-export function saveBackendBaseUrl(value) {
-  const normalized = normalizeBackendBaseUrl(value);
-  if (!isBrowser()) return normalized;
-
-  if (normalized) {
-    window.localStorage.setItem(BACKEND_BASE_URL_STORAGE_KEY, normalized);
-  } else {
-    window.localStorage.removeItem(BACKEND_BASE_URL_STORAGE_KEY);
-  }
-
-  window.dispatchEvent(
-    new CustomEvent(BACKEND_BASE_URL_EVENT, {
-      detail: { baseUrl: normalized },
-    })
-  );
-
-  return normalized;
+  return getDefaultBackendBaseUrl();
 }
 
 export function buildBackendUrl(path, baseUrl = getBackendBaseUrl()) {
@@ -89,12 +64,15 @@ export async function apiFetch(path, options, baseUrl = getBackendBaseUrl()) {
 
   try {
     requestUrl = buildApiUrl(path, baseUrl);
-    return await fetch(requestUrl, options);
+    return await fetch(requestUrl, {
+      credentials: "include",
+      ...(options || {}),
+    });
   } catch (err) {
     if (err?.name === "AbortError" || !requestUrl) throw err;
 
     throw new Error(
-      `无法连接后端服务：${requestUrl}。请确认设置里的后端地址能从当前浏览器访问，且后端服务已启动。`
+      `无法连接后端服务：${requestUrl}。请确认后端服务已启动，并从后端服务打开页面。`
     );
   }
 }
@@ -110,12 +88,10 @@ export function useBackendBaseUrl() {
   useEffect(() => {
     const sync = () => setBaseUrl(getBackendBaseUrl());
 
-    window.addEventListener(BACKEND_BASE_URL_EVENT, sync);
-    window.addEventListener("storage", sync);
+    window.addEventListener("focus", sync);
 
     return () => {
-      window.removeEventListener(BACKEND_BASE_URL_EVENT, sync);
-      window.removeEventListener("storage", sync);
+      window.removeEventListener("focus", sync);
     };
   }, []);
 
