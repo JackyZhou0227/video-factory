@@ -10,7 +10,7 @@ web-app/
   config.example.yaml     本地配置模板
   config.yaml             本地私有配置，已被 .gitignore 忽略
   requirements.txt        Python 后端依赖
-  start_backend.bat       Windows 单服务启动脚本
+  start_app.bat           Windows 一键启动脚本，同时提供前端页面和后端接口
   app/                    FastAPI 后端包
   data/                   SQLite 和本机运行数据，已被 .gitignore 忽略
   frontend/               React + Vite 前端
@@ -205,7 +205,7 @@ python scripts\init_admin.py --username admin --password password123 --display-n
 
 ```powershell
 cd D:\project\video-factory\web-app
-.\start_backend.bat
+.\start_app.bat
 ```
 
 访问：
@@ -214,7 +214,7 @@ cd D:\project\video-factory\web-app
 http://127.0.0.1:8001
 ```
 
-`main.py` 会在检测到 `web-app/frontend/dist` 存在时，自动把构建后的前端页面挂载到 FastAPI 根路径。也就是说部署运行只需要一个 FastAPI 服务。
+`start_app.bat` 会启动 FastAPI。FastAPI 会在检测到 `web-app/frontend/dist` 存在时，自动把构建后的前端页面挂载到根路径，同时提供 `/api` 后端接口。也就是说用户只需要运行这一个脚本，就能同时访问前端和后端。
 
 ## 更新代码
 
