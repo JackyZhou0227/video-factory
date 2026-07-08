@@ -91,7 +91,8 @@ a {
   top: 0;
   display: flex;
   flex-direction: column;
-  gap: 0;
+  justify-content: space-between;
+  gap: 18px;
   height: 100vh;
   padding: 24px 14px;
   border-right: 1px solid var(--border);
@@ -163,6 +164,98 @@ a {
   font-weight: 760;
 }
 
+.sidebar-account {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin-top: auto;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 254, 250, 0.72);
+  box-shadow: var(--shadow-tight);
+}
+
+.sidebar-account-main {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.sidebar-account-kicker {
+  color: var(--text-soft);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.sidebar-account-main strong,
+.sidebar-account-main span:not(.sidebar-account-kicker) {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sidebar-account-main strong {
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 760;
+}
+
+.sidebar-account-main span:not(.sidebar-account-kicker) {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.sidebar-account-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar-role,
+.sidebar-logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 32px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.sidebar-role {
+  min-width: 0;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text-muted);
+}
+
+.sidebar-role.admin {
+  border-color: rgba(120, 140, 93, 0.28);
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.sidebar-logout {
+  padding: 0 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background 0.16s ease,
+    color 0.16s ease;
+}
+
+.sidebar-logout:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
 .app-shell {
   width: min(1500px, calc(100% - 56px));
   margin: 0 auto;
@@ -230,28 +323,6 @@ a {
   justify-content: flex-end;
   gap: 10px;
   flex-wrap: wrap;
-}
-
-.user-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 34px;
-  max-width: 220px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface-muted);
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 650;
-}
-
-.user-chip span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .auth-shell {
@@ -1922,12 +1993,20 @@ a {
 
   .app-sidebar {
     position: static;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 260px;
+    align-items: stretch;
     height: auto;
     padding: 14px 16px;
   }
 
   .sidebar-nav {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .sidebar-account {
+    margin-top: 0;
+    box-shadow: none;
   }
 
   .app-shell {
@@ -2010,10 +2089,6 @@ a {
     width: 100%;
   }
 
-  .user-chip {
-    max-width: calc(100% - 44px);
-  }
-
   .input-panel,
   .production-panel,
   .output-panel,
@@ -2049,6 +2124,19 @@ a {
   .settings-actions,
   .settings-backend-actions {
     grid-template-columns: 1fr;
+  }
+
+  .app-sidebar {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar-account-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar-role,
+  .sidebar-logout {
+    width: 100%;
   }
 
   .panel-heading {

@@ -39,13 +39,13 @@ const PAGE_META = {
     eyebrow: "Settings",
     title: "系统设置",
     description: "配置当前用户的 RunningHub API Key，数字人工作流由系统固定。",
-    badge: "本机配置",
+    badge: "配置",
     badgeIcon: "serverCog",
   },
   users: {
     eyebrow: "Admin",
     title: "用户管理",
-    description: "查看本机账号列表，并为忘记密码的用户重置登录密码。",
+    description: "查看账号列表，并为忘记密码的用户重置登录密码。",
     badge: "管理员",
     badgeIcon: "shield",
   },
@@ -61,7 +61,7 @@ function AuthScreen({ onAuthenticated }) {
   const [error, setError] = useState("");
 
   const isRegister = mode === "register";
-  const title = isRegister ? "注册本机账号" : "登录本机账号";
+  const title = isRegister ? "注册账号" : "登录账号";
   const actionLabel = isRegister ? "注册并登录" : "登录";
 
   const handleSubmit = useCallback(
@@ -276,6 +276,26 @@ export default function App() {
             </button>
           ))}
         </nav>
+
+        <div className="sidebar-account" aria-label="当前账号">
+          <div className="sidebar-account-main">
+            <span className="sidebar-account-kicker">当前账号</span>
+            <strong title={currentUser.display_name || currentUser.username}>
+              {currentUser.display_name || currentUser.username}
+            </strong>
+            <span title={currentUser.username}>@{currentUser.username}</span>
+          </div>
+          <div className="sidebar-account-actions">
+            <span className={`sidebar-role ${currentUser.is_admin ? "admin" : ""}`}>
+              <Icon name={currentUser.is_admin ? "shield" : "user"} size={14} />
+              {currentUser.is_admin ? "管理员" : "普通账号"}
+            </span>
+            <button className="sidebar-logout" type="button" onClick={handleLogout}>
+              <Icon name="logout" size={15} />
+              退出
+            </button>
+          </div>
+        </div>
       </aside>
 
       <main className="app-shell">
@@ -290,13 +310,6 @@ export default function App() {
               <Icon name={pageMeta.badgeIcon} size={15} />
               {pageMeta.badge}
             </div>
-            <div className="user-chip">
-              <Icon name="user" size={15} />
-              <span>{currentUser.display_name || currentUser.username}</span>
-            </div>
-            <button className="icon-button" type="button" aria-label="退出登录" onClick={handleLogout}>
-              <Icon name="logout" size={17} />
-            </button>
           </div>
         </header>
 

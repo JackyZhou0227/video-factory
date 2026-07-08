@@ -12,7 +12,7 @@ const EMPTY_RUNNINGHUB_SETTINGS = {
   user: {
     id: "local-default",
     username: "local",
-    display_name: "本机用户",
+    display_name: "用户",
   },
   api_key_configured: false,
   api_key_masked: "",
@@ -105,7 +105,7 @@ export default function Settings() {
       setApiKey("");
       setConcurrentLimit(runninghub.concurrent_limit || 1);
       setInstanceType(runninghub.instance_type || "");
-      setNotice("RunningHub 设置已保存到本机 SQLite 数据库。");
+      setNotice("RunningHub 设置已保存。");
     } catch (err) {
       setSettingsError(err.message || "保存设置失败");
     } finally {
@@ -122,7 +122,7 @@ export default function Settings() {
       <div className="panel-heading settings-heading">
         <div>
           <span className="section-kicker">RunningHub</span>
-          <h2 id="settings-title">本机设置</h2>
+          <h2 id="settings-title">设置</h2>
         </div>
         <span className={`status-pill ${runningHubConfigured ? "completed" : "failed"}`}>
           <Icon name={runningHubConfigured ? "check" : "alert"} size={14} />
@@ -137,12 +137,12 @@ export default function Settings() {
             当前用户的 RunningHub 配置
           </h3>
           <p>
-            这些配置按用户保存在后端本机的 <code>data/video_factory.db</code>，刷新页面、换浏览器或客户重启服务后都会保留。
+            这些配置按用户保存在 <code>data/video_factory.db</code>，刷新页面、换浏览器或客户重启服务后都会保留。
             前端和后端同机部署，接口会自动连接到 <code>{backendDisplayUrl}</code>。
           </p>
           <div className="settings-current-key">
             <span>当前用户</span>
-            <strong>{storedSettings.user?.display_name || "本机用户"} · {storedSettings.user?.id || "local-default"}</strong>
+            <strong>{storedSettings.user?.display_name || "用户"} · {storedSettings.user?.id || "local-default"}</strong>
           </div>
           <div className="settings-current-key">
             <span>当前 Key</span>
@@ -213,7 +213,7 @@ export default function Settings() {
             <span>{selectedInstance.hint}</span>
           </div>
 
-          {loadingSettings && <div className="form-alert completed">正在读取本机设置...</div>}
+          {loadingSettings && <div className="form-alert completed">正在读取设置...</div>}
           {notice && <div className="form-alert completed">{notice}</div>}
           {settingsError && <div className="form-alert failed">{settingsError}</div>}
 

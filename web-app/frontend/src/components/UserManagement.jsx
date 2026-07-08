@@ -156,7 +156,7 @@ export default function UserManagement({ currentUser }) {
         <div className="settings-copy admin-copy">
           <h3>
             <Icon name="user" size={18} />
-            本机账号
+            账号
           </h3>
           <p>
             忘记密码时，由管理员在这里给用户设置一个新密码。系统不会读取或展示原密码，重置后会让该用户现有登录失效。
