@@ -33,7 +33,7 @@ export function getDefaultBackendBaseUrl() {
     port === "5173" &&
     (hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]");
 
-  return isLocalFrontend ? `${protocol}//127.0.0.1:8001` : "";
+  return isLocalFrontend ? `${protocol}//127.0.0.1:18888` : "";
 }
 
 export function getBackendBaseUrl() {

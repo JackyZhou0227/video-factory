@@ -163,7 +163,7 @@ export default function DigitalHuman() {
   const [speaker, setSpeaker] = useState("Uncle_Fu");
   const [languages, setLanguages] = useState(DEFAULT_LANGUAGES);
   const [language, setLanguage] = useState("Chinese");
-  const [ttsMode, setTtsMode] = useState("customvoice");
+  const [ttsMode, setTtsMode] = useState("base");
   const [speechRate, setSpeechRate] = useState(1.0);
   const [voiceProfiles, setVoiceProfiles] = useState([]);
   const [voiceProfilesLoading, setVoiceProfilesLoading] = useState(false);

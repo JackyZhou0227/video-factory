@@ -162,7 +162,7 @@ tts:
 
 server:
   host: "0.0.0.0"
-  port: 8001
+  port: 18888
   output_dir: "output"
 ```
 
@@ -211,7 +211,7 @@ cd D:\project\video-factory\web-app
 访问：
 
 ```text
-http://127.0.0.1:8001
+http://127.0.0.1:18888
 ```
 
 `start_app.bat` 会启动 FastAPI。FastAPI 会在检测到 `web-app/frontend/dist` 存在时，自动把构建后的前端页面挂载到根路径，同时提供 `/api` 后端接口。也就是说用户只需要运行这一个脚本，就能同时访问前端和后端。
@@ -245,19 +245,19 @@ pip install -r requirements.txt
 检查后端是否正常：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8001/api/health
+Invoke-RestMethod http://127.0.0.1:18888/api/health
 ```
 
 检查音色接口：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8001/api/speakers
+Invoke-RestMethod http://127.0.0.1:18888/api/speakers
 ```
 
 检查语言接口：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8001/api/tts/languages
+Invoke-RestMethod http://127.0.0.1:18888/api/tts/languages
 ```
 
 检查 PyTorch 是否能看到 NVIDIA GPU：

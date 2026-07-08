@@ -3,7 +3,7 @@ setlocal
 chcp 65001 >nul 2>&1
 
 set "APP_DIR=%~dp0"
-set "APP_PORT=8001"
+set "APP_PORT=18888"
 set "FRONTEND_DIST=%APP_DIR%frontend\dist"
 
 echo ==============================================

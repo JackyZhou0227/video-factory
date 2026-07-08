@@ -13,6 +13,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host=cfg.get("host", "0.0.0.0"),
-        port=cfg.get("port", 8001),
+        port=cfg.get("port", 18888),
         reload=True,
     )
