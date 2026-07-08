@@ -10,9 +10,9 @@ web-app/
   config.example.yaml     本地配置模板
   config.yaml             本地私有配置，已被 .gitignore 忽略
   requirements.txt        Python 后端依赖
-  start_dev.bat           Windows 开发模式一键启动脚本
-  routers/                API 路由
-  services/               RunningHub 和本地 TTS 集成
+  start_backend.bat       Windows 单服务启动脚本
+  app/                    FastAPI 后端包
+  data/                   SQLite 和本机运行数据，已被 .gitignore 忽略
   frontend/               React + Vite 前端
 ```
 
@@ -22,11 +22,11 @@ web-app/
 
 - Git
 - Anaconda 或 Miniconda
-- Node.js / npm
 - NVIDIA 显卡驱动
 - RunningHub API Key
-- RunningHub 数字人工作流 ID
 - Hugging Face 上的 Qwen3-TTS 模型文件
+
+客户运行时不需要 Node.js / npm；只有开发或重新构建前端时才需要。
 
 建议使用 Python 3.10 或 3.11。Python 3.13 可能会遇到部分机器学习依赖没有预编译包的问题。
 
@@ -70,11 +70,12 @@ pip install -r requirements.txt
 conda install -c conda-forge libsndfile -y
 ```
 
-## 安装前端依赖
+## 构建前端
 
 ```powershell
 cd D:\project\video-factory\web-app\frontend
 npm install
+npm run build
 ```
 
 ## 下载 Hugging Face 模型
@@ -183,57 +184,37 @@ Base 模式在页面里会让你上传：
 
 `web-app/config.yaml` 包含本机模型路径等私有配置，已经被 `.gitignore` 忽略，不要提交到 Git。
 
-## 配置前端本机设置
+## 初始化管理员账号
 
-RunningHub API Key、数字人工作流 ID、机器规格和前端连接的后端地址都在页面“设置”里配置。
-
-这些设置保存在当前浏览器的 `localStorage`，不会写入后端 `config.yaml`。因此不同电脑打开同一个前端时，可以分别配置自己的 RunningHub Key、工作流 ID 和后端地址。
-
-## 开发模式启动
-
-开发模式会同时启动后端和前端：
+首次部署时可以先创建一个本机管理员账号：
 
 ```powershell
 cd D:\project\video-factory\web-app
-.\start_dev.bat
+python scripts\init_admin.py --username admin --password password123 --display-name 管理员
 ```
 
-脚本会打开两个窗口：
+如果不传 `--password`，脚本会自动生成一个随机密码并打印出来。用户表已有账号时，脚本不会覆盖已有数据。
 
-- Backend: `http://127.0.0.1:8001`
-- Frontend: `http://localhost:5173`
+## 本机设置
 
-开发时访问：
+登录后在页面“设置”里配置当前用户的 RunningHub API Key、并发限制和机器规格。
 
-```text
-http://localhost:5173
-```
+这些设置按用户保存在后端本机 SQLite：`web-app/data/video_factory.db`。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。
 
-前端开发服务不会代理接口；请在页面“设置”里填写后端地址，例如 `http://127.0.0.1:8001` 或目标电脑的后端地址。
-
-## 生产模式部署
-
-生产模式不需要单独启动 Vite 前端服务。先构建前端：
-
-```powershell
-cd D:\project\video-factory\web-app\frontend
-npm run build
-```
-
-然后只启动 FastAPI：
+## 启动应用
 
 ```powershell
 cd D:\project\video-factory\web-app
-python -m uvicorn main:app --host 0.0.0.0 --port 8001
+.\start_backend.bat
 ```
 
-生产模式访问：
+访问：
 
 ```text
-http://目标电脑IP:8001
+http://127.0.0.1:8001
 ```
 
-原因是 `main.py` 会在检测到 `web-app/frontend/dist` 存在时，自动把构建后的前端页面挂载到 FastAPI 根路径。也就是说生产部署只需要一个后端服务。
+`main.py` 会在检测到 `web-app/frontend/dist` 存在时，自动把构建后的前端页面挂载到 FastAPI 根路径。也就是说部署运行只需要一个 FastAPI 服务。
 
 ## 更新代码
 

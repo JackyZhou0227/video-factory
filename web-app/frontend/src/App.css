@@ -325,6 +325,14 @@ a {
   font-size: 13px;
 }
 
+.auth-help-text {
+  margin: -8px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .auth-loading-text {
   margin: 0;
   color: var(--text-muted);
@@ -1783,6 +1791,128 @@ a {
   display: grid;
   grid-template-columns: 160px minmax(0, 1fr);
   gap: 12px;
+}
+
+.admin-panel {
+  padding: 24px;
+}
+
+.admin-content {
+  display: grid;
+  gap: 18px;
+}
+
+.admin-copy {
+  max-width: 760px;
+}
+
+.admin-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.admin-table {
+  width: 100%;
+  min-width: 820px;
+  border-collapse: collapse;
+  background: var(--surface);
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.admin-table th {
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.admin-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.user-cell {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.user-cell strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 720;
+}
+
+.user-cell span {
+  color: var(--text-soft);
+  font-size: 12px;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 720;
+  white-space: nowrap;
+}
+
+.role-badge.admin {
+  border-color: rgba(120, 140, 93, 0.32);
+  background: var(--green-soft);
+  color: #5f7049;
+}
+
+.role-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.role-action {
+  min-height: 28px;
+  padding: 0;
+}
+
+.role-action:disabled {
+  color: var(--text-soft);
+  cursor: not-allowed;
+}
+
+.reset-password-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 92px;
+  gap: 10px;
+  align-items: center;
+}
+
+.compact-control {
+  min-height: 38px;
+}
+
+.inline-action {
+  min-height: 38px;
+  padding-inline: 12px;
+}
+
+.admin-actions {
+  grid-template-columns: 160px;
 }
 
 @media (max-width: 1120px) {

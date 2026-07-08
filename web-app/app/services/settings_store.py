@@ -10,7 +10,7 @@ DEFAULT_USERNAME = "local"
 DEFAULT_DISPLAY_NAME = "本机用户"
 RUNNINGHUB_NAMESPACE = "runninghub"
 FIXED_DIGITAL_HUMAN_WORKFLOW_ID = "2003717471859294210"
-USER_PUBLIC_COLUMNS = "id, username, display_name, is_default, created_at, updated_at"
+USER_PUBLIC_COLUMNS = "id, username, display_name, role, is_default, created_at, updated_at"
 
 
 def _root() -> Path:
@@ -235,6 +235,7 @@ def _ensure_users_schema(conn: sqlite3.Connection) -> None:
             id TEXT PRIMARY KEY,
             username TEXT NOT NULL UNIQUE,
             display_name TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
             password_hash TEXT NOT NULL DEFAULT '',
             password_salt TEXT NOT NULL DEFAULT '',
             password_iterations INTEGER NOT NULL DEFAULT 0,
@@ -247,6 +248,7 @@ def _ensure_users_schema(conn: sqlite3.Connection) -> None:
 
     columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
     migrations = {
+        "role": "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
         "password_hash": "ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''",
         "password_salt": "ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT ''",
         "password_iterations": "ALTER TABLE users ADD COLUMN password_iterations INTEGER NOT NULL DEFAULT 0",

@@ -40,3 +40,28 @@ export async function logout() {
   return response.json();
 }
 
+export async function listUsers() {
+  const response = await apiFetch("/api/admin/users");
+  if (!response.ok) throw new Error(await readApiError(response, "读取用户列表失败"));
+  return response.json();
+}
+
+export async function resetUserPassword(userId, password) {
+  const response = await apiFetch(`/api/admin/users/${userId}/password`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ password }),
+  });
+  if (!response.ok) throw new Error(await readApiError(response, "重置密码失败"));
+  return response.json();
+}
+
+export async function updateUserRole(userId, role) {
+  const response = await apiFetch(`/api/admin/users/${userId}/role`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ role }),
+  });
+  if (!response.ok) throw new Error(await readApiError(response, "更新用户角色失败"));
+  return response.json();
+}

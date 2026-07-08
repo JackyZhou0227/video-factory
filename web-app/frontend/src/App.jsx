@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
 import Settings from "./components/Settings";
+import UserManagement from "./components/UserManagement";
 import { getCurrentUser, login, logout, register } from "./lib/auth";
 
 const NAV_ITEMS = [
@@ -16,6 +17,13 @@ const NAV_ITEMS = [
     label: "设置",
     description: "RunningHub 配置",
     icon: "settings",
+  },
+  {
+    id: "users",
+    label: "用户管理",
+    description: "账号与密码",
+    icon: "shield",
+    adminOnly: true,
   },
 ];
 
@@ -33,6 +41,13 @@ const PAGE_META = {
     description: "配置当前用户的 RunningHub API Key，数字人工作流由系统固定。",
     badge: "本机配置",
     badgeIcon: "serverCog",
+  },
+  users: {
+    eyebrow: "Admin",
+    title: "用户管理",
+    description: "查看本机账号列表，并为忘记密码的用户重置登录密码。",
+    badge: "管理员",
+    badgeIcon: "shield",
   },
 };
 
@@ -165,6 +180,7 @@ function AuthScreen({ onAuthenticated }) {
         <button className="text-button auth-switch" type="button" onClick={switchMode}>
           {isRegister ? "已有账号，去登录" : "还没有账号，创建一个"}
         </button>
+        {!isRegister && <p className="auth-help-text">忘记密码请联系管理员重置。</p>}
       </section>
     </main>
   );
@@ -187,6 +203,10 @@ export default function App() {
   const [authChecking, setAuthChecking] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [authError, setAuthError] = useState("");
+  const visibleNavItems = useMemo(
+    () => NAV_ITEMS.filter((item) => !item.adminOnly || currentUser?.is_admin),
+    [currentUser]
+  );
   const pageMeta = useMemo(() => PAGE_META[activePage], [activePage]);
 
   useEffect(() => {
@@ -239,7 +259,7 @@ export default function App() {
     <div className="app-layout">
       <aside className="app-sidebar" aria-label="主导航">
         <nav className="sidebar-nav">
-          {NAV_ITEMS.map((item) => (
+          {visibleNavItems.map((item) => (
             <button
               key={item.id}
               type="button"
@@ -288,6 +308,9 @@ export default function App() {
           </div>
           <div className={`settings-main page-panel ${activePage === "settings" ? "is-active" : ""}`}>
             <Settings />
+          </div>
+          <div className={`settings-main page-panel ${activePage === "users" ? "is-active" : ""}`}>
+            <UserManagement currentUser={currentUser} />
           </div>
         </div>
       </main>

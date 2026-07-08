@@ -57,6 +57,13 @@ def require_current_user(request: Request) -> dict:
     return user
 
 
+def require_admin_user(request: Request) -> dict:
+    user = require_current_user(request)
+    if not user.get("is_admin"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="需要管理员权限")
+    return user
+
+
 @router.post("/register")
 def register(payload: AuthPayload, response: Response):
     try:

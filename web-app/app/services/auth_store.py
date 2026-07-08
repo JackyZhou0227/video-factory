@@ -15,6 +15,9 @@ SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
 PASSWORD_ITERATIONS = 390_000
 MIN_PASSWORD_LENGTH = 8
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,32}$")
+ROLE_ADMIN = "admin"
+ROLE_USER = "user"
+VALID_ROLES = {ROLE_ADMIN, ROLE_USER}
 
 
 def _now() -> datetime:
@@ -30,6 +33,8 @@ def _public_user(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
         "id": row["id"],
         "username": row["username"],
         "display_name": row["display_name"],
+        "role": row["role"],
+        "is_admin": row["role"] == ROLE_ADMIN,
         "is_default": bool(row["is_default"]),
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
@@ -96,6 +101,7 @@ def init_auth_schema() -> None:
             ON sessions (user_id)
             """
         )
+        _ensure_admin_user(conn)
 
 
 def _password_user_count(conn: sqlite3.Connection) -> int:
@@ -107,6 +113,44 @@ def _password_user_count(conn: sqlite3.Connection) -> int:
         """
     ).fetchone()
     return int(row["total"])
+
+
+def _admin_user_count(conn: sqlite3.Connection) -> int:
+    row = conn.execute(
+        """
+        SELECT COUNT(*) AS total
+        FROM users
+        WHERE role = ? AND password_hash != ''
+        """,
+        (ROLE_ADMIN,),
+    ).fetchone()
+    return int(row["total"])
+
+
+def _ensure_admin_user(conn: sqlite3.Connection) -> None:
+    if _admin_user_count(conn) > 0:
+        return
+
+    row = conn.execute(
+        """
+        SELECT id
+        FROM users
+        WHERE password_hash != ''
+        ORDER BY created_at ASC
+        LIMIT 1
+        """
+    ).fetchone()
+    if row is None:
+        return
+
+    conn.execute(
+        """
+        UPDATE users
+        SET role = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (ROLE_ADMIN, _now_iso(), row["id"]),
+    )
 
 
 def _copy_default_settings(conn: sqlite3.Connection, user_id: str) -> None:
@@ -154,14 +198,15 @@ def create_user(username: str, password: str, display_name: Optional[str] = None
 
     with _connect() as conn:
         first_password_user = _password_user_count(conn) == 0
+        role = ROLE_ADMIN if first_password_user and _admin_user_count(conn) == 0 else ROLE_USER
         try:
             conn.execute(
                 """
                 INSERT INTO users (
                     id, username, display_name, password_hash, password_salt,
-                    password_iterations, is_default, created_at, updated_at
+                    password_iterations, role, is_default, created_at, updated_at
                 )
-                VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                 """,
                 (
                     user_id,
@@ -170,6 +215,7 @@ def create_user(username: str, password: str, display_name: Optional[str] = None
                     _encode(password_hash),
                     _encode(salt),
                     PASSWORD_ITERATIONS,
+                    role,
                     now,
                     now,
                 ),
@@ -188,6 +234,68 @@ def create_user(username: str, password: str, display_name: Optional[str] = None
     return _public_user(row)
 
 
+def create_initial_admin(
+    username: str,
+    password: str,
+    display_name: Optional[str] = None,
+) -> tuple[dict[str, Any], bool]:
+    """Create an initial admin only when no real login user exists."""
+    init_auth_schema()
+    normalized_username = _validate_username(username)
+    _validate_password(password)
+
+    salt = secrets.token_bytes(16)
+    password_hash = _password_hash(password, salt)
+    user_id = uuid.uuid4().hex
+    now = _now_iso()
+    name = (display_name or normalized_username).strip() or normalized_username
+
+    with _connect() as conn:
+        if _password_user_count(conn) > 0:
+            row = conn.execute(
+                f"""
+                SELECT {settings_store.USER_PUBLIC_COLUMNS}
+                FROM users
+                WHERE password_hash != ''
+                ORDER BY created_at ASC
+                LIMIT 1
+                """
+            ).fetchone()
+            return _public_user(row), False
+
+        try:
+            conn.execute(
+                """
+                INSERT INTO users (
+                    id, username, display_name, password_hash, password_salt,
+                    password_iterations, role, is_default, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                """,
+                (
+                    user_id,
+                    normalized_username,
+                    name,
+                    _encode(password_hash),
+                    _encode(salt),
+                    PASSWORD_ITERATIONS,
+                    ROLE_ADMIN,
+                    now,
+                    now,
+                ),
+            )
+        except sqlite3.IntegrityError:
+            raise ValueError("用户名已存在") from None
+
+        _copy_default_settings(conn, user_id)
+        row = conn.execute(
+            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+    return _public_user(row), True
+
+
 def authenticate_user(username: str, password: str) -> Optional[dict[str, Any]]:
     init_auth_schema()
     normalized_username = username.strip().lower()
@@ -195,7 +303,7 @@ def authenticate_user(username: str, password: str) -> Optional[dict[str, Any]]:
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT id, username, display_name, password_hash, password_salt,
+            SELECT id, username, display_name, role, password_hash, password_salt,
                    password_iterations, is_default, created_at, updated_at
             FROM users
             WHERE username = ?
@@ -218,6 +326,97 @@ def authenticate_user(username: str, password: str) -> Optional[dict[str, Any]]:
         return None
 
     return _public_user(row)
+
+
+def list_users() -> list[dict[str, Any]]:
+    init_auth_schema()
+    with _connect() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {settings_store.USER_PUBLIC_COLUMNS}
+            FROM users
+            WHERE password_hash != ''
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+    return [_public_user(row) for row in rows]
+
+
+def update_user_password(user_id: str, password: str) -> dict[str, Any]:
+    init_auth_schema()
+    _validate_password(password)
+
+    salt = secrets.token_bytes(16)
+    password_hash = _password_hash(password, salt)
+    now = _now_iso()
+
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ? AND password_hash != ''",
+            (user_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("User not found")
+
+        conn.execute(
+            """
+            UPDATE users
+            SET password_hash = ?,
+                password_salt = ?,
+                password_iterations = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (_encode(password_hash), _encode(salt), PASSWORD_ITERATIONS, now, user_id),
+        )
+        conn.execute(
+            """
+            UPDATE sessions
+            SET revoked_at = ?
+            WHERE user_id = ? AND revoked_at IS NULL
+            """,
+            (now, user_id),
+        )
+        updated = conn.execute(
+            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+    return _public_user(updated)
+
+
+def update_user_role(user_id: str, role: str) -> dict[str, Any]:
+    init_auth_schema()
+    next_role = (role or "").strip().lower()
+    if next_role not in VALID_ROLES:
+        raise ValueError("Unsupported role")
+
+    now = _now_iso()
+    with _connect() as conn:
+        row = conn.execute(
+            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ? AND password_hash != ''",
+            (user_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("User not found")
+
+        if row["role"] == ROLE_ADMIN and next_role != ROLE_ADMIN and _admin_user_count(conn) <= 1:
+            raise ValueError("At least one admin user is required")
+
+        conn.execute(
+            """
+            UPDATE users
+            SET role = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (next_role, now, user_id),
+        )
+        updated = conn.execute(
+            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+
+    return _public_user(updated)
 
 
 def create_session(user_id: str) -> tuple[str, datetime]:

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+from app.api.admin import router as admin_router
 from app.api.auth import router as auth_router
 from app.api.digital_human import router as digital_human_router
 from app.core.config import ROOT, app_config, resolve_output_dir
@@ -34,6 +35,7 @@ def create_app() -> FastAPI:
     )
 
     application.include_router(auth_router, prefix="/api")
+    application.include_router(admin_router, prefix="/api")
     application.include_router(digital_human_router, prefix="/api")
 
     @application.get("/api/health")
@@ -50,4 +52,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-
