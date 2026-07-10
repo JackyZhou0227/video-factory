@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
 import ImageToVideo from "./components/ImageToVideo";
+import PosterVideo from "./components/PosterVideo";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
 import { getCurrentUser, login, logout, register } from "./lib/auth";
@@ -18,6 +19,12 @@ const NAV_ITEMS = [
     label: "图生视频",
     description: "首帧生成视频",
     icon: "video",
+  },
+  {
+    id: "poster-video",
+    label: "大字报视频",
+    description: "批量竖屏叠字",
+    icon: "wand",
   },
   {
     id: "settings",
@@ -48,6 +55,13 @@ const PAGE_META = {
     description: "上传首帧参考图，输入镜头和动作提示词，提交固定 LTX-2 RunningHub 工作流生成视频。",
     badge: "LTX-2",
     badgeIcon: "video",
+  },
+  "poster-video": {
+    eyebrow: "Poster Video",
+    title: "大字报视频",
+    description: "批量上传视频素材，统一转成 9:16 竖屏并叠加可编辑的大字报文字模板。",
+    badge: "本地批处理",
+    badgeIcon: "wand",
   },
   settings: {
     eyebrow: "Settings",
@@ -335,6 +349,9 @@ export default function App() {
           </div>
           <div className={`app-main page-panel ${activePage === "image-to-video" ? "is-active" : ""}`}>
             <ImageToVideo />
+          </div>
+          <div className={`app-main page-panel ${activePage === "poster-video" ? "is-active" : ""}`}>
+            <PosterVideo />
           </div>
           <div className={`settings-main page-panel ${activePage === "settings" ? "is-active" : ""}`}>
             <Settings />

@@ -803,6 +803,40 @@ a {
   font-weight: 680;
 }
 
+.field-label.with-inline-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  width: fit-content;
+}
+
+.mini-text-action {
+  min-height: 24px;
+  padding: 0 9px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--surface-muted);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 720;
+  white-space: nowrap;
+  line-height: 22px;
+  transition:
+    background 0.16s ease,
+    border-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease;
+}
+
+.mini-text-action:hover {
+  border-color: rgba(217, 119, 87, 0.44);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+  box-shadow: 0 1px 4px rgba(62, 55, 39, 0.08);
+}
+
 .control {
   width: 100%;
   min-height: 42px;
@@ -1997,6 +2031,360 @@ a {
   grid-template-columns: 160px;
 }
 
+.poster-layout {
+  display: grid;
+  grid-template-columns: minmax(560px, 1fr) minmax(430px, 0.86fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+.poster-controls {
+  display: grid;
+  align-content: start;
+  gap: 16px;
+  min-width: 0;
+}
+
+.poster-preview-column {
+  position: relative;
+  display: block;
+  align-self: stretch;
+  min-width: 0;
+}
+
+.poster-preview-column .progress-area,
+.poster-preview-column .form-alert {
+  max-height: 120px;
+  overflow: auto;
+}
+
+.poster-preview-column .primary-action {
+  min-height: 44px;
+}
+
+.poster-preview-column .poster-phone-frame {
+  width: min(100%, 46vh, 520px);
+}
+
+.poster-preview-column .poster-preview-stage {
+  padding: 0;
+}
+
+.poster-preview-column .workflow-card {
+  position: sticky;
+  top: 24px;
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+  box-shadow: 0 14px 36px rgba(62, 55, 39, 0.09);
+}
+
+.poster-upload {
+  min-height: 132px;
+}
+
+.poster-file-list {
+  display: grid;
+  gap: 8px;
+}
+
+.poster-file-row {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: #fffefa;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.poster-file-row span {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 680;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poster-file-row small {
+  color: var(--text-soft);
+  white-space: nowrap;
+}
+
+.poster-block-list {
+  display: grid;
+  gap: 12px;
+}
+
+.poster-block-card {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.poster-block-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.poster-block-heading strong {
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 760;
+}
+
+.poster-block-text {
+  min-height: 82px;
+}
+
+.poster-control-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.poster-control-grid.three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.poster-swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.poster-swatch-grid label {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 34px;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface-muted);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.poster-swatch-grid input {
+  width: 34px;
+  height: 24px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.poster-preview-card {
+  position: sticky;
+  top: 24px;
+}
+
+.poster-preview-stage {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #141413;
+}
+
+.poster-phone-frame {
+  width: min(100%, 46vh, 520px);
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  border: 0;
+  border-radius: 4px;
+  background: #141413;
+  box-shadow: none;
+}
+
+.poster-video-bg {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background:
+    linear-gradient(140deg, rgba(217, 119, 87, 0.32), rgba(120, 140, 93, 0.26)),
+    #28231d;
+}
+
+.poster-video-bg video,
+.poster-video-bg img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 1;
+  filter: none;
+}
+
+.poster-empty-bg {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: rgba(255, 254, 250, 0.8);
+}
+
+.poster-preview-block {
+  position: absolute;
+  z-index: 2;
+  min-height: 1px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: "Microsoft YaHei", "Inter", "Segoe UI", sans-serif;
+  font-weight: 900;
+  letter-spacing: 0;
+}
+
+.poster-result-shell {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.52fr) minmax(420px, 1.48fr);
+  gap: 16px;
+  align-items: start;
+}
+
+.poster-result-summary {
+  display: grid;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.poster-result-summary h3,
+.poster-result-summary p {
+  margin: 0;
+}
+
+.poster-result-summary h3 {
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 760;
+}
+
+.poster-result-summary p {
+  color: var(--text-muted);
+  font-size: 14px;
+  line-height: 1.65;
+}
+
+.poster-result-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.poster-result-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(220px, 300px);
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fffefa;
+}
+
+.poster-result-item.running,
+.poster-result-item.pending {
+  border-color: rgba(217, 119, 87, 0.28);
+  background: #fff9f5;
+}
+
+.poster-result-item.failed {
+  border-color: rgba(182, 90, 76, 0.28);
+  background: var(--danger-soft);
+}
+
+.poster-result-main {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.poster-result-main div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.poster-result-main strong,
+.poster-result-main span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.poster-result-main strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 760;
+}
+
+.poster-result-main span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--text-soft);
+}
+
+.status-dot.running,
+.status-dot.pending {
+  background: var(--accent);
+}
+
+.status-dot.completed {
+  background: var(--green);
+}
+
+.status-dot.failed {
+  background: var(--danger);
+}
+
+.poster-result-actions {
+  display: grid;
+  gap: 8px;
+}
+
+.poster-result-actions video,
+.poster-result-actions img {
+  width: 100%;
+  max-height: 168px;
+  border-radius: 5px;
+  background: #141413;
+  object-fit: contain;
+}
+
+.poster-empty-result {
+  min-height: 280px;
+  max-width: none;
+  border: 1px dashed var(--border-strong);
+  border-radius: 6px;
+  background: var(--surface-muted);
+}
+
 @media (max-width: 1120px) {
   .app-layout {
     grid-template-columns: 1fr;
@@ -2050,6 +2438,34 @@ a {
   .result-surface {
     min-height: 360px;
   }
+
+  .poster-layout,
+  .poster-result-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .poster-layout {
+    display: grid;
+  }
+
+  .poster-controls {
+    width: auto;
+  }
+
+  .poster-preview-column {
+    position: static;
+    align-self: auto;
+  }
+
+  .poster-preview-column .workflow-card {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+
+  .poster-preview-card {
+    position: static;
+  }
 }
 
 @media (max-width: 1380px) {
@@ -2061,6 +2477,9 @@ a {
 @media (max-width: 980px) {
   .i2v-grid,
   .production-grid,
+  .poster-control-grid,
+  .poster-control-grid.three,
+  .poster-result-item,
   .video-workflow {
     grid-template-columns: 1fr;
   }
@@ -2075,6 +2494,10 @@ a {
 
   .workflow-note {
     min-height: 120px;
+  }
+
+  .poster-swatch-grid {
+    grid-template-columns: 1fr;
   }
 }
 

@@ -291,10 +291,6 @@ export default function ImageToVideo() {
                 }}
               />
             </label>
-
-            <div className="workflow-note">
-              这个功能会调用固定的 LTX-2 图生视频工作流。提交后请在 RunningHub 查看生成进度和最终作品。
-            </div>
           </div>
         </div>
       </section>
