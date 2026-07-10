@@ -122,3 +122,51 @@ async def submit_digital_human(
         return str(runninghub_task_id)
     finally:
         await executor.close()
+
+
+async def submit_image_to_video(
+    image_path: Path,
+    prompt: str,
+    workflow_id: str,
+    api_key: str,
+    instance_type: Optional[str] = None,
+) -> str:
+    """
+    Submit image + prompt to a fixed RunningHub image-to-video workflow and return the task id.
+    """
+    executor = RunningHubExecutor(api_key=api_key, instance_type=instance_type)
+    params = {
+        "image": str(image_path),
+        "prompt": prompt,
+    }
+
+    try:
+        workflow_json = await executor.client.get_workflow_json(workflow_id)
+        workflow_json, seed_changes = executor._randomize_seed_in_workflow(workflow_json)
+
+        from comfykit.comfyui.workflow_parser import WorkflowParser
+
+        parser = WorkflowParser()
+        metadata = parser.parse_workflow(workflow_json, f"workflow_{workflow_id}")
+        if not metadata:
+            raise RuntimeError("Failed to parse RunningHub workflow metadata")
+
+        metadata.workflow_id = workflow_id
+        metadata.is_runninghub = True
+
+        node_info_list = await executor._convert_params_to_node_info_list(
+            metadata,
+            params,
+            seed_changes,
+        )
+        task_data = await executor.client.create_task(
+            workflow_id,
+            node_info_list if node_info_list else None,
+        )
+        runninghub_task_id = task_data.get("taskId")
+        if not runninghub_task_id:
+            raise RuntimeError("RunningHub did not return a task id")
+
+        return str(runninghub_task_id)
+    finally:
+        await executor.close()
