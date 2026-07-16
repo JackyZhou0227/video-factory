@@ -1,3 +1,13 @@
+runninghub:
+  # Use https://www.runninghub.cn for China accounts. Override with
+  # RUNNINGHUB_BASE_URL or this value if your account belongs to another region.
+  base_url: "https://www.runninghub.cn"
+  # System API key used only to read fixed workflow definitions when a customer
+  # key cannot access them directly. Customer uploads/tasks still use customer keys.
+  api_key: ""
+  concurrent_limit: 1
+  instance_type: null
+
 tts:
   # CustomVoice model path:
   customvoice_model_path: ""
