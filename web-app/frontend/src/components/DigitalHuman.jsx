@@ -172,12 +172,17 @@ export default function DigitalHuman() {
   const [voiceProfileError, setVoiceProfileError] = useState("");
   const [voiceProfileNotice, setVoiceProfileNotice] = useState("");
   const [savingVoiceProfile, setSavingVoiceProfile] = useState(false);
+  const [deletingVoiceProfile, setDeletingVoiceProfile] = useState(false);
   const [instruct, setInstruct] = useState("");
   const [refAudioFile, setRefAudioFile] = useState(null);
   const [refAudioUrl, setRefAudioUrl] = useState(null);
   const [refText, setRefText] = useState("");
   const [voiceProfileDialogOpen, setVoiceProfileDialogOpen] = useState(false);
+  const [voiceProfileDialogMode, setVoiceProfileDialogMode] = useState("create");
+  const [editingVoiceProfileId, setEditingVoiceProfileId] = useState("");
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [voiceMenuOpen, setVoiceMenuOpen] = useState(false);
+  const [voiceProfileMenuOpen, setVoiceProfileMenuOpen] = useState(false);
   const [languageMenuOpen, setLanguageMenuOpen] = useState(false);
 
   const [audioPreview, setAudioPreview] = useState(null);
@@ -198,6 +203,7 @@ export default function DigitalHuman() {
   const audioInputRef = useRef(null);
   const refAudioInputRef = useRef(null);
   const voiceSelectRef = useRef(null);
+  const voiceProfileSelectRef = useRef(null);
   const languageSelectRef = useRef(null);
   const audioInputRevisionRef = useRef(0);
 
@@ -292,16 +298,18 @@ export default function DigitalHuman() {
   }, [audioLocalUrl, imagePreview, refAudioUrl]);
 
   useEffect(() => {
-    if (!voiceMenuOpen && !languageMenuOpen) return;
+    if (!voiceMenuOpen && !voiceProfileMenuOpen && !languageMenuOpen) return;
 
     const handlePointerDown = (event) => {
       if (!voiceSelectRef.current?.contains(event.target)) setVoiceMenuOpen(false);
+      if (!voiceProfileSelectRef.current?.contains(event.target)) setVoiceProfileMenuOpen(false);
       if (!languageSelectRef.current?.contains(event.target)) setLanguageMenuOpen(false);
     };
 
     const handleKeyDown = (event) => {
       if (event.key === "Escape") {
         setVoiceMenuOpen(false);
+        setVoiceProfileMenuOpen(false);
         setLanguageMenuOpen(false);
       }
     };
@@ -312,7 +320,7 @@ export default function DigitalHuman() {
       document.removeEventListener("pointerdown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [languageMenuOpen, voiceMenuOpen]);
+  }, [languageMenuOpen, voiceMenuOpen, voiceProfileMenuOpen]);
 
   const resetVideoState = useCallback(() => {
     if (pollRef.current) clearTimeout(pollRef.current);
@@ -376,6 +384,13 @@ export default function DigitalHuman() {
     [voiceProfileId, voiceProfiles]
   );
 
+  const isEditingVoiceProfile = voiceProfileDialogMode === "edit";
+
+  const editingVoiceProfile = useMemo(
+    () => voiceProfiles.find((item) => item.id === editingVoiceProfileId) ?? null,
+    [editingVoiceProfileId, voiceProfiles]
+  );
+
   useEffect(() => {
     if (!selectedSpeaker || ttsMode !== "customvoice") return;
     setLanguage(selectedSpeaker.native_language || "Chinese");
@@ -407,6 +422,46 @@ export default function DigitalHuman() {
     });
     if (refAudioInputRef.current) refAudioInputRef.current.value = "";
   }, []);
+
+  const closeVoiceProfileDialog = useCallback(() => {
+    setVoiceProfileDialogOpen(false);
+    setVoiceProfileDialogMode("create");
+    setEditingVoiceProfileId("");
+    setVoiceProfileName("");
+    setVoiceProfileError("");
+    setDeleteConfirmOpen(false);
+    setRefText("");
+    removeRefAudio();
+  }, [removeRefAudio]);
+
+  const openCreateVoiceProfileDialog = useCallback(() => {
+    setVoiceProfileDialogMode("create");
+    setEditingVoiceProfileId("");
+    setVoiceProfileName("");
+    setRefText("");
+    removeRefAudio();
+    setVoiceProfileError("");
+    setVoiceProfileNotice("");
+    setDeleteConfirmOpen(false);
+    setVoiceProfileDialogOpen(true);
+  }, [removeRefAudio]);
+
+  const openEditVoiceProfileDialog = useCallback(
+    (profile) => {
+      if (!profile) return;
+      setVoiceProfileDialogMode("edit");
+      setEditingVoiceProfileId(profile.id);
+      setVoiceProfileName(profile.name || "");
+      setRefText(profile.ref_text || "");
+      setLanguage(profile.language || "Chinese");
+      removeRefAudio();
+      setVoiceProfileError("");
+      setVoiceProfileNotice("");
+      setDeleteConfirmOpen(false);
+      setVoiceProfileDialogOpen(true);
+    },
+    [removeRefAudio]
+  );
 
   const handleImageChange = useCallback(
     (event) => {
@@ -478,10 +533,10 @@ export default function DigitalHuman() {
 
   const canSaveVoiceProfile = Boolean(
     ttsMode === "base" &&
-      refAudioFile &&
       refText.trim() &&
       voiceProfileName.trim() &&
-      !savingVoiceProfile
+      !savingVoiceProfile &&
+      (isEditingVoiceProfile ? editingVoiceProfileId : refAudioFile)
   );
 
   const pipelineItems = [
@@ -680,10 +735,14 @@ export default function DigitalHuman() {
       formData.append("name", voiceProfileName.trim());
       formData.append("language", language);
       formData.append("ref_text", refText.trim());
-      formData.append("ref_audio", refAudioFile);
+      if (refAudioFile) formData.append("ref_audio", refAudioFile);
 
-      const response = await apiFetch("/api/voice-profiles", {
-        method: "POST",
+      const endpoint = isEditingVoiceProfile
+        ? `/api/voice-profiles/${editingVoiceProfileId}`
+        : "/api/voice-profiles";
+
+      const response = await apiFetch(endpoint, {
+        method: isEditingVoiceProfile ? "PUT" : "POST",
         body: formData,
       }, backendBaseUrl);
 
@@ -695,19 +754,69 @@ export default function DigitalHuman() {
       const savedProfile = await response.json();
       setVoiceProfiles((current) => [savedProfile, ...current.filter((item) => item.id !== savedProfile.id)]);
       setVoiceProfileId(savedProfile.id);
-      setVoiceProfileName("");
-      setVoiceProfileNotice(`已保存预设音色：${savedProfile.name}`);
+      setVoiceProfileNotice(
+        isEditingVoiceProfile ? `已更新预设音色：${savedProfile.name}` : `已保存预设音色：${savedProfile.name}`
+      );
       setLanguage(savedProfile.language || language || "Chinese");
-      setVoiceProfileDialogOpen(false);
-      removeRefAudio();
-      setRefText("");
+      closeVoiceProfileDialog();
       markAudioPreviewStale();
     } catch (err) {
       setVoiceProfileError(err.message || "保存音色失败");
     } finally {
       setSavingVoiceProfile(false);
     }
-  }, [backendBaseUrl, canSaveVoiceProfile, language, markAudioPreviewStale, refAudioFile, refText, removeRefAudio, voiceProfileName]);
+  }, [
+    backendBaseUrl,
+    canSaveVoiceProfile,
+    closeVoiceProfileDialog,
+    editingVoiceProfileId,
+    isEditingVoiceProfile,
+    language,
+    markAudioPreviewStale,
+    refAudioFile,
+    refText,
+    voiceProfileName,
+  ]);
+
+  const handleDeleteVoiceProfile = useCallback(async () => {
+    if (!isEditingVoiceProfile || !editingVoiceProfileId || deletingVoiceProfile) return;
+
+    setDeletingVoiceProfile(true);
+    setVoiceProfileError("");
+
+    try {
+      const response = await apiFetch(
+        `/api/voice-profiles/${editingVoiceProfileId}`,
+        { method: "DELETE" },
+        backendBaseUrl
+      );
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || `HTTP ${response.status}`);
+      }
+
+      const deletedId = editingVoiceProfileId;
+      const nextProfiles = voiceProfiles.filter((item) => item.id !== deletedId);
+      setVoiceProfiles(nextProfiles);
+      setVoiceProfileId((current) => (current === deletedId ? nextProfiles[0]?.id || "" : current));
+      setVoiceProfileNotice("已删除预设音色。");
+      closeVoiceProfileDialog();
+      markAudioPreviewStale();
+    } catch (err) {
+      setVoiceProfileError(err.message || "删除音色失败");
+    } finally {
+      setDeletingVoiceProfile(false);
+    }
+  }, [
+    backendBaseUrl,
+    closeVoiceProfileDialog,
+    deletingVoiceProfile,
+    editingVoiceProfileId,
+    isEditingVoiceProfile,
+    markAudioPreviewStale,
+    voiceProfiles,
+  ]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
@@ -1080,40 +1189,87 @@ export default function DigitalHuman() {
                     <label className="field-label" htmlFor="voice-profile-select">
                       Base 音色档案
                     </label>
-                    <select
-                      id="voice-profile-select"
-                      className="control"
-                      value={voiceProfileId}
-                      onChange={(event) => {
-                        if (event.target.value === "__create__") {
-                          setVoiceProfileDialogOpen(true);
-                          setVoiceProfileError("");
-                          setVoiceProfileNotice("");
-                          return;
-                        }
-                        setVoiceProfileId(event.target.value);
-                        markAudioPreviewStale();
-                      }}
-                      disabled={voiceProfilesLoading}
-                    >
-                      <option value="">{voiceProfilesLoading ? "加载中..." : "请选择一个预设音色"}</option>
-                      {voiceProfiles.map((profile) => (
-                        <option key={profile.id} value={profile.id}>
-                          {profile.name} · {languages.find((item) => item.id === profile.language)?.label || profile.language}
-                        </option>
-                      ))}
-                      <option value="__create__">+ 新增音色</option>
-                    </select>
+                    <div className="voice-select" ref={voiceProfileSelectRef}>
+                      <button
+                        id="voice-profile-select"
+                        className="voice-select-trigger"
+                        type="button"
+                        aria-haspopup="listbox"
+                        aria-expanded={voiceProfileMenuOpen}
+                        disabled={voiceProfilesLoading}
+                        onClick={() => setVoiceProfileMenuOpen((open) => !open)}
+                      >
+                        <span className="voice-trigger-main">
+                          <span className="voice-title-row">
+                            <strong>
+                              {voiceProfilesLoading
+                                ? "加载中..."
+                                : selectedVoiceProfile?.name || "请选择一个预设音色"}
+                            </strong>
+                          </span>
+                          <span>
+                            {selectedVoiceProfile?.ref_text || "选择 Base 模型复用的本地音色档案"}
+                          </span>
+                        </span>
+                        <span className="voice-select-arrow" aria-hidden="true" />
+                      </button>
+
+                      {voiceProfileMenuOpen && (
+                        <div className="voice-menu" role="listbox" aria-labelledby="voice-profile-select">
+                          {voiceProfiles.map((profile) => (
+                              <button
+                                key={profile.id}
+                                type="button"
+                                className={`voice-option ${voiceProfileId === profile.id ? "is-selected" : ""}`}
+                                role="option"
+                                aria-selected={voiceProfileId === profile.id}
+                                onClick={() => {
+                                  setVoiceProfileId(profile.id);
+                                  markAudioPreviewStale();
+                                  setVoiceProfileMenuOpen(false);
+                                }}
+                              >
+                                <span className="voice-option-main">
+                                  <span className="voice-title-row">
+                                    <strong>{profile.name}</strong>
+                                  </span>
+                                  <span>{profile.ref_text || "已保存的 Base 音色档案"}</span>
+                                </span>
+                              </button>
+                          ))}
+
+                          <button
+                            type="button"
+                            className="voice-option voice-create-option"
+                            role="option"
+                            aria-selected={false}
+                            onClick={() => {
+                              setVoiceProfileMenuOpen(false);
+                              openCreateVoiceProfileDialog();
+                            }}
+                          >
+                            <span className="voice-option-main">
+                              <span className="voice-title-row">
+                                <strong>+ 新增音色</strong>
+                              </span>
+                              <span>上传参考音频并保存为新的本地档案</span>
+                            </span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
 
                     {selectedVoiceProfile && (
-                      <div className="voice-summary">
-                        <div className="voice-summary-main">
-                          <strong>{selectedVoiceProfile.name}</strong>
-                          <span>{selectedVoiceProfile.ref_text}</span>
-                        </div>
-                        <div className="voice-summary-tags">
-                          <span>{languages.find((item) => item.id === selectedVoiceProfile.language)?.label || selectedVoiceProfile.language}</span>
-                        </div>
+                      <div className="voice-summary voice-profile-preview">
+                        <button
+                          type="button"
+                          className="icon-button voice-profile-edit-button"
+                          aria-label={`编辑音色档案：${selectedVoiceProfile.name}`}
+                          title="编辑音色档案"
+                          onClick={() => openEditVoiceProfileDialog(selectedVoiceProfile)}
+                        >
+                          <Icon name="edit" size={16} />
+                        </button>
                         <audio
                           className="audio-player"
                           src={resolveBackendAssetUrl(selectedVoiceProfile.audio_url, backendBaseUrl)}
@@ -1136,16 +1292,15 @@ export default function DigitalHuman() {
                       <div className="modal-heading">
                         <div>
                           <span className="section-kicker">Base 音色</span>
-                          <h3 id="voice-profile-dialog-title">新增预设音色</h3>
+                          <h3 id="voice-profile-dialog-title">
+                            {isEditingVoiceProfile ? "编辑预设音色" : "新增预设音色"}
+                          </h3>
                         </div>
                         <button
                           className="icon-button"
                           type="button"
-                          aria-label="关闭新增音色弹窗"
-                          onClick={() => {
-                            setVoiceProfileDialogOpen(false);
-                            setVoiceProfileError("");
-                          }}
+                          aria-label="关闭音色档案弹窗"
+                          onClick={closeVoiceProfileDialog}
                         >
                           <Icon name="x" size={17} />
                         </button>
@@ -1165,7 +1320,7 @@ export default function DigitalHuman() {
                         />
 
                         <label className="field-label" htmlFor="ref-audio">
-                          参考音频 *
+                          {isEditingVoiceProfile ? "参考音频" : "参考音频 *"}
                         </label>
                         <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
                           {refAudioFile ? (
@@ -1178,7 +1333,7 @@ export default function DigitalHuman() {
                             <span className="upload-placeholder">
                               <Icon name="upload" size={22} />
                               <strong>上传参考音频</strong>
-                              <small>用于保存新的预设音色</small>
+                              <small>{isEditingVoiceProfile ? "不上传则保留当前参考音频" : "用于保存新的预设音色"}</small>
                             </span>
                           )}
                           <input
@@ -1198,6 +1353,13 @@ export default function DigitalHuman() {
                           </div>
                         )}
                         {refAudioUrl && <audio className="audio-player" src={refAudioUrl} controls />}
+                        {isEditingVoiceProfile && editingVoiceProfile && !refAudioFile && (
+                          <audio
+                            className="audio-player"
+                            src={resolveBackendAssetUrl(editingVoiceProfile.audio_url, backendBaseUrl)}
+                            controls
+                          />
+                        )}
 
                         <label className="field-label" htmlFor="ref-text">
                           参考文本 *
@@ -1212,16 +1374,53 @@ export default function DigitalHuman() {
                         />
 
                         {voiceProfileError && <div className="form-alert failed">{voiceProfileError}</div>}
+                        {deleteConfirmOpen && (
+                          <div
+                            className="delete-confirm-panel"
+                            role="alertdialog"
+                            aria-labelledby="voice-profile-delete-title"
+                          >
+                            <strong id="voice-profile-delete-title">确认删除这个音色档案？</strong>
+                            <span>删除后会移除参考音频和档案记录，不能恢复。</span>
+                            <div className="delete-confirm-actions">
+                              <button
+                                type="button"
+                                className="secondary-action"
+                                disabled={deletingVoiceProfile}
+                                onClick={() => setDeleteConfirmOpen(false)}
+                              >
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                className="danger-action"
+                                disabled={deletingVoiceProfile}
+                                onClick={handleDeleteVoiceProfile}
+                              >
+                                <Icon name={deletingVoiceProfile ? "loading" : "trash"} size={16} />
+                                {deletingVoiceProfile ? "正在删除" : "确认删除"}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
 
-                      <div className="modal-actions">
+                      <div className={`modal-actions ${isEditingVoiceProfile ? "with-delete" : ""}`}>
+                        {isEditingVoiceProfile && (
+                          <button
+                            className="danger-action"
+                            type="button"
+                            disabled={savingVoiceProfile || deletingVoiceProfile}
+                            onClick={() => setDeleteConfirmOpen(true)}
+                          >
+                            <Icon name="trash" size={16} />
+                            删除
+                          </button>
+                        )}
                         <button
                           className="secondary-action"
                           type="button"
-                          onClick={() => {
-                            setVoiceProfileDialogOpen(false);
-                            setVoiceProfileError("");
-                          }}
+                          onClick={closeVoiceProfileDialog}
                         >
                           取消
                         </button>
@@ -1232,7 +1431,7 @@ export default function DigitalHuman() {
                           onClick={handleSaveVoiceProfile}
                         >
                           <Icon name={savingVoiceProfile ? "loading" : "save"} size={16} />
-                          {savingVoiceProfile ? "正在保存" : "保存音色"}
+                          {savingVoiceProfile ? "正在保存" : isEditingVoiceProfile ? "保存修改" : "保存音色"}
                         </button>
                       </div>
                     </div>

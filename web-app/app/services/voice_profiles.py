@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -129,3 +130,65 @@ async def create_voice_profile(
         _write_index(data)
 
     return _with_audio_url(voice)
+
+
+async def update_voice_profile(
+    voice_id: str,
+    name: str,
+    language: str,
+    ref_text: str,
+    ref_audio: Optional[UploadFile] = None,
+) -> dict:
+    if not name.strip():
+        raise HTTPException(status_code=422, detail="name is required")
+    if not ref_text.strip():
+        raise HTTPException(status_code=422, detail="ref_text is required")
+
+    audio_bytes = await ref_audio.read() if ref_audio is not None else None
+
+    async with _voice_lock:
+        data = _load_index()
+        voices = data.get("voices", [])
+        voice_index = next((index for index, item in enumerate(voices) if item.get("id") == voice_id), -1)
+        if voice_index < 0:
+            raise HTTPException(status_code=404, detail="Voice profile not found")
+
+        voice = dict(voices[voice_index])
+        voice_dir = _voice_dir(voice_id)
+        voice_dir.mkdir(parents=True, exist_ok=True)
+
+        if audio_bytes is not None:
+            suffix = Path(ref_audio.filename or "").suffix or ".wav"
+            audio_path = voice_dir / f"reference{suffix}"
+            old_audio_path = _voice_audio_path(voice)
+            audio_path.write_bytes(audio_bytes)
+            if old_audio_path != audio_path and old_audio_path.exists():
+                old_audio_path.unlink()
+            voice["audio_filename"] = audio_path.name
+
+        voice.update(
+            {
+                "name": name.strip(),
+                "language": language.strip() or "Chinese",
+                "ref_text": ref_text.strip(),
+                "updated_at": _now_iso(),
+            }
+        )
+        voices[voice_index] = voice
+        data["voices"] = voices
+        _write_index(data)
+
+    return _with_audio_url(voice)
+
+
+async def delete_voice_profile(voice_id: str) -> None:
+    async with _voice_lock:
+        data = _load_index()
+        voices = data.get("voices", [])
+        next_voices = [item for item in voices if item.get("id") != voice_id]
+        if len(next_voices) == len(voices):
+            raise HTTPException(status_code=404, detail="Voice profile not found")
+        data["voices"] = next_voices
+        _write_index(data)
+
+    shutil.rmtree(_voice_dir(voice_id), ignore_errors=True)

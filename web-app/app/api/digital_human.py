@@ -229,6 +229,30 @@ async def create_voice_profile(
     return voice
 
 
+@router.put("/voice-profiles/{voice_profile_id}")
+async def update_voice_profile(
+    voice_profile_id: str,
+    name: str = Form(...),
+    language: str = Form("Chinese"),
+    ref_text: str = Form(...),
+    ref_audio: Optional[UploadFile] = File(None),
+):
+    voice = await voice_profiles.update_voice_profile(
+        voice_id=voice_profile_id,
+        name=name,
+        language=language,
+        ref_text=ref_text,
+        ref_audio=ref_audio,
+    )
+    return voice
+
+
+@router.delete("/voice-profiles/{voice_profile_id}")
+async def delete_voice_profile(voice_profile_id: str):
+    await voice_profiles.delete_voice_profile(voice_profile_id)
+    return {"deleted": True}
+
+
 def _new_preview_audio_path() -> tuple[str, Path, Path]:
     cfg = _get_config()
     output_root = _output_root(cfg)
