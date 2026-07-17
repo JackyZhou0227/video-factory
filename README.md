@@ -10,6 +10,7 @@ web-app/
   config.example.yaml     本地配置模板
   config.yaml             本地私有配置，已被 .gitignore 忽略
   requirements.txt        Python 后端依赖
+  init_default_admin.bat  Windows 初始管理员账号脚本
   start_app.bat           Windows 一键启动脚本，同时提供前端页面和后端接口
   app/                    FastAPI 后端包
   data/                   SQLite 和本机运行数据，已被 .gitignore 忽略
@@ -190,10 +191,25 @@ Base 模式在页面里会让你上传：
 
 ```powershell
 cd D:\project\video-factory\web-app
-python scripts\init_admin.py --username admin --password password123 --display-name 管理员
+.\init_default_admin.bat
 ```
 
-如果不传 `--password`，脚本会自动生成一个随机密码并打印出来。用户表已有账号时，脚本不会覆盖已有数据。
+默认账号：
+
+```text
+用户名：admin
+密码：12345678
+```
+
+`init_default_admin.bat` 只会在没有任何账号时创建初始管理员；用户表已有账号时，脚本不会覆盖已有数据。
+
+如果需要自定义用户名或密码，可以直接调用底层脚本：
+
+```powershell
+python scripts\init_admin.py --username admin --password 12345678 --display-name admin
+```
+
+如果不传 `--password`，底层脚本会自动生成一个随机密码并打印出来。
 
 ## 本机设置
 

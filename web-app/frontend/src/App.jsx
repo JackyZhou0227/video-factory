@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
-import ImageToVideo from "./components/ImageToVideo";
 import PosterVideo from "./components/PosterVideo";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
@@ -13,12 +12,6 @@ const NAV_ITEMS = [
     label: "数字人",
     description: "口播视频生成",
     icon: "digitalHuman",
-  },
-  {
-    id: "image-to-video",
-    label: "图生视频",
-    description: "首帧生成视频",
-    icon: "video",
   },
   {
     id: "poster-video",
@@ -48,13 +41,6 @@ const PAGE_META = {
     description: "上传人物形象，输入口播文案或音频，一站式生成数字人口播视频。",
     badge: "本地工作台",
     badgeIcon: "monitorCog",
-  },
-  "image-to-video": {
-    eyebrow: "Image to Video",
-    title: "图生视频",
-    description: "上传首帧参考图，输入镜头和动作提示词，提交固定 LTX-2 RunningHub 工作流生成视频。",
-    badge: "LTX-2",
-    badgeIcon: "video",
   },
   "poster-video": {
     eyebrow: "Poster Video",
@@ -346,9 +332,6 @@ export default function App() {
         <div className="page-stack">
           <div className={`app-main page-panel ${activePage === "digital-human" ? "is-active" : ""}`}>
             <DigitalHuman />
-          </div>
-          <div className={`app-main page-panel ${activePage === "image-to-video" ? "is-active" : ""}`}>
-            <ImageToVideo />
           </div>
           <div className={`app-main page-panel ${activePage === "poster-video" ? "is-active" : ""}`}>
             <PosterVideo />

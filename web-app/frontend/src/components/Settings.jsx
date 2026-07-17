@@ -17,7 +17,6 @@ const EMPTY_RUNNINGHUB_SETTINGS = {
   api_key_configured: false,
   api_key_masked: "",
   workflow_id: "",
-  image_to_video_workflow_id: "",
   concurrent_limit: 1,
   instance_type: "",
 };
@@ -152,10 +151,6 @@ export default function Settings() {
           <div className="settings-current-key">
             <span>数字人固定工作流 ID</span>
             <strong>{storedSettings.workflow_id || "系统内置"}</strong>
-          </div>
-          <div className="settings-current-key">
-            <span>图生视频固定工作流 ID</span>
-            <strong>{storedSettings.image_to_video_workflow_id || "系统内置"}</strong>
           </div>
         </div>
 

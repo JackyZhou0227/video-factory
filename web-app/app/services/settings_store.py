@@ -10,7 +10,6 @@ DEFAULT_USERNAME = "local"
 DEFAULT_DISPLAY_NAME = "本机用户"
 RUNNINGHUB_NAMESPACE = "runninghub"
 FIXED_DIGITAL_HUMAN_WORKFLOW_ID = "2003717471859294210"
-FIXED_IMAGE_TO_VIDEO_WORKFLOW_ID = "2011258580393009153"
 USER_PUBLIC_COLUMNS = "id, username, display_name, role, is_default, created_at, updated_at"
 
 
@@ -404,7 +403,6 @@ def public_runninghub_settings(
         "api_key_configured": bool(api_key),
         "api_key_masked": mask_api_key(api_key),
         "workflow_id": FIXED_DIGITAL_HUMAN_WORKFLOW_ID,
-        "image_to_video_workflow_id": FIXED_IMAGE_TO_VIDEO_WORKFLOW_ID,
         "workflow_fixed": True,
         "concurrent_limit": normalized["concurrent_limit"],
         "instance_type": normalized["instance_type"],

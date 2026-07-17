@@ -144,26 +144,6 @@ def _resolve_runninghub_inputs(
     return resolved_api_key, resolved_workflow_id, resolved_instance_type
 
 
-def _resolve_runninghub_config(
-    user_id: str,
-    api_key: Optional[str],
-    instance_type: Optional[str],
-) -> tuple[str, Optional[str]]:
-    stored = settings_store.get_runninghub_settings(user_id)
-
-    resolved_api_key = (api_key or stored["api_key"]).strip()
-    resolved_instance_type = instance_type
-    if isinstance(resolved_instance_type, str):
-        resolved_instance_type = resolved_instance_type.strip() or None
-    if resolved_instance_type is None:
-        resolved_instance_type = stored["instance_type"] or None
-
-    if not resolved_api_key:
-        raise HTTPException(status_code=422, detail="Please configure RunningHub API Key in settings first")
-
-    return resolved_api_key, resolved_instance_type
-
-
 # ---------------------------------------------------------------------------
 # GET/PUT /settings
 # ---------------------------------------------------------------------------
@@ -525,62 +505,6 @@ async def generate_video(
 
 
 # ---------------------------------------------------------------------------
-# POST /image-to-video/generate
-# ---------------------------------------------------------------------------
-@router.post("/image-to-video/generate")
-async def generate_image_to_video(
-    user: dict = Depends(require_current_user),
-    image: UploadFile = File(...),
-    prompt: str = Form(...),
-    runninghub_api_key: Optional[str] = Form(None),
-    runninghub_instance_type: Optional[str] = Form(None),
-):
-    """Submit an image-to-video task to the fixed RunningHub workflow."""
-    if not prompt.strip():
-        raise HTTPException(status_code=422, detail="prompt is required")
-
-    cfg = _get_config()
-    runninghub_api_key, runninghub_instance_type = _resolve_runninghub_config(
-        user_id=user["id"],
-        api_key=runninghub_api_key,
-        instance_type=runninghub_instance_type,
-    )
-    output_root = _output_root(cfg)
-
-    task_id = uuid.uuid4().hex
-    task_dir = output_root / "image_to_video" / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
-
-    image_path = task_dir / f"first_frame{Path(image.filename).suffix or '.jpg'}"
-    image_path.write_bytes(await image.read())
-
-    _tasks[task_id] = {
-        "user_id": user["id"],
-        "status": "pending",
-        "progress": 0,
-        "message": "Image-to-video task created, waiting to submit RunningHub...",
-        "video_url": None,
-        "runninghub_task_id": None,
-        "runninghub_task_url": RUNNINGHUB_TASKS_URL,
-        "runninghub_works_url": RUNNINGHUB_WORKS_URL,
-        "error": None,
-    }
-
-    asyncio.create_task(
-        _run_image_to_video_generation(
-            task_id=task_id,
-            image_path=image_path,
-            prompt=prompt.strip(),
-            api_key=runninghub_api_key,
-            workflow_id=settings_store.FIXED_IMAGE_TO_VIDEO_WORKFLOW_ID,
-            instance_type=runninghub_instance_type,
-        )
-    )
-
-    return {"task_id": task_id}
-
-
-# ---------------------------------------------------------------------------
 # GET /task/{task_id}
 # ---------------------------------------------------------------------------
 
@@ -634,45 +558,5 @@ async def _run_video_generation(
             status="failed",
             progress=0,
             message=f"生成失败：{exc}",
-            error=str(exc),
-        )
-
-
-async def _run_image_to_video_generation(
-    task_id: str,
-    image_path: Path,
-    prompt: str,
-    api_key: str,
-    workflow_id: str,
-    instance_type: Optional[str],
-):
-    def _update(status: str, progress: int, message: str):
-        _tasks[task_id].update(status=status, progress=progress, message=message)
-
-    try:
-        _update("running", 55, "Image and prompt confirmed, submitting RunningHub image-to-video workflow...")
-
-        runninghub_task_id = await runninghub.submit_image_to_video(
-            image_path=image_path,
-            prompt=prompt,
-            workflow_id=workflow_id,
-            api_key=api_key,
-            instance_type=instance_type,
-        )
-
-        _tasks[task_id].update(
-            status="submitted",
-            progress=100,
-            message="RunningHub image-to-video task submitted. Please check progress and outputs on RunningHub.",
-            runninghub_task_id=runninghub_task_id,
-            runninghub_task_url=RUNNINGHUB_TASKS_URL,
-            runninghub_works_url=RUNNINGHUB_WORKS_URL,
-        )
-
-    except Exception as exc:
-        _tasks[task_id].update(
-            status="failed",
-            progress=0,
-            message=f"Image-to-video generation failed: {exc}",
             error=str(exc),
         )
