@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
 import PosterVideo from "./components/PosterVideo";
+import TemplateProduction from "./components/TemplateProduction";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
 import { getCurrentUser, login, logout, register } from "./lib/auth";
@@ -20,9 +21,15 @@ const NAV_ITEMS = [
     icon: "wand",
   },
   {
+    id: "template-production",
+    label: "模板量产",
+    description: "AI 文案与批量成片",
+    icon: "template",
+  },
+  {
     id: "settings",
     label: "设置",
-    description: "RunningHub 配置",
+    description: "服务与模型配置",
     icon: "settings",
   },
   {
@@ -49,10 +56,17 @@ const PAGE_META = {
     badge: "本地批处理",
     badgeIcon: "wand",
   },
+  "template-production": {
+    eyebrow: "Template Production",
+    title: "模板量产",
+    description: "按固定业务模板组织素材与文案，使用 Edge-TTS 和 FFmpeg 批量生成短视频。",
+    badge: "本地批量生成",
+    badgeIcon: "template",
+  },
   settings: {
     eyebrow: "Settings",
     title: "系统设置",
-    description: "配置当前用户的 RunningHub API Key，数字人工作流由系统固定。",
+    description: "管理当前用户的 RunningHub 和 LLM 服务配置。",
     badge: "配置",
     badgeIcon: "serverCog",
   },
@@ -222,6 +236,10 @@ export default function App() {
     [currentUser]
   );
   const pageMeta = useMemo(() => PAGE_META[activePage], [activePage]);
+  const handlePageChange = useCallback((pageId) => {
+    setActivePage(pageId);
+    window.scrollTo({ top: 0, left: 0 });
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,7 +296,7 @@ export default function App() {
               key={item.id}
               type="button"
               className={`nav-item ${activePage === item.id ? "is-active" : ""}`}
-              onClick={() => setActivePage(item.id)}
+              onClick={() => handlePageChange(item.id)}
               aria-current={activePage === item.id ? "page" : undefined}
             >
               <span className="nav-icon">
@@ -335,6 +353,9 @@ export default function App() {
           </div>
           <div className={`app-main page-panel ${activePage === "poster-video" ? "is-active" : ""}`}>
             <PosterVideo />
+          </div>
+          <div className={`app-main page-panel ${activePage === "template-production" ? "is-active" : ""}`}>
+            <TemplateProduction currentUser={currentUser} />
           </div>
           <div className={`settings-main page-panel ${activePage === "settings" ? "is-active" : ""}`}>
             <Settings />

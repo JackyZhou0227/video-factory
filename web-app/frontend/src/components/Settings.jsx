@@ -3,232 +3,270 @@ import Icon from "./Icon";
 import { apiFetch, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
 import { maskApiKey } from "../lib/runninghubSettings";
 
+const DEFAULT_INSTANCE_TYPE = "plus";
 const INSTANCE_OPTIONS = [
-  { value: "", label: "默认规格", hint: "使用 RunningHub 默认机器规格" },
-  { value: "plus", label: "48G 显存", hint: "适合更大的模型或更高分辨率任务" },
+  { value: "", label: "24G 显存" },
+  { value: "plus", label: "48G 显存" },
 ];
 
-const EMPTY_RUNNINGHUB_SETTINGS = {
-  user: {
-    id: "local-default",
-    username: "local",
-    display_name: "用户",
-  },
+const EMPTY_RUNNINGHUB = {
   api_key_configured: false,
   api_key_masked: "",
-  workflow_id: "",
   concurrent_limit: 1,
-  instance_type: "",
+  instance_type: DEFAULT_INSTANCE_TYPE,
 };
 
-function normalizeSettingsPayload(data) {
-  return {
-    ...EMPTY_RUNNINGHUB_SETTINGS,
-    ...(data?.runninghub || data || {}),
-  };
-}
+const EMPTY_LLM = {
+  base_url: "https://api.openai.com/v1",
+  model: "",
+  api_key_configured: false,
+  api_key_masked: "",
+};
 
 export default function Settings() {
   const backendBaseUrl = useBackendBaseUrl();
   const backendDisplayUrl = useMemo(() => getBackendDisplayUrl(backendBaseUrl), [backendBaseUrl]);
-
+  const [loading, setLoading] = useState(true);
+  const [savingRunningHub, setSavingRunningHub] = useState(false);
+  const [savingLlm, setSavingLlm] = useState(false);
+  const [testingLlm, setTestingLlm] = useState(false);
   const [notice, setNotice] = useState("");
-  const [settingsError, setSettingsError] = useState("");
-  const [loadingSettings, setLoadingSettings] = useState(true);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [storedSettings, setStoredSettings] = useState(EMPTY_RUNNINGHUB_SETTINGS);
-  const [apiKey, setApiKey] = useState("");
+  const [error, setError] = useState("");
+  const [runninghub, setRunninghub] = useState(EMPTY_RUNNINGHUB);
+  const [runningHubKey, setRunningHubKey] = useState("");
   const [concurrentLimit, setConcurrentLimit] = useState(1);
-  const [instanceType, setInstanceType] = useState("");
+  const [instanceType, setInstanceType] = useState(DEFAULT_INSTANCE_TYPE);
+  const [llm, setLlm] = useState(EMPTY_LLM);
+  const [llmBaseUrl, setLlmBaseUrl] = useState(EMPTY_LLM.base_url);
+  const [llmModel, setLlmModel] = useState("");
+  const [llmApiKey, setLlmApiKey] = useState("");
 
-  const selectedInstance = useMemo(
-    () => INSTANCE_OPTIONS.find((option) => option.value === instanceType) ?? INSTANCE_OPTIONS[0],
-    [instanceType]
-  );
-  const apiKeyConfigured = Boolean(apiKey.trim()) || storedSettings.api_key_configured;
-  const runningHubConfigured = apiKeyConfigured;
+  const runningHubConfigured = Boolean(runningHubKey.trim()) || runninghub.api_key_configured;
+  const llmReady = Boolean(llmBaseUrl.trim() && llmModel.trim());
+
+  const applySettings = useCallback((data) => {
+    const nextRunninghub = { ...EMPTY_RUNNINGHUB, ...(data?.runninghub || {}) };
+    const nextLlm = { ...EMPTY_LLM, ...(data?.llm || {}) };
+    setRunninghub(nextRunninghub);
+    setRunningHubKey("");
+    setConcurrentLimit(nextRunninghub.concurrent_limit || 1);
+    setInstanceType(nextRunninghub.instance_type);
+    setLlm(nextLlm);
+    setLlmBaseUrl(nextLlm.base_url || EMPTY_LLM.base_url);
+    setLlmModel(nextLlm.model || "");
+    setLlmApiKey("");
+  }, []);
 
   const loadSettings = useCallback(async () => {
-    setLoadingSettings(true);
-    setSettingsError("");
-    setNotice("");
-
+    setLoading(true);
+    setError("");
     try {
       const response = await apiFetch("/api/settings", undefined, backendBaseUrl);
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const data = await response.json();
-      const runninghub = normalizeSettingsPayload(data);
-      setStoredSettings(runninghub);
-      setApiKey("");
-      setConcurrentLimit(runninghub.concurrent_limit || 1);
-      setInstanceType(runninghub.instance_type || "");
+      applySettings(await response.json());
     } catch (err) {
-      setSettingsError(err.message || "读取设置失败");
+      setError(err.message || "读取设置失败");
     } finally {
-      setLoadingSettings(false);
+      setLoading(false);
     }
-  }, [backendBaseUrl]);
+  }, [applySettings, backendBaseUrl]);
 
   useEffect(() => {
     loadSettings();
   }, [loadSettings]);
 
-  const handleSaveRunningHub = useCallback(async () => {
-    setSettingsError("");
+  const saveRunningHub = useCallback(async () => {
+    setSavingRunningHub(true);
     setNotice("");
-    setSavingSettings(true);
-
-    const payload = {
-      concurrent_limit: Number(concurrentLimit || 1),
-      instance_type: instanceType,
-    };
-    if (apiKey.trim()) payload.api_key = apiKey.trim();
-
+    setError("");
+    const payload = { concurrent_limit: Number(concurrentLimit || 1), instance_type: instanceType };
+    if (runningHubKey.trim()) payload.api_key = runningHubKey.trim();
     try {
       const response = await apiFetch(
         "/api/settings/runninghub",
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        backendBaseUrl
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      setRunninghub({ ...EMPTY_RUNNINGHUB, ...data });
+      setRunningHubKey("");
+      setNotice("RunningHub 设置已保存。");
+    } catch (err) {
+      setError(err.message || "保存 RunningHub 设置失败");
+    } finally {
+      setSavingRunningHub(false);
+    }
+  }, [backendBaseUrl, concurrentLimit, instanceType, runningHubKey]);
+
+  const saveLlm = useCallback(async () => {
+    setSavingLlm(true);
+    setNotice("");
+    setError("");
+    const payload = { base_url: llmBaseUrl.trim(), model: llmModel.trim() };
+    if (llmApiKey.trim()) payload.api_key = llmApiKey.trim();
+    try {
+      const response = await apiFetch(
+        "/api/settings/llm",
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        backendBaseUrl
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      setLlm({ ...EMPTY_LLM, ...data });
+      setLlmApiKey("");
+      setNotice("LLM 服务配置已保存。");
+    } catch (err) {
+      setError(err.message || "保存 LLM 服务配置失败");
+    } finally {
+      setSavingLlm(false);
+    }
+  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmModel]);
+
+  const clearLlmKey = useCallback(async () => {
+    setSavingLlm(true);
+    setNotice("");
+    setError("");
+    try {
+      const response = await apiFetch(
+        "/api/settings/llm",
         {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
+          body: JSON.stringify({ base_url: llmBaseUrl.trim(), model: llmModel.trim(), clear_api_key: true }),
         },
         backendBaseUrl
       );
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${response.status}`);
-      }
-
-      const runninghub = normalizeSettingsPayload(await response.json());
-      setStoredSettings(runninghub);
-      setApiKey("");
-      setConcurrentLimit(runninghub.concurrent_limit || 1);
-      setInstanceType(runninghub.instance_type || "");
-      setNotice("RunningHub 设置已保存。");
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      setLlm({ ...EMPTY_LLM, ...data });
+      setLlmApiKey("");
+      setNotice("LLM API Key 已清除。");
     } catch (err) {
-      setSettingsError(err.message || "保存设置失败");
+      setError(err.message || "清除 LLM API Key 失败");
     } finally {
-      setSavingSettings(false);
+      setSavingLlm(false);
     }
-  }, [apiKey, backendBaseUrl, concurrentLimit, instanceType]);
+  }, [backendBaseUrl, llmBaseUrl, llmModel]);
 
-  const visibleApiKey = apiKey.trim()
-    ? maskApiKey(apiKey)
-    : storedSettings.api_key_masked || "尚未配置";
+  const testLlm = useCallback(async () => {
+    setTestingLlm(true);
+    setNotice("");
+    setError("");
+    const payload = { base_url: llmBaseUrl.trim(), model: llmModel.trim() };
+    if (llmApiKey.trim()) payload.api_key = llmApiKey.trim();
+    try {
+      const response = await apiFetch(
+        "/api/settings/llm/test",
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+        backendBaseUrl
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+      setNotice(`LLM 连接正常${data.response ? `：${data.response}` : ""}`);
+    } catch (err) {
+      setError(err.message || "LLM 连接测试失败");
+    } finally {
+      setTestingLlm(false);
+    }
+  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmModel]);
 
   return (
     <section className="workspace-panel settings-panel" aria-labelledby="settings-title">
       <div className="panel-heading settings-heading">
-        <div>
-          <span className="section-kicker">RunningHub</span>
-          <h2 id="settings-title">设置</h2>
-        </div>
-        <span className={`status-pill ${runningHubConfigured ? "completed" : "failed"}`}>
-          <Icon name={runningHubConfigured ? "check" : "alert"} size={14} />
-          {runningHubConfigured ? "已配置" : "未配置"}
+        <div><span className="section-kicker">Services</span><h2 id="settings-title">设置</h2></div>
+        <span className={`status-pill ${runningHubConfigured && llmReady ? "completed" : "pending"}`}>
+          <Icon name={loading ? "loading" : "settings"} size={14} />{loading ? "读取中" : "按用户保存"}
         </span>
       </div>
 
-      <div className="settings-content single-settings-content">
-        <div className="settings-copy">
-          <h3>
-            <Icon name="serverCog" size={18} />
-            当前用户的 RunningHub 配置
-          </h3>
-          <p>
-            这些配置按用户保存在 <code>data/video_factory.db</code>，刷新页面、换浏览器或客户重启服务后都会保留。
-            前端和后端同机部署，接口会自动连接到 <code>{backendDisplayUrl}</code>。
-          </p>
-          <div className="settings-current-key">
-            <span>当前用户</span>
-            <strong>{storedSettings.user?.display_name || "用户"} · {storedSettings.user?.id || "local-default"}</strong>
-          </div>
-          <div className="settings-current-key">
-            <span>当前 Key</span>
-            <strong>{visibleApiKey}</strong>
-          </div>
-          <div className="settings-current-key">
-            <span>数字人固定工作流 ID</span>
-            <strong>{storedSettings.workflow_id || "系统内置"}</strong>
-          </div>
+      <div className="settings-backend-bar">
+        <div className="settings-backend-copy">
+          <h3><Icon name="serverCog" size={18} />后端服务</h3>
+          <p>当前页面连接到 <strong>{backendDisplayUrl}</strong></p>
         </div>
-
-        <div className="settings-form">
-          <div className="field">
-            <label className="field-label" htmlFor="runninghub-api-key">
-              RunningHub API Key
-            </label>
-            <input
-              id="runninghub-api-key"
-              className="control"
-              type="password"
-              placeholder={storedSettings.api_key_configured ? "已配置，留空则不修改" : "请输入 RunningHub API Key"}
-              value={apiKey}
-              onChange={(event) => setApiKey(event.target.value)}
-              autoComplete="off"
-            />
-          </div>
-
-          <div className="field-grid">
-            <div className="field">
-              <label className="field-label" htmlFor="runninghub-concurrent-limit">
-                并发限制
-              </label>
-              <input
-                id="runninghub-concurrent-limit"
-                className="control"
-                type="number"
-                min="1"
-                max="10"
-                value={concurrentLimit}
-                onChange={(event) => setConcurrentLimit(event.target.value)}
-              />
-            </div>
-
-            <div className="field">
-              <label className="field-label" htmlFor="runninghub-instance-type">
-                机器规格
-              </label>
-              <select
-                id="runninghub-instance-type"
-                className="control"
-                value={instanceType}
-                onChange={(event) => setInstanceType(event.target.value)}
-              >
-                {INSTANCE_OPTIONS.map((option) => (
-                  <option key={option.value || "default"} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="settings-instance-note">
-            <strong>
-              <Icon name="sliders" size={15} />
-              {selectedInstance.label}
-            </strong>
-            <span>{selectedInstance.hint}</span>
-          </div>
-
-          {loadingSettings && <div className="form-alert completed">正在读取设置...</div>}
-          {notice && <div className="form-alert completed">{notice}</div>}
-          {settingsError && <div className="form-alert failed">{settingsError}</div>}
-
-          <div className="settings-actions">
-            <button className="secondary-action" type="button" onClick={loadSettings} disabled={loadingSettings || savingSettings}>
-              <Icon name={loadingSettings ? "loading" : "refresh"} size={16} />
-              重新读取
-            </button>
-            <button className="primary-action" type="button" onClick={handleSaveRunningHub} disabled={savingSettings}>
-              <Icon name={savingSettings ? "loading" : "save"} size={16} />
-              {savingSettings ? "正在保存" : "保存设置"}
-            </button>
-          </div>
-        </div>
+        <button className="secondary-action" type="button" onClick={loadSettings} disabled={loading}>
+          <Icon name={loading ? "loading" : "refresh"} size={15} />刷新配置
+        </button>
       </div>
+
+      <div className="settings-service-list">
+        <section className="settings-service-section" aria-labelledby="runninghub-settings-title">
+          <div className="settings-service-copy">
+            <span className="section-kicker">RunningHub</span>
+            <h3 id="runninghub-settings-title"><Icon name="cloud" size={19} />RunningHub 配置</h3>
+            <p>保存当前用户的 RunningHub API Key，并配置任务并发和机器规格。</p>
+            <dl className="settings-summary">
+              <div><dt>API Key</dt><dd>{runningHubKey.trim() ? maskApiKey(runningHubKey) : runninghub.api_key_masked || "尚未配置"}</dd></div>
+            </dl>
+            <div className="runninghub-key-link-slot">
+              <a
+                className="runninghub-key-link"
+                href="https://www.runninghub.cn/?inviteCode=kwqbktmi"
+                rel="noreferrer"
+                target="_blank"
+              >
+                <span className="runninghub-key-link-copy">
+                  <strong>还没有 RunningHub API Key？</strong>
+                  <small>前往 RunningHub 获取</small>
+                </span>
+                <Icon name="external" size={15} />
+              </a>
+            </div>
+          </div>
+          <div className="settings-form service-settings-form">
+            <label className="field">
+              <span className="field-label">API Key</span>
+              <input className="control" type="password" autoComplete="off" value={runningHubKey} onChange={(event) => setRunningHubKey(event.target.value)} placeholder={runninghub.api_key_configured ? "已配置，留空则不修改" : "输入 RunningHub API Key"} />
+            </label>
+            <label className="field">
+              <span className="field-label">并发任务数</span>
+              <input className="control" type="number" min="1" max="10" value={concurrentLimit} onChange={(event) => setConcurrentLimit(Math.max(1, Math.min(10, Number(event.target.value) || 1)))} />
+            </label>
+            <label className="field">
+              <span className="field-label">机器规格</span>
+              <select className="control" value={instanceType} onChange={(event) => setInstanceType(event.target.value)}>
+                {INSTANCE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <div className="settings-actions"><button className="primary-action" type="button" onClick={saveRunningHub} disabled={savingRunningHub}><Icon name={savingRunningHub ? "loading" : "save"} size={16} />{savingRunningHub ? "正在保存" : "保存"}</button></div>
+          </div>
+        </section>
+
+        <section className="settings-service-section" aria-labelledby="llm-settings-title">
+          <div className="settings-service-copy">
+            <span className="section-kicker">LLM Service</span>
+            <h3 id="llm-settings-title"><Icon name="sparkles" size={19} />LLM 服务配置</h3>
+            <p>保存当前用户的接口地址、模型名称和 API Key，供项目内需要大语言模型的功能统一调用。接口需兼容 OpenAI Chat Completions 协议。</p>
+            <dl className="settings-summary">
+              <div><dt>API Key</dt><dd>{llmApiKey.trim() ? maskApiKey(llmApiKey) : llm.api_key_masked || "未配置或无需密钥"}</dd></div>
+              <div><dt>状态</dt><dd>{llmReady ? "地址与模型已填写" : "等待配置"}</dd></div>
+            </dl>
+          </div>
+          <div className="settings-form service-settings-form">
+            <label className="field">
+              <span className="field-label">Base URL</span>
+              <input className="control" type="url" value={llmBaseUrl} onChange={(event) => setLlmBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" />
+            </label>
+            <label className="field">
+              <span className="field-label">模型名称</span>
+              <input className="control" value={llmModel} onChange={(event) => setLlmModel(event.target.value)} placeholder="例如：gpt-4o-mini 或 deepseek-chat" />
+            </label>
+            <label className="field">
+              <span className="field-label">API Key</span>
+              <input className="control" type="password" autoComplete="off" value={llmApiKey} onChange={(event) => setLlmApiKey(event.target.value)} placeholder={llm.api_key_configured ? "已配置，留空则不修改" : "本地无鉴权服务可留空"} />
+            </label>
+            <div className="settings-actions llm-settings-actions">
+              <button className="secondary-action" type="button" onClick={testLlm} disabled={testingLlm || !llmReady}><Icon name={testingLlm ? "loading" : "lab"} size={16} />测试连接</button>
+              {llm.api_key_configured ? <button className="text-button danger-text-button" type="button" onClick={clearLlmKey} disabled={savingLlm}>清除密钥</button> : null}
+              <button className="primary-action" type="button" onClick={saveLlm} disabled={savingLlm || !llmReady}><Icon name={savingLlm ? "loading" : "save"} size={16} />{savingLlm ? "正在保存" : "保存"}</button>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {error ? <div className="form-alert failed">{error}</div> : null}
+      {notice ? <div className="form-alert completed">{notice}</div> : null}
     </section>
   );
 }

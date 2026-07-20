@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import sqlite3
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterator, Optional
 
 DEFAULT_USER_ID = "local-default"
 DEFAULT_USERNAME = "local"
 DEFAULT_DISPLAY_NAME = "本机用户"
 RUNNINGHUB_NAMESPACE = "runninghub"
+LLM_NAMESPACE = "llm"
 FIXED_DIGITAL_HUMAN_WORKFLOW_ID = "2003717471859294210"
+DEFAULT_RUNNINGHUB_INSTANCE_TYPE = "plus"
 USER_PUBLIC_COLUMNS = "id, username, display_name, role, is_default, created_at, updated_at"
+DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
 
 
 def _root() -> Path:
@@ -27,13 +31,21 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect() -> Iterator[sqlite3.Connection]:
     db_path = _db_path()
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    try:
+        yield conn
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 
 def _normalize_concurrent_limit(value: Any) -> int:
@@ -46,11 +58,21 @@ def _normalize_concurrent_limit(value: Any) -> int:
 
 def _normalize_runninghub_settings(settings: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     source = settings or {}
+    raw_instance_type = source.get("instance_type")
     return {
         "api_key": str(source.get("api_key") or "").strip(),
         "workflow_id": FIXED_DIGITAL_HUMAN_WORKFLOW_ID,
         "concurrent_limit": _normalize_concurrent_limit(source.get("concurrent_limit")),
-        "instance_type": str(source.get("instance_type") or "").strip(),
+        "instance_type": DEFAULT_RUNNINGHUB_INSTANCE_TYPE if raw_instance_type is None else str(raw_instance_type).strip(),
+    }
+
+
+def _normalize_llm_settings(settings: Optional[dict[str, Any]] = None) -> dict[str, str]:
+    source = settings or {}
+    return {
+        "base_url": str(source.get("base_url") or DEFAULT_LLM_BASE_URL).strip().rstrip("/"),
+        "api_key": str(source.get("api_key") or "").strip(),
+        "model": str(source.get("model") or "").strip(),
     }
 
 
@@ -208,6 +230,45 @@ def _seed_from_config(conn: sqlite3.Connection, config: Optional[dict[str, Any]]
     )
 
 
+def _seed_llm_from_config(conn: sqlite3.Connection, config: Optional[dict[str, Any]]) -> None:
+    existing = conn.execute(
+        """
+        SELECT 1
+        FROM settings
+        WHERE user_id = ? AND namespace = ?
+        LIMIT 1
+        """,
+        (DEFAULT_USER_ID, LLM_NAMESPACE),
+    ).fetchone()
+    if existing:
+        return
+
+    llm_config = (config or {}).get("llm") or {}
+    settings = _normalize_llm_settings(llm_config)
+    _upsert_setting(
+        conn,
+        user_id=DEFAULT_USER_ID,
+        namespace=LLM_NAMESPACE,
+        setting_name="base_url",
+        value=settings["base_url"],
+    )
+    _upsert_setting(
+        conn,
+        user_id=DEFAULT_USER_ID,
+        namespace=LLM_NAMESPACE,
+        setting_name="api_key",
+        value=settings["api_key"],
+        is_secret=True,
+    )
+    _upsert_setting(
+        conn,
+        user_id=DEFAULT_USER_ID,
+        namespace=LLM_NAMESPACE,
+        setting_name="model",
+        value=settings["model"],
+    )
+
+
 def _create_settings_table(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -300,6 +361,7 @@ def init_db(config: Optional[dict[str, Any]] = None) -> None:
         _ensure_default_user(conn)
         _migrate_legacy_runninghub_settings(conn)
         _seed_from_config(conn, config)
+        _seed_llm_from_config(conn, config)
 
 
 def get_default_user() -> dict[str, Any]:
@@ -402,8 +464,75 @@ def public_runninghub_settings(
         },
         "api_key_configured": bool(api_key),
         "api_key_masked": mask_api_key(api_key),
-        "workflow_id": FIXED_DIGITAL_HUMAN_WORKFLOW_ID,
-        "workflow_fixed": True,
         "concurrent_limit": normalized["concurrent_limit"],
         "instance_type": normalized["instance_type"],
+    }
+
+
+def get_llm_settings(user_id: str = DEFAULT_USER_ID) -> dict[str, str]:
+    values = _get_namespace_settings(user_id, LLM_NAMESPACE)
+    return _normalize_llm_settings(values)
+
+
+def update_llm_settings(
+    *,
+    user_id: str = DEFAULT_USER_ID,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    model: Optional[str] = None,
+    clear_api_key: bool = False,
+) -> dict[str, str]:
+    current = get_llm_settings(user_id)
+    next_api_key = current["api_key"]
+    if clear_api_key:
+        next_api_key = ""
+    elif api_key is not None:
+        next_api_key = api_key
+
+    next_settings = _normalize_llm_settings(
+        {
+            "base_url": current["base_url"] if base_url is None else base_url,
+            "api_key": next_api_key,
+            "model": current["model"] if model is None else model,
+        }
+    )
+
+    with _connect() as conn:
+        _upsert_setting(
+            conn,
+            user_id=user_id,
+            namespace=LLM_NAMESPACE,
+            setting_name="base_url",
+            value=next_settings["base_url"],
+        )
+        _upsert_setting(
+            conn,
+            user_id=user_id,
+            namespace=LLM_NAMESPACE,
+            setting_name="api_key",
+            value=next_settings["api_key"],
+            is_secret=True,
+        )
+        _upsert_setting(
+            conn,
+            user_id=user_id,
+            namespace=LLM_NAMESPACE,
+            setting_name="model",
+            value=next_settings["model"],
+        )
+
+    return next_settings
+
+
+def public_llm_settings(
+    settings: Optional[dict[str, Any]] = None,
+    user_id: str = DEFAULT_USER_ID,
+) -> dict[str, Any]:
+    normalized = _normalize_llm_settings(settings or get_llm_settings(user_id))
+    api_key = normalized["api_key"]
+    return {
+        "base_url": normalized["base_url"],
+        "model": normalized["model"],
+        "api_key_configured": bool(api_key),
+        "api_key_masked": mask_api_key(api_key),
     }

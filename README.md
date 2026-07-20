@@ -1,6 +1,6 @@
 # Video Factory
 
-Video Factory 是一个本地运行的 AI 视频生产工作台。当前已经接入的功能是“数字人口播视频”：前端负责素材、文案、音色和语言选择；后端负责本地 TTS、RunningHub 工作流调用和生成结果管理。
+Video Factory 是一个本地运行的 AI 视频生产工作台。当前包含数字人口播、大字报视频和模板量产模块：前端负责素材、文案和生成参数，后端负责统一 LLM/TTS 调用、RunningHub 工作流和 FFmpeg 批量成片。
 
 ## 项目结构
 
@@ -26,6 +26,8 @@ web-app/
 - NVIDIA 显卡驱动
 - RunningHub API Key
 - Hugging Face 上的 Qwen3-TTS 模型文件
+- FFmpeg 与 FFprobe（模板量产和大字报视频使用）
+- 可访问的 Edge-TTS 网络环境
 
 客户运行时不需要 Node.js / npm；只有开发或重新构建前端时才需要。
 
@@ -213,9 +215,9 @@ python scripts\init_admin.py --username admin --password 12345678 --display-name
 
 ## 本机设置
 
-登录后在页面“设置”里配置当前用户的 RunningHub API Key、并发限制和机器规格。
+登录后在页面“设置”里配置当前用户的 RunningHub API Key、并发限制和机器规格，以及 OpenAI 兼容 LLM 的 Base URL、API Key 和模型名称。
 
-这些设置按用户保存在后端本机 SQLite：`web-app/data/video_factory.db`。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。
+这些设置按用户保存在后端本机 SQLite：`web-app/data/video_factory.db`。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。模板量产首版使用 Edge-TTS，生成任务状态只保存在当前后端进程中，服务重启后任务状态不会恢复。
 
 ## 启动应用
 

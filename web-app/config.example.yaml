@@ -6,7 +6,7 @@ runninghub:
   # key cannot access them directly. Customer uploads/tasks still use customer keys.
   api_key: ""
   concurrent_limit: 1
-  instance_type: null
+  instance_type: plus
 
 tts:
   # CustomVoice model path:
@@ -16,6 +16,16 @@ tts:
   device: "cpu"
   default_speaker: "Uncle_Fu"
   default_language: "Chinese"
+  # Default provider for the template-production module.
+  default_provider: "Edge-TTS"
+  edge_default_voice: "zh-CN-XiaoxiaoNeural"
+
+llm:
+  # Defaults seeded for the local default user. Each login user can override
+  # these values from the Settings page.
+  base_url: "https://api.openai.com/v1"
+  api_key: ""
+  model: ""
 
 server:
   host: "0.0.0.0"

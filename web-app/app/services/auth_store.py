@@ -7,6 +7,7 @@ import secrets
 import sqlite3
 import uuid
 from datetime import datetime, timedelta, timezone
+from contextlib import AbstractContextManager
 from typing import Any, Optional
 
 from app.services import settings_store
@@ -41,7 +42,7 @@ def _public_user(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _connect() -> sqlite3.Connection:
+def _connect() -> AbstractContextManager[sqlite3.Connection]:
     return settings_store._connect()
 
 

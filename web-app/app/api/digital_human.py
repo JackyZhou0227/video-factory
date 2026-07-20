@@ -14,6 +14,7 @@ from pydantic import BaseModel, Field
 from app.api.auth import require_current_user
 from app.core.config import ROOT, app_config
 from app.services import tts_qwen, runninghub, voice_profiles, settings_store
+from app.services.llm import LLMConfig, LLMServiceError, llm_service
 
 router = APIRouter(dependencies=[Depends(require_current_user)])
 
@@ -31,6 +32,19 @@ class RunningHubSettingsUpdate(BaseModel):
     api_key: Optional[str] = Field(default=None)
     concurrent_limit: Optional[int] = Field(default=None, ge=1, le=10)
     instance_type: Optional[str] = Field(default=None)
+
+
+class LLMSettingsUpdate(BaseModel):
+    base_url: Optional[str] = Field(default=None, max_length=500)
+    api_key: Optional[str] = Field(default=None, max_length=1000)
+    model: Optional[str] = Field(default=None, max_length=200)
+    clear_api_key: bool = False
+
+
+class LLMSettingsTest(BaseModel):
+    base_url: Optional[str] = Field(default=None, max_length=500)
+    api_key: Optional[str] = Field(default=None, max_length=1000)
+    model: Optional[str] = Field(default=None, max_length=200)
 
 
 def _get_config():
@@ -152,6 +166,7 @@ def _resolve_runninghub_inputs(
 def get_settings(user: dict = Depends(require_current_user)):
     return {
         "runninghub": settings_store.public_runninghub_settings(user=user, user_id=user["id"]),
+        "llm": settings_store.public_llm_settings(user_id=user["id"]),
     }
 
 
@@ -164,6 +179,33 @@ def update_runninghub_settings(payload: RunningHubSettingsUpdate, user: dict = D
         instance_type=payload.instance_type,
     )
     return settings_store.public_runninghub_settings(updated, user=user, user_id=user["id"])
+
+
+@router.put("/settings/llm")
+def update_llm_settings(payload: LLMSettingsUpdate, user: dict = Depends(require_current_user)):
+    updated = settings_store.update_llm_settings(
+        user_id=user["id"],
+        base_url=payload.base_url,
+        api_key=payload.api_key,
+        model=payload.model,
+        clear_api_key=payload.clear_api_key,
+    )
+    return settings_store.public_llm_settings(updated, user_id=user["id"])
+
+
+@router.post("/settings/llm/test")
+async def test_llm_settings(payload: LLMSettingsTest, user: dict = Depends(require_current_user)):
+    stored = settings_store.get_llm_settings(user["id"])
+    config = LLMConfig(
+        base_url=stored["base_url"] if payload.base_url is None else payload.base_url.strip(),
+        api_key=stored["api_key"] if payload.api_key is None else payload.api_key.strip(),
+        model=stored["model"] if payload.model is None else payload.model.strip(),
+    )
+    try:
+        response = await llm_service.test_connection(config)
+    except LLMServiceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+    return {"ok": True, "response": response[:100]}
 
 
 # ---------------------------------------------------------------------------
