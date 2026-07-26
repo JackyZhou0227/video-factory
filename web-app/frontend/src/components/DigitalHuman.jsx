@@ -519,7 +519,7 @@ export default function DigitalHuman() {
     resetVideoState();
   }, [resetVideoState]);
 
-  const basePresetReady = Boolean(voiceProfileId);
+  const basePresetReady = Boolean(voiceProfileId && voiceProfiles.some((item) => item.id === voiceProfileId));
 
   const canPreviewAudio = Boolean(
     mode === "text" &&
