@@ -63,16 +63,13 @@ export default function TemplateProduction({ currentUser }) {
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
   const [variables, setVariables] = useState({});
   const [materials, setMaterials] = useState({});
-  const [scripts, setScripts] = useState([]);
-  const [voices, setVoices] = useState([]);
-  const [voiceId, setVoiceId] = useState("zh-CN-XiaoxiaoNeural");
-  const [speed, setSpeed] = useState(1);
-  const [volume, setVolume] = useState(80);
+  const [scriptCandidates, setScriptCandidates] = useState([]);
+  const [selectedCandidateId, setSelectedCandidateId] = useState("");
+  const [finalScript, setFinalScript] = useState("");
+  const [rewritingCandidateId, setRewritingCandidateId] = useState("");
   const [ratio, setRatio] = useState("9:16");
   const [generateCount, setGenerateCount] = useState(5);
   const [generatingScripts, setGeneratingScripts] = useState(false);
-  const [previewing, setPreviewing] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState("");
   const [task, setTask] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
@@ -97,7 +94,7 @@ export default function TemplateProduction({ currentUser }) {
   const variablesReady = selectedTemplate.variables.every(
     (field) => !field.required || String(variables[field.id] || "").trim()
   );
-  const canSubmit = variablesReady && materialIssues.length === 0 && scripts.length > 0 && !submitting;
+  const canSubmit = variablesReady && materialIssues.length === 0 && Boolean(finalScript.trim()) && !submitting;
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearTimeout(pollRef.current);
@@ -131,29 +128,6 @@ export default function TemplateProduction({ currentUser }) {
   );
 
   useEffect(() => {
-    let cancelled = false;
-    apiFetch("/api/template-production/tts/voices", undefined, backendBaseUrl)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
-      .then((data) => {
-        if (cancelled) return;
-        const nextVoices = Array.isArray(data.voices) ? data.voices : [];
-        setVoices(nextVoices);
-        if (nextVoices.length) {
-          setVoiceId((current) => nextVoices.some((item) => item.id === current) ? current : nextVoices[0].id);
-        }
-      })
-      .catch((err) => {
-        if (!cancelled) setError(err.message || "读取 Edge-TTS 音色失败");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [backendBaseUrl]);
-
-  useEffect(() => {
     const storedTaskId = localStorage.getItem(taskStorageKey);
     if (storedTaskId) pollTask(storedTaskId);
     return stopPolling;
@@ -168,8 +142,10 @@ export default function TemplateProduction({ currentUser }) {
       setRatio(nextTemplate.ratio);
       setVariables({});
       setMaterials({});
-      setScripts([]);
-      setPreviewUrl("");
+      setScriptCandidates([]);
+      setSelectedCandidateId("");
+      setFinalScript("");
+      setRewritingCandidateId("");
       setTask(null);
       setError("");
       setNotice("");
@@ -206,61 +182,85 @@ export default function TemplateProduction({ currentUser }) {
     }
     setGeneratingScripts(true);
     try {
+      const materialContext = Object.fromEntries(
+        selectedTemplate.requirements.map((requirement) => [requirement.id, materials[requirement.id]?.length || 0])
+      );
       const response = await apiFetch(
         "/api/template-production/scripts/generate",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ template_id: templateId, variables, count: 3 }),
+          body: JSON.stringify({
+            template_id: templateId,
+            variables,
+            count: 3,
+            material_context: materialContext,
+          }),
         },
         backendBaseUrl
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-      setScripts((data.scripts || []).map((content) => ({ id: makeId(), content })));
-      setNotice(`已生成 ${(data.scripts || []).length} 条文案，可以继续编辑。`);
+      const nextScripts = Array.isArray(data.scripts) ? data.scripts : [];
+      if (!nextScripts.length) throw new Error("LLM 没有返回可用候选文案");
+      const nextCandidates = nextScripts.map((content) => ({ id: makeId(), content }));
+      setScriptCandidates(nextCandidates);
+      setSelectedCandidateId(nextCandidates[0].id);
+      setFinalScript(nextCandidates[0].content);
+      setNotice(`已生成 ${nextCandidates.length} 条候选文案，已选择第 1 条。`);
     } catch (err) {
       setError(err.message || "AI 文案生成失败");
     } finally {
       setGeneratingScripts(false);
     }
-  }, [backendBaseUrl, templateId, variables, variablesReady]);
+  }, [backendBaseUrl, materials, selectedTemplate, templateId, variables, variablesReady]);
 
-  const addScript = useCallback(() => {
-    setScripts((current) => [...current, { id: makeId(), content: "" }]);
-  }, []);
-
-  const updateScript = useCallback((id, content) => {
-    setScripts((current) => current.map((item) => (item.id === id ? { ...item, content } : item)));
-  }, []);
-
-  const removeScript = useCallback((id) => {
-    setScripts((current) => current.filter((item) => item.id !== id));
-  }, []);
-
-  const previewVoice = useCallback(async () => {
-    const text = scripts.find((item) => item.content.trim())?.content || "这是一段模板量产配音试听。";
-    setPreviewing(true);
+  const selectCandidate = useCallback((candidate) => {
+    setSelectedCandidateId(candidate.id);
+    setFinalScript(candidate.content);
     setError("");
+    setNotice("已将候选文案填入最终文案。");
+  }, []);
+
+  const rewriteCandidate = useCallback(async (candidate) => {
+    setRewritingCandidateId(candidate.id);
+    setError("");
+    setNotice("");
     try {
+      const materialContext = Object.fromEntries(
+        selectedTemplate.requirements.map((requirement) => [requirement.id, materials[requirement.id]?.length || 0])
+      );
       const response = await apiFetch(
-        "/api/template-production/tts/preview",
+        "/api/template-production/scripts/rewrite",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: text.slice(0, 300), voice_id: voiceId, speed, volume }),
+          body: JSON.stringify({
+            template_id: templateId,
+            variables,
+            original_script: candidate.content,
+            material_context: materialContext,
+          }),
         },
         backendBaseUrl
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-      setPreviewUrl(resolveBackendAssetUrl(data.audio_url, backendBaseUrl));
+      const nextContent = String(data.script || "").trim();
+      if (!nextContent) throw new Error("LLM 没有返回可用候选文案");
+      setScriptCandidates((current) =>
+        current.map((item) => (item.id === candidate.id ? { ...item, content: nextContent } : item))
+      );
+      if (selectedCandidateId === candidate.id && finalScript.trim() === candidate.content.trim()) {
+        setFinalScript(nextContent);
+      }
+      setNotice("候选文案已重写。");
     } catch (err) {
-      setError(err.message || "配音试听失败");
+      setError(err.message || "候选文案重写失败");
     } finally {
-      setPreviewing(false);
+      setRewritingCandidateId("");
     }
-  }, [backendBaseUrl, scripts, speed, voiceId, volume]);
+  }, [backendBaseUrl, finalScript, materials, selectedCandidateId, selectedTemplate, templateId, variables]);
 
   const submitTask = useCallback(async () => {
     setError("");
@@ -270,9 +270,9 @@ export default function TemplateProduction({ currentUser }) {
       return;
     }
 
-    const cleanScripts = scripts.map((item) => item.content.trim()).filter(Boolean);
-    if (!cleanScripts.length) {
-      setError("至少需要一条非空文案。");
+    const cleanScript = finalScript.trim();
+    if (!cleanScript) {
+      setError("请填写最终文案。");
       return;
     }
 
@@ -296,9 +296,8 @@ export default function TemplateProduction({ currentUser }) {
         });
       });
       form.append("template_id", templateId);
-      form.append("scripts", JSON.stringify(cleanScripts));
+      form.append("scripts", JSON.stringify([cleanScript]));
       form.append("generate_count", String(generateCount));
-      form.append("tts_config", JSON.stringify({ voice_id: voiceId, speed, volume }));
       form.append("video_config", JSON.stringify({ ratio }));
       form.append("material_manifest", JSON.stringify(manifest));
 
@@ -324,14 +323,11 @@ export default function TemplateProduction({ currentUser }) {
     materials,
     pollTask,
     ratio,
-    scripts,
+    finalScript,
     selectedTemplate,
-    speed,
     stopPolling,
     taskStorageKey,
     templateId,
-    voiceId,
-    volume,
   ]);
 
   return (
@@ -391,7 +387,7 @@ export default function TemplateProduction({ currentUser }) {
           <section className="template-work-section" aria-labelledby="template-material-title">
             <div className="template-section-heading">
               <span><Icon name="upload" size={17} /></span>
-              <div><strong id="template-material-title">拍摄素材</strong><small>素材会在每条成片中重新编排</small></div>
+              <div><strong id="template-material-title">上传素材</strong><small>素材会在每条成片中重新编排</small></div>
             </div>
             <div className="material-requirement-list">
               {selectedTemplate.requirements.map((requirement) => {
@@ -401,7 +397,9 @@ export default function TemplateProduction({ currentUser }) {
                     <div className="material-requirement-heading">
                       <div>
                         <strong>{requirement.name}</strong>
-                        <span>{requirement.type === "image" ? "图片" : "视频"} · {requirement.min}-{requirement.max} 个</span>
+                        <span>
+                          {requirement.type === "image" ? "图片" : "视频"} · {requirement.min > 0 ? `${requirement.min}-${requirement.max} 个` : `选填，最多 ${requirement.max} 个`}
+                        </span>
                       </div>
                       <label className="secondary-action compact-action">
                         <Icon name="upload" size={15} />选择文件
@@ -444,63 +442,70 @@ export default function TemplateProduction({ currentUser }) {
           <section className="template-work-section" aria-labelledby="template-script-title">
             <div className="template-section-heading with-actions">
               <span><Icon name="sparkles" size={17} /></span>
-              <div><strong id="template-script-title">口播文案</strong><small>AI 生成后仍可逐条修改</small></div>
-              <button className="secondary-action compact-action" type="button" onClick={addScript}>
-                <Icon name="edit" size={15} />手工添加
-              </button>
+              <div><strong id="template-script-title">口播文案</strong><small>从候选中选择，再编辑最终文案</small></div>
               <button className="primary-action compact-action" type="button" onClick={generateAiScripts} disabled={generatingScripts}>
                 <Icon name={generatingScripts ? "loading" : "sparkles"} size={15} />
                 {generatingScripts ? "生成中" : "AI 生成"}
               </button>
             </div>
-            {scripts.length ? (
-              <div className="template-script-list">
-                {scripts.map((item, index) => (
-                  <div className="template-script-row" key={item.id}>
-                    <span className="script-index">{index + 1}</span>
-                    <textarea
-                      className="control"
-                      value={item.content}
-                      placeholder="输入一条口播文案"
-                      onChange={(event) => updateScript(item.id, event.target.value)}
-                    />
-                    <button type="button" title="删除文案" onClick={() => removeScript(item.id)}>
-                      <Icon name="trash" size={16} />
+            {scriptCandidates.length ? (
+              <div className="script-candidate-grid" aria-label="AI 候选文案">
+                {scriptCandidates.map((candidate, index) => (
+                  <article
+                    className={`script-candidate-card ${candidate.id === selectedCandidateId ? "is-selected" : ""}`}
+                    key={candidate.id}
+                  >
+                    <div className="script-candidate-heading">
+                      <span>候选 {index + 1}</span>
+                      <button
+                        type="button"
+                        title={`重写候选 ${index + 1}`}
+                        aria-label={`重写候选 ${index + 1}`}
+                        onClick={() => rewriteCandidate(candidate)}
+                        disabled={Boolean(rewritingCandidateId)}
+                      >
+                        <Icon name={rewritingCandidateId === candidate.id ? "loading" : "refresh"} size={15} />
+                      </button>
+                    </div>
+                    <button
+                      className="script-candidate-select"
+                      type="button"
+                      onClick={() => selectCandidate(candidate)}
+                      aria-pressed={candidate.id === selectedCandidateId}
+                    >
+                      <span>{candidate.content}</span>
+                      <small>{candidate.id === selectedCandidateId ? <><Icon name="check" size={13} />已选为最终文案</> : "点击选用"}</small>
                     </button>
-                  </div>
+                  </article>
                 ))}
               </div>
             ) : (
               <div className="script-empty-state">
                 <Icon name="sparkles" size={22} />
-                <span>填写内容信息后生成文案，或直接手工添加。</span>
+                <span>填写内容信息后生成三条候选文案。</span>
               </div>
             )}
+            <label className="field final-script-field">
+              <span className="field-label">最终文案</span>
+              <textarea
+                className="control"
+                value={finalScript}
+                placeholder="选择上方候选，或直接在这里输入最终用于配音和生成视频的文案"
+                onChange={(event) => {
+                  setFinalScript(event.target.value);
+                  setSelectedCandidateId("");
+                  setNotice("");
+                }}
+              />
+            </label>
           </section>
 
           <section className="template-work-section" aria-labelledby="template-output-config-title">
             <div className="template-section-heading">
               <span><Icon name="sliders" size={17} /></span>
-              <div><strong id="template-output-config-title">生成设置</strong><small>Edge-TTS 配音与成片规格</small></div>
+              <div><strong id="template-output-config-title">生成设置</strong><small>成片规格</small></div>
             </div>
             <div className="template-config-grid">
-              <label className="field template-voice-field">
-                <span className="field-label">Edge-TTS 音色</span>
-                <select className="control" value={voiceId} onChange={(event) => setVoiceId(event.target.value)}>
-                  {voices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name} · {voice.description}</option>)}
-                </select>
-              </label>
-              <button className="secondary-action preview-voice-action" type="button" onClick={previewVoice} disabled={previewing}>
-                <Icon name={previewing ? "loading" : "play"} size={15} />{previewing ? "生成试听" : "试听"}
-              </button>
-              <label className="field range-field">
-                <span className="field-label">语速 <strong>{speed.toFixed(1)}x</strong></span>
-                <input type="range" min="0.5" max="2" step="0.1" value={speed} onChange={(event) => setSpeed(Number(event.target.value))} />
-              </label>
-              <label className="field range-field">
-                <span className="field-label">音量 <strong>{volume}%</strong></span>
-                <input type="range" min="0" max="100" step="5" value={volume} onChange={(event) => setVolume(Number(event.target.value))} />
-              </label>
               <div className="field ratio-field">
                 <span className="field-label">画面比例</span>
                 <div className="segmented-control compact-segments" role="radiogroup" aria-label="画面比例">
@@ -514,12 +519,11 @@ export default function TemplateProduction({ currentUser }) {
                 <input className="control" type="number" min="1" max="50" value={generateCount} onChange={(event) => setGenerateCount(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} />
               </label>
             </div>
-            {previewUrl ? <audio className="template-audio-preview" controls src={previewUrl} /> : null}
           </section>
 
           {error ? <div className="form-alert failed">{error}</div> : null}
           {notice ? <div className="form-alert completed">{notice}</div> : null}
-          {materialIssues.length && scripts.length ? <div className="template-inline-warning">{materialIssues[0]}</div> : null}
+          {materialIssues.length && finalScript.trim() ? <div className="template-inline-warning">{materialIssues[0]}</div> : null}
 
           <button className="primary-action template-submit-action" type="button" onClick={submitTask} disabled={!canSubmit}>
             <Icon name={submitting ? "loading" : "wand"} size={17} />

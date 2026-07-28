@@ -13,6 +13,7 @@ web-app/config.yaml
 .claude/
 
 # Runtime outputs
+/output/
 web-app/data/
 web-app/output/
 example/

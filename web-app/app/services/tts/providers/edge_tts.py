@@ -5,7 +5,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from app.services.tts.base import EDGE_TTS_MODEL, TTSRequest, TTSResult, TTSServiceError
+from app.services.tts.base import EDGE_TTS_MODEL, TTSRequest, TTSResult, TTSServiceError, TTSTiming
 
 EDGE_VOICES = [
     {"id": "zh-CN-XiaoxiaoNeural", "name": "晓晓", "gender": "female", "description": "温暖自然"},
@@ -89,7 +89,21 @@ class EdgeTtsProvider:
                 rate=_percent((speed - 1.0) * 100),
                 volume=_percent(volume - 100),
             )
-            await communicator.save(str(output_path))
+            timings: list[TTSTiming] = []
+            with output_path.open("wb") as audio_file:
+                async for chunk in communicator.stream():
+                    if chunk["type"] == "audio":
+                        audio_file.write(chunk["data"])
+                    elif chunk["type"] == "WordBoundary":
+                        start = max(0.0, float(chunk.get("offset") or 0) / 10_000_000)
+                        duration = max(0.0, float(chunk.get("duration") or 0) / 10_000_000)
+                        timings.append(
+                            TTSTiming(
+                                text=str(chunk.get("text") or ""),
+                                start=start,
+                                end=start + duration,
+                            )
+                        )
         except Exception as exc:
             raise TTSServiceError(f"Edge-TTS 生成失败：{exc}") from exc
 
@@ -102,4 +116,5 @@ class EdgeTtsProvider:
             duration=duration,
             model_name=self.model_name,
             voice_id=voice_id,
+            timings=tuple(timings),
         )

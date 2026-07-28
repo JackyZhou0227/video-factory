@@ -33,11 +33,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.temp_dir.cleanup()
         template_api._tasks.clear()
 
-    def test_voices_and_script_generation(self):
-        response = self.client.get("/api/template-production/tts/voices")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["model_name"], "Edge-TTS")
-
+    def test_script_generation(self):
         llm_result = json.dumps(
             ["这是第一条用于接口测试的医生介绍口播文案。", "这是第二条用于接口测试的医生介绍口播文案。"],
             ensure_ascii=False,
@@ -73,15 +69,14 @@ class TemplateProductionApiTests(unittest.TestCase):
             ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
         ]
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
-            template_api, "_run_task", AsyncMock(return_value=None)
-        ):
+            template_api.template_production, "require_ffmpeg"
+        ), patch.object(template_api, "_run_task", AsyncMock(return_value=None)):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
                     "template_id": "zhongyi-xunfang",
                     "scripts": json.dumps(["这是一条足够长的模板量产接口测试文案。"], ensure_ascii=False),
                     "generate_count": "2",
-                    "tts_config": json.dumps({"voice_id": "zh-CN-XiaoxiaoNeural", "speed": 1, "volume": 80}),
                     "video_config": json.dumps({"ratio": "9:16"}),
                     "material_manifest": json.dumps(manifest, ensure_ascii=False),
                 },
@@ -93,10 +88,103 @@ class TemplateProductionApiTests(unittest.TestCase):
         response = self.client.get(f"/api/template-production/tasks/{task_id}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["items"]), 2)
+        self.assertEqual(
+            {item["script"] for item in response.json()["items"]},
+            {"这是一条足够长的模板量产接口测试文案。"},
+        )
 
         self.user_id = "user-b"
         response = self.client.get(f"/api/template-production/tasks/{task_id}")
         self.assertEqual(response.status_code, 404)
+
+    def test_template_tts_request_uses_fixed_yunjian_voice(self):
+        request = template_api._template_tts_request("固定配音测试")
+
+        self.assertEqual(request.voice_id, "zh-CN-YunjianNeural")
+        self.assertEqual(request.speed, 1.0)
+        self.assertEqual(request.volume, 100)
+
+    def test_zhongyi_script_generation_returns_candidates_without_validating_them(self):
+        candidate_result = json.dumps(
+            {"scripts": [{"style": "寻访过程", "sentences": ["这是一条可以解析但结构偏短的候选文案"]}]},
+            ensure_ascii=False,
+        )
+        generate = AsyncMock(return_value=candidate_result)
+        with patch.object(
+            template_api.settings_store,
+            "get_llm_settings",
+            return_value={"base_url": "https://llm.example/v1", "api_key": "", "model": "test-model"},
+        ), patch.object(template_api.llm_service, "generate", generate):
+            response = self.client.post(
+                "/api/template-production/scripts/generate",
+                json={
+                    "template_id": "zhongyi-xunfang",
+                    "variables": {
+                        "address": "湖北阳新老街",
+                        "name": "马医生",
+                        "specialty": "痛风调理",
+                        "feature": "三代中医世家",
+                    },
+                    "count": 1,
+                    "material_context": {"doctor-scene": 2, "clinic-scene": 1},
+                },
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(generate.await_count, 1)
+        self.assertEqual(len(response.json()["scripts"]), 1)
+        self.assertNotIn("warnings", response.json())
+
+    def test_zhongyi_task_rejects_material_groups_outside_original_template(self):
+        manifest = [
+            {"requirement_id": "presenter-scene", "file_index": 0, "media_type": "video", "name": "presenter.mp4"},
+        ]
+        with patch.object(template_api.template_production, "require_ffmpeg"):
+            response = self.client.post(
+                "/api/template-production/tasks",
+                data={
+                    "template_id": "zhongyi-xunfang",
+                    "scripts": json.dumps(["这是一条足够长的模板量产接口测试文案。"], ensure_ascii=False),
+                    "generate_count": "1",
+                    "video_config": json.dumps({"ratio": "9:16"}),
+                    "material_manifest": json.dumps(manifest),
+                },
+                files=[("materials", ("presenter.mp4", b"video", "video/mp4"))],
+            )
+
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("presenter-scene", response.json()["detail"])
+
+    def test_single_candidate_rewrite_only_returns_one_script(self):
+        rewritten_sentences = ["重新创作后的候选文案内容真实自然" for _ in range(15)]
+        rewritten_result = json.dumps(
+            {"scripts": [{"style": "寻访过程", "sentences": rewritten_sentences}]},
+            ensure_ascii=False,
+        )
+        generate = AsyncMock(return_value=rewritten_result)
+        with patch.object(
+            template_api.settings_store,
+            "get_llm_settings",
+            return_value={"base_url": "https://llm.example/v1", "api_key": "", "model": "test-model"},
+        ), patch.object(template_api.llm_service, "generate", generate):
+            response = self.client.post(
+                "/api/template-production/scripts/rewrite",
+                json={
+                    "template_id": "zhongyi-xunfang",
+                    "variables": {
+                        "address": "湖北阳新老街",
+                        "name": "马医生",
+                        "specialty": "痛风调理",
+                        "feature": "三代中医世家",
+                    },
+                    "original_script": "这是需要单独重写的当前候选文案，内容需要换一个表达角度。",
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["script"])
+        self.assertEqual(generate.await_count, 1)
+        messages = generate.await_args.args[1]
+        self.assertIn("当前候选", messages[1].content)
 
 
 if __name__ == "__main__":

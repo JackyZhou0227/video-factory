@@ -2907,7 +2907,7 @@ a {
 }
 
 .template-section-heading.with-actions {
-  grid-template-columns: 36px minmax(120px, 1fr) auto auto;
+  grid-template-columns: 36px minmax(120px, 1fr) auto;
 }
 
 .compact-action {
@@ -3055,12 +3055,113 @@ a {
   text-align: center;
 }
 
+.script-candidate-grid {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.script-candidate-card {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+}
+
+.script-candidate-card.is-selected {
+  border-color: var(--accent);
+  background: var(--surface);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.script-candidate-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 5px 7px 5px 11px;
+  border-bottom: 1px solid var(--border);
+}
+
+.script-candidate-heading > span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.script-candidate-heading button {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.script-candidate-heading button:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.script-candidate-heading button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.script-candidate-select {
+  min-width: 0;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  gap: 10px;
+  padding: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.script-candidate-select > span {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.script-candidate-select small {
+  min-height: 18px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.script-candidate-card.is-selected .script-candidate-select small {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.final-script-field textarea {
+  min-height: 150px;
+  resize: vertical;
+  line-height: 1.65;
+}
+
 .template-config-grid {
   min-width: 0;
   max-width: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px 10px;
+  grid-template-columns: minmax(0, 1fr) minmax(120px, 150px);
+  gap: 10px;
   align-items: end;
 }
 
@@ -3071,36 +3172,8 @@ a {
   max-width: 100%;
 }
 
-.template-voice-field {
-  min-width: 0;
-}
-
-.preview-voice-action {
-  min-height: 44px;
-}
-
-.range-field,
 .ratio-field {
   grid-column: span 1;
-}
-
-.range-field input[type="range"] {
-  width: 100%;
-  accent-color: var(--accent);
-}
-
-.range-field .field-label,
-.range-field .field-label strong {
-  display: flex;
-  justify-content: space-between;
-}
-
-.range-field .field-label strong {
-  color: var(--accent-dark);
-}
-
-.ratio-field {
-  grid-column: 1 / -1;
 }
 
 .compact-segments {
@@ -3109,12 +3182,7 @@ a {
 }
 
 .count-field {
-  max-width: 150px;
-}
-
-.template-audio-preview {
-  width: 100%;
-  height: 36px;
+  max-width: none;
 }
 
 .template-inline-warning {
@@ -3422,6 +3490,7 @@ a {
 
   .template-selector,
   .template-variable-grid,
+  .script-candidate-grid,
   .template-config-grid,
   .service-settings-form {
     grid-template-columns: 1fr;
@@ -3432,7 +3501,8 @@ a {
   }
 
   .template-section-heading.with-actions .compact-action {
-    grid-column: span 1;
+    grid-column: 1 / -1;
+    justify-self: start;
   }
 
   .material-requirement-heading,
@@ -3441,7 +3511,6 @@ a {
     flex-direction: column;
   }
 
-  .range-field,
   .ratio-field,
   .template-config-grid > * {
     grid-column: 1;

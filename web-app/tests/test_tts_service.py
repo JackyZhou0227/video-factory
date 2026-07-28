@@ -14,7 +14,7 @@ from app.services.tts import (
     TTSRequest,
     create_tts_service,
 )
-from app.services.tts.providers import qwen3_tts
+from app.services.tts.providers import edge_tts, qwen3_tts
 
 
 class TTSServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -67,6 +67,32 @@ class TTSServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[1]["mode"], "base")
         self.assertEqual(calls[1]["model_path"], "base-model")
         self.assertEqual(calls[1]["ref_audio"], reference)
+
+    async def test_edge_provider_collects_word_boundaries(self):
+        class FakeCommunicate:
+            def __init__(self, *_args, **_kwargs):
+                pass
+
+            async def stream(self):
+                yield {"type": "audio", "data": b"audio"}
+                yield {"type": "WordBoundary", "text": "湖北", "offset": 10_000_000, "duration": 5_000_000}
+
+        fake_module = SimpleNamespace(Communicate=FakeCommunicate)
+        service = create_tts_service({"tts": {}})
+        with tempfile.TemporaryDirectory() as temp_dir, patch.dict(sys.modules, {"edge_tts": fake_module}), patch.object(
+            edge_tts, "_probe_duration", return_value=2.0
+        ):
+            result = await service.synthesize(
+                EDGE_TTS_MODEL,
+                TTSRequest(text="湖北"),
+                Path(temp_dir) / "edge.mp3",
+            )
+
+        self.assertEqual(result.duration, 2.0)
+        self.assertEqual(len(result.timings), 1)
+        self.assertEqual(result.timings[0].text, "湖北")
+        self.assertEqual(result.timings[0].start, 1.0)
+        self.assertEqual(result.timings[0].end, 1.5)
 
 
 if __name__ == "__main__":

@@ -26,11 +26,19 @@ class TTSRequest:
 
 
 @dataclass(frozen=True)
+class TTSTiming:
+    text: str
+    start: float
+    end: float
+
+
+@dataclass(frozen=True)
 class TTSResult:
     output_path: Path
     duration: float
     model_name: str
     voice_id: str | None = None
+    timings: tuple[TTSTiming, ...] = ()
 
 
 class TTSProvider(Protocol):

@@ -40,9 +40,22 @@ export default function Settings() {
   const [llmBaseUrl, setLlmBaseUrl] = useState(EMPTY_LLM.base_url);
   const [llmModel, setLlmModel] = useState("");
   const [llmApiKey, setLlmApiKey] = useState("");
+  const [llmFormVersion, setLlmFormVersion] = useState(0);
+  const [testedLlmVersion, setTestedLlmVersion] = useState(null);
+  const [llmSaved, setLlmSaved] = useState(false);
 
   const runningHubConfigured = Boolean(runningHubKey.trim()) || runninghub.api_key_configured;
   const llmReady = Boolean(llmBaseUrl.trim() && llmModel.trim());
+  const llmTestPassed = testedLlmVersion !== null && testedLlmVersion === llmFormVersion;
+
+  const updateLlmField = useCallback((setter, value) => {
+    setter(value);
+    setLlmFormVersion((version) => version + 1);
+    setTestedLlmVersion(null);
+    setLlmSaved(false);
+    setNotice("");
+    setError("");
+  }, []);
 
   const applySettings = useCallback((data) => {
     const nextRunninghub = { ...EMPTY_RUNNINGHUB, ...(data?.runninghub || {}) };
@@ -55,6 +68,9 @@ export default function Settings() {
     setLlmBaseUrl(nextLlm.base_url || EMPTY_LLM.base_url);
     setLlmModel(nextLlm.model || "");
     setLlmApiKey("");
+    setLlmFormVersion((version) => version + 1);
+    setTestedLlmVersion(null);
+    setLlmSaved(false);
   }, []);
 
   const loadSettings = useCallback(async () => {
@@ -100,6 +116,10 @@ export default function Settings() {
   }, [backendBaseUrl, concurrentLimit, instanceType, runningHubKey]);
 
   const saveLlm = useCallback(async () => {
+    if (!llmTestPassed) {
+      setError("请先测试当前 LLM 配置，连接成功后再保存。");
+      return;
+    }
     setSavingLlm(true);
     setNotice("");
     setError("");
@@ -115,13 +135,16 @@ export default function Settings() {
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       setLlm({ ...EMPTY_LLM, ...data });
       setLlmApiKey("");
+      setLlmFormVersion((version) => version + 1);
+      setTestedLlmVersion(null);
+      setLlmSaved(true);
       setNotice("LLM 服务配置已保存。");
     } catch (err) {
       setError(err.message || "保存 LLM 服务配置失败");
     } finally {
       setSavingLlm(false);
     }
-  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmModel]);
+  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmModel, llmTestPassed]);
 
   const clearLlmKey = useCallback(async () => {
     setSavingLlm(true);
@@ -141,6 +164,9 @@ export default function Settings() {
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       setLlm({ ...EMPTY_LLM, ...data });
       setLlmApiKey("");
+      setLlmFormVersion((version) => version + 1);
+      setTestedLlmVersion(null);
+      setLlmSaved(true);
       setNotice("LLM API Key 已清除。");
     } catch (err) {
       setError(err.message || "清除 LLM API Key 失败");
@@ -150,7 +176,10 @@ export default function Settings() {
   }, [backendBaseUrl, llmBaseUrl, llmModel]);
 
   const testLlm = useCallback(async () => {
+    const versionUnderTest = llmFormVersion;
     setTestingLlm(true);
+    setTestedLlmVersion(null);
+    setLlmSaved(false);
     setNotice("");
     setError("");
     const payload = { base_url: llmBaseUrl.trim(), model: llmModel.trim() };
@@ -163,13 +192,14 @@ export default function Settings() {
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
-      setNotice(`LLM 连接正常${data.response ? `：${data.response}` : ""}`);
+      setTestedLlmVersion(versionUnderTest);
+      setNotice("LLM 连接测试成功，可以保存当前配置。");
     } catch (err) {
       setError(err.message || "LLM 连接测试失败");
     } finally {
       setTestingLlm(false);
     }
-  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmModel]);
+  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmFormVersion, llmModel]);
 
   return (
     <section className="workspace-panel settings-panel" aria-labelledby="settings-title">
@@ -240,26 +270,26 @@ export default function Settings() {
             <p>保存当前用户的接口地址、模型名称和 API Key，供项目内需要大语言模型的功能统一调用。接口需兼容 OpenAI Chat Completions 协议。</p>
             <dl className="settings-summary">
               <div><dt>API Key</dt><dd>{llmApiKey.trim() ? maskApiKey(llmApiKey) : llm.api_key_masked || "未配置或无需密钥"}</dd></div>
-              <div><dt>状态</dt><dd>{llmReady ? "地址与模型已填写" : "等待配置"}</dd></div>
+              <div><dt>状态</dt><dd>{testingLlm ? "正在测试" : llmTestPassed ? "测试通过" : llmSaved ? "已保存" : llmReady ? "等待测试" : "等待配置"}</dd></div>
             </dl>
           </div>
           <div className="settings-form service-settings-form">
             <label className="field">
               <span className="field-label">Base URL</span>
-              <input className="control" type="url" value={llmBaseUrl} onChange={(event) => setLlmBaseUrl(event.target.value)} placeholder="https://api.openai.com/v1" />
+              <input className="control" type="url" value={llmBaseUrl} onChange={(event) => updateLlmField(setLlmBaseUrl, event.target.value)} placeholder="https://api.openai.com/v1" />
             </label>
             <label className="field">
               <span className="field-label">模型名称</span>
-              <input className="control" value={llmModel} onChange={(event) => setLlmModel(event.target.value)} placeholder="例如：gpt-4o-mini 或 deepseek-chat" />
+              <input className="control" value={llmModel} onChange={(event) => updateLlmField(setLlmModel, event.target.value)} placeholder="例如：gpt-4o-mini 或 deepseek-chat" />
             </label>
             <label className="field">
               <span className="field-label">API Key</span>
-              <input className="control" type="password" autoComplete="off" value={llmApiKey} onChange={(event) => setLlmApiKey(event.target.value)} placeholder={llm.api_key_configured ? "已配置，留空则不修改" : "本地无鉴权服务可留空"} />
+              <input className="control" type="password" autoComplete="off" value={llmApiKey} onChange={(event) => updateLlmField(setLlmApiKey, event.target.value)} placeholder={llm.api_key_configured ? "已配置，留空则不修改" : "本地无鉴权服务可留空"} />
             </label>
             <div className="settings-actions llm-settings-actions">
-              <button className="secondary-action" type="button" onClick={testLlm} disabled={testingLlm || !llmReady}><Icon name={testingLlm ? "loading" : "lab"} size={16} />测试连接</button>
+              <button className="secondary-action" type="button" onClick={testLlm} disabled={testingLlm || !llmReady}><Icon name={testingLlm ? "loading" : "lab"} size={16} />{testingLlm ? "正在测试" : llmTestPassed ? "重新测试" : "测试连接"}</button>
               {llm.api_key_configured ? <button className="text-button danger-text-button" type="button" onClick={clearLlmKey} disabled={savingLlm}>清除密钥</button> : null}
-              <button className="primary-action" type="button" onClick={saveLlm} disabled={savingLlm || !llmReady}><Icon name={savingLlm ? "loading" : "save"} size={16} />{savingLlm ? "正在保存" : "保存"}</button>
+              <button className="primary-action" type="button" onClick={saveLlm} disabled={savingLlm || testingLlm || !llmReady || !llmTestPassed}><Icon name={savingLlm ? "loading" : "save"} size={16} />{savingLlm ? "正在保存" : "保存"}</button>
             </div>
           </div>
         </section>

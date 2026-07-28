@@ -16,12 +16,15 @@ from app.api.auth import require_current_user
 from app.core.config import app_config, resolve_output_dir
 from app.services import settings_store, template_production
 from app.services.llm import LLMConfig, LLMMessage, LLMServiceError, llm_service
-from app.services.tts import EDGE_TTS_MODEL, TTSRequest, TTSServiceError, tts_service
+from app.services.tts import EDGE_TTS_MODEL, TTSRequest, tts_service
 
 router = APIRouter(prefix="/template-production", tags=["template-production"])
 
 MAX_GENERATE_COUNT = 50
 MAX_MATERIAL_COUNT = 20
+TEMPLATE_TTS_VOICE_ID = "zh-CN-YunjianNeural"
+TEMPLATE_TTS_SPEED = 1.0
+TEMPLATE_TTS_VOLUME = 100
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 MATERIAL_RULES = {
@@ -42,13 +45,14 @@ class ScriptGenerateRequest(BaseModel):
     template_id: str
     variables: dict[str, str]
     count: int = Field(default=3, ge=1, le=10)
+    material_context: dict[str, int] = Field(default_factory=dict)
 
 
-class TtsPreviewRequest(BaseModel):
-    text: str = Field(..., min_length=1, max_length=1000)
-    voice_id: str = "zh-CN-XiaoxiaoNeural"
-    speed: float = Field(default=1.0, ge=0.5, le=2.0)
-    volume: int = Field(default=80, ge=0, le=100)
+class ScriptRewriteRequest(BaseModel):
+    template_id: str
+    variables: dict[str, str]
+    original_script: str = Field(..., min_length=10, max_length=5000)
+    material_context: dict[str, int] = Field(default_factory=dict)
 
 
 def _public_output_url(path: Path) -> str:
@@ -104,56 +108,30 @@ def _validate_material_manifest(template_id: str, manifest: list[dict], file_cou
             )
 
 
-@router.get("/tts/voices")
-def get_edge_tts_voices(user: dict = Depends(require_current_user)):
-    del user
-    return {"model_name": EDGE_TTS_MODEL, "voices": tts_service.list_voices(EDGE_TTS_MODEL)}
-
-
-@router.post("/tts/preview")
-async def preview_edge_tts(payload: TtsPreviewRequest, user: dict = Depends(require_current_user)):
-    preview_id = uuid.uuid4().hex
-    preview_dir = resolve_output_dir(app_config) / "template_production" / "preview" / user["id"]
-    output_path = preview_dir / f"{preview_id}.mp3"
-    try:
-        result = await tts_service.synthesize(
-            EDGE_TTS_MODEL,
-            TTSRequest(
-                text=payload.text,
-                voice_id=payload.voice_id,
-                speed=payload.speed,
-                volume=payload.volume,
-            ),
-            output_path,
-        )
-    except TTSServiceError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
-    return {
-        "audio_url": _public_output_url(result.output_path),
-        "duration": result.duration,
-        "model_name": result.model_name,
-        "voice_id": result.voice_id,
-    }
-
-
 @router.post("/scripts/generate")
 async def generate_scripts(payload: ScriptGenerateRequest, user: dict = Depends(require_current_user)):
     try:
-        prompt = template_production.build_script_prompt(payload.template_id, payload.variables, payload.count)
+        prompt = template_production.build_script_prompt(
+            payload.template_id,
+            payload.variables,
+            payload.count,
+            payload.material_context,
+        )
     except template_production.TemplateProductionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
     stored = settings_store.get_llm_settings(user["id"])
     config = LLMConfig(**stored)
+    messages = [
+        LLMMessage(role="system", content="你是专业、克制的中文短视频文案编导，必须严格遵守事实边界和输出格式。"),
+        LLMMessage(role="user", content=prompt),
+    ]
     try:
         content = await llm_service.generate(
             config,
-            [
-                LLMMessage(role="system", content="你是专业、克制的中文短视频文案编辑。"),
-                LLMMessage(role="user", content=prompt),
-            ],
-            temperature=0.8,
-            max_tokens=1200,
+            messages,
+            temperature=0.75,
+            max_tokens=2400,
         )
     except LLMServiceError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
@@ -164,12 +142,49 @@ async def generate_scripts(payload: ScriptGenerateRequest, user: dict = Depends(
     return {"scripts": scripts}
 
 
+@router.post("/scripts/rewrite")
+async def rewrite_script(payload: ScriptRewriteRequest, user: dict = Depends(require_current_user)):
+    try:
+        prompt = template_production.build_script_prompt(
+            payload.template_id,
+            payload.variables,
+            1,
+            payload.material_context,
+        )
+    except template_production.TemplateProductionError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    rewrite_prompt = (
+        f"{prompt}\n\n【单条重写要求】\n"
+        "下面是需要替换的当前候选文案。请保留用户事实，换一个切入角度和表达方式完整重写，"
+        "不要复述原句，只返回 1 条符合上述 JSON 格式的候选。\n"
+        f"当前候选：\n{payload.original_script}"
+    )
+    config = LLMConfig(**settings_store.get_llm_settings(user["id"]))
+    try:
+        content = await llm_service.generate(
+            config,
+            [
+                LLMMessage(role="system", content="你是专业、克制的中文短视频文案编导，必须严格遵守事实边界和输出格式。"),
+                LLMMessage(role="user", content=rewrite_prompt),
+            ],
+            temperature=0.85,
+            max_tokens=1200,
+        )
+    except LLMServiceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    scripts = template_production.parse_generated_scripts(content, 1)
+    if not scripts:
+        raise HTTPException(status_code=502, detail="LLM 没有返回可用文案，请重试")
+    return {"script": scripts[0]}
+
+
 @router.post("/tasks")
 async def create_task(
     template_id: str = Form(...),
     scripts: str = Form(...),
     generate_count: int = Form(...),
-    tts_config: str = Form(...),
     video_config: str = Form(...),
     material_manifest: str = Form(...),
     materials: list[UploadFile] = File(...),
@@ -188,7 +203,6 @@ async def create_task(
     script_values = [str(item).strip() for item in _parse_json_field(scripts, "scripts", list) if str(item).strip()]
     if not script_values or len(script_values) > MAX_GENERATE_COUNT:
         raise HTTPException(status_code=422, detail="文案数量必须在 1-50 之间")
-    voice = _parse_json_field(tts_config, "tts_config", dict)
     video = _parse_json_field(video_config, "video_config", dict)
     manifest = _parse_json_field(material_manifest, "material_manifest", list)
     _validate_material_manifest(template_id, manifest, len(materials))
@@ -198,9 +212,6 @@ async def create_task(
         template_production.ratio_size(ratio)
     except template_production.TemplateProductionError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    voice_id = str(voice.get("voice_id") or "zh-CN-XiaoxiaoNeural")
-    speed = max(0.5, min(2.0, float(voice.get("speed") or 1.0)))
-    volume = max(0, min(100, int(voice.get("volume") if voice.get("volume") is not None else 80)))
 
     output_root = resolve_output_dir(app_config)
     task_id = uuid.uuid4().hex
@@ -264,9 +275,6 @@ async def create_task(
             output_dir=output_dir,
             temp_dir=temp_dir,
             materials=saved_materials,
-            voice_id=voice_id,
-            speed=speed,
-            volume=volume,
             ratio=ratio,
         )
     )
@@ -288,28 +296,32 @@ async def _run_task(
     output_dir: Path,
     temp_dir: Path,
     materials: list[dict[str, Any]],
-    voice_id: str,
-    speed: float,
-    volume: int,
     ratio: str,
 ) -> None:
     task = _tasks[task_id]
     completed_outputs: list[Path] = []
     failed = 0
     try:
-        task.update(status="running", progress=1, message="正在标准化素材")
+        is_zhongyi = task["template_id"] == template_production.ZHONGYI_TEMPLATE_ID
         prepared_segments: list[Path] = []
-        for index, material in enumerate(materials, start=1):
-            segment_path = temp_dir / f"segment_{index:02d}.mp4"
-            await asyncio.to_thread(
-                template_production.prepare_material_segment,
-                material["input_path"],
-                segment_path,
-                media_type=material["media_type"],
-                ratio=ratio,
-            )
-            prepared_segments.append(segment_path)
-            task.update(progress=max(2, round(index / len(materials) * 10)), message=f"正在处理素材 {index}/{len(materials)}")
+        if is_zhongyi:
+            task.update(status="running", progress=10, message="素材已就绪，正在生成视频")
+        else:
+            task.update(status="running", progress=1, message="正在标准化素材")
+            for index, material in enumerate(materials, start=1):
+                segment_path = temp_dir / f"segment_{index:02d}.mp4"
+                await asyncio.to_thread(
+                    template_production.prepare_material_segment,
+                    material["input_path"],
+                    segment_path,
+                    media_type=material["media_type"],
+                    ratio=ratio,
+                )
+                prepared_segments.append(segment_path)
+                task.update(
+                    progress=max(2, round(index / len(materials) * 10)),
+                    message=f"正在处理素材 {index}/{len(materials)}",
+                )
 
         total = len(task["items"])
         for index, item in enumerate(task["items"], start=1):
@@ -321,26 +333,36 @@ async def _run_task(
             audio_path = temp_dir / f"audio_{index:03d}.mp3"
             output_path = output_dir / f"template_video_{index:03d}.mp4"
             try:
+                tts_text = template_production.script_text_for_tts(item["script"]) if is_zhongyi else item["script"]
                 tts_result = await tts_service.synthesize(
                     EDGE_TTS_MODEL,
-                    TTSRequest(
-                        text=item["script"],
-                        voice_id=voice_id,
-                        speed=speed,
-                        volume=volume,
-                    ),
+                    _template_tts_request(tts_text),
                     audio_path,
                 )
                 audio_duration = tts_result.duration or await asyncio.to_thread(template_production.probe_duration, audio_path)
                 item["message"] = "正在合成视频"
-                await asyncio.to_thread(
-                    template_production.compose_video,
-                    prepared_segments,
-                    audio_path,
-                    output_path,
-                    seed=f"{task_id}:{index}",
-                    audio_duration=audio_duration,
-                )
+                if is_zhongyi:
+                    await asyncio.to_thread(
+                        template_production.compose_zhongyi_video,
+                        materials,
+                        audio_path,
+                        output_path,
+                        script=item["script"],
+                        work_dir=temp_dir / f"video_{index:03d}",
+                        seed=f"{task_id}:{index}",
+                        ratio=ratio,
+                        audio_duration=audio_duration,
+                        timings=tts_result.timings,
+                    )
+                else:
+                    await asyncio.to_thread(
+                        template_production.compose_video,
+                        prepared_segments,
+                        audio_path,
+                        output_path,
+                        seed=f"{task_id}:{index}",
+                        audio_duration=audio_duration,
+                    )
                 completed_outputs.append(output_path)
                 item.update(
                     status="completed",
@@ -373,3 +395,12 @@ def _create_zip(zip_path: Path, outputs: list[Path]) -> None:
     with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for path in outputs:
             archive.write(path, arcname=path.name)
+
+
+def _template_tts_request(text: str) -> TTSRequest:
+    return TTSRequest(
+        text=text,
+        voice_id=TEMPLATE_TTS_VOICE_ID,
+        speed=TEMPLATE_TTS_SPEED,
+        volume=TEMPLATE_TTS_VOLUME,
+    )

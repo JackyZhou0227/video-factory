@@ -6,6 +6,7 @@ from app.services.tts.base import (
     TTSRequest,
     TTSResult,
     TTSServiceError,
+    TTSTiming,
 )
 from app.services.tts.service import TTSService, create_tts_service, tts_service
 
@@ -18,6 +19,7 @@ __all__ = [
     "TTSResult",
     "TTSService",
     "TTSServiceError",
+    "TTSTiming",
     "create_tts_service",
     "tts_service",
 ]
