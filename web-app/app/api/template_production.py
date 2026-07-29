@@ -22,6 +22,8 @@ router = APIRouter(prefix="/template-production", tags=["template-production"])
 
 MAX_GENERATE_COUNT = 50
 MAX_MATERIAL_COUNT = 20
+MAX_SUBTITLE_REPLACEMENTS = 30
+MAX_SUBTITLE_TERM_LENGTH = 80
 TEMPLATE_TTS_VOICE_ID = "zh-CN-YunjianNeural"
 TEMPLATE_TTS_SPEED = 1.0
 TEMPLATE_TTS_VOLUME = 100
@@ -75,6 +77,36 @@ def _parse_json_field(value: str, label: str, expected_type: type) -> Any:
     if not isinstance(parsed, expected_type):
         raise HTTPException(status_code=422, detail=f"{label} 格式不正确")
     return parsed
+
+
+def _parse_subtitle_replacements(value: str) -> list[dict[str, str]]:
+    parsed = _parse_json_field(value or "[]", "subtitle_replacements", list)
+    if len(parsed) > MAX_SUBTITLE_REPLACEMENTS:
+        raise HTTPException(status_code=422, detail=f"字幕替换规则最多添加 {MAX_SUBTITLE_REPLACEMENTS} 条")
+
+    replacements: list[dict[str, str]] = []
+    seen_sources: set[str] = set()
+    for index, item in enumerate(parsed, start=1):
+        if not isinstance(item, dict):
+            raise HTTPException(status_code=422, detail=f"第 {index} 条字幕替换规则格式不正确")
+        source = str(item.get("source") or "").strip()
+        replacement = str(item.get("replacement") or "").strip()
+        if not source or not replacement:
+            raise HTTPException(status_code=422, detail=f"第 {index} 条字幕替换规则需要填写原词和替换词")
+        if "\n" in source or "\r" in source or "\n" in replacement or "\r" in replacement:
+            raise HTTPException(status_code=422, detail=f"第 {index} 条字幕替换规则不能包含换行")
+        if len(source) > MAX_SUBTITLE_TERM_LENGTH or len(replacement) > MAX_SUBTITLE_TERM_LENGTH:
+            raise HTTPException(
+                status_code=422,
+                detail=f"第 {index} 条字幕替换规则的词语长度不能超过 {MAX_SUBTITLE_TERM_LENGTH} 个字符",
+            )
+        if source == replacement:
+            raise HTTPException(status_code=422, detail=f"第 {index} 条字幕替换规则的原词和替换词不能相同")
+        if source in seen_sources:
+            raise HTTPException(status_code=422, detail=f"字幕原词“{source}”重复添加")
+        seen_sources.add(source)
+        replacements.append({"source": source, "replacement": replacement})
+    return replacements
 
 
 def _validate_material_manifest(template_id: str, manifest: list[dict], file_count: int) -> None:
@@ -186,6 +218,7 @@ async def create_task(
     scripts: str = Form(...),
     generate_count: int = Form(...),
     video_config: str = Form(...),
+    subtitle_replacements: str = Form("[]"),
     material_manifest: str = Form(...),
     materials: list[UploadFile] = File(...),
     user: dict = Depends(require_current_user),
@@ -204,6 +237,9 @@ async def create_task(
     if not script_values or len(script_values) > MAX_GENERATE_COUNT:
         raise HTTPException(status_code=422, detail="文案数量必须在 1-50 之间")
     video = _parse_json_field(video_config, "video_config", dict)
+    parsed_replacements = _parse_subtitle_replacements(subtitle_replacements)
+    if parsed_replacements and template_id != template_production.ZHONGYI_TEMPLATE_ID:
+        raise HTTPException(status_code=422, detail="当前模板暂不支持字幕替换")
     manifest = _parse_json_field(material_manifest, "material_manifest", list)
     _validate_material_manifest(template_id, manifest, len(materials))
 
@@ -276,6 +312,7 @@ async def create_task(
             temp_dir=temp_dir,
             materials=saved_materials,
             ratio=ratio,
+            subtitle_replacements=parsed_replacements,
         )
     )
     return {"task_id": task_id}
@@ -297,6 +334,7 @@ async def _run_task(
     temp_dir: Path,
     materials: list[dict[str, Any]],
     ratio: str,
+    subtitle_replacements: list[dict[str, str]],
 ) -> None:
     task = _tasks[task_id]
     completed_outputs: list[Path] = []
@@ -353,6 +391,7 @@ async def _run_task(
                         ratio=ratio,
                         audio_duration=audio_duration,
                         timings=tts_result.timings,
+                        subtitle_replacements=subtitle_replacements,
                     )
                 else:
                     await asyncio.to_thread(

@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  ArrowRight,
   Check,
   Cloud,
   Download,
@@ -18,6 +19,7 @@ import {
   MonitorCog,
   Pencil,
   Play,
+  Plus,
   RefreshCw,
   Save,
   ServerCog,
@@ -56,6 +58,7 @@ function DigitalHumanIcon({ size = 16, strokeWidth: _strokeWidth, className = ""
 
 const ICONS = {
   alert: AlertTriangle,
+  arrowRight: ArrowRight,
   audio: FileAudio,
   check: Check,
   cloud: Cloud,
@@ -74,6 +77,7 @@ const ICONS = {
   monitorCog: MonitorCog,
   edit: Pencil,
   play: Play,
+  plus: Plus,
   refresh: RefreshCw,
   save: Save,
   serverCog: ServerCog,

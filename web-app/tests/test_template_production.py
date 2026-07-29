@@ -72,6 +72,48 @@ class TemplateProductionTests(unittest.TestCase):
         self.assertEqual(cues[-1][1], 9.0)
         self.assertTrue(all(start < end for start, end, _ in cues))
 
+    def test_subtitle_replacements_are_literal_longest_first_and_non_cascading(self):
+        replacements = [
+            {"source": "医生", "replacement": "yi生"},
+            {"source": "医生介绍", "replacement": "专家介绍"},
+            {"source": "生", "replacement": "sheng"},
+        ]
+
+        result = template_production.apply_subtitle_replacements("医生介绍医生生", replacements)
+
+        self.assertEqual(result, "专家介绍yi生sheng")
+
+    def test_subtitle_replacements_apply_after_cue_timing_is_built(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ass_path = template_production.write_zhongyi_ass(
+                "医生介绍\n医生问诊",
+                4.0,
+                Path(temp_dir) / "subtitles.ass",
+                target_size=(1080, 1920),
+                subtitle_replacements=[{"source": "医生", "replacement": "yi生"}],
+            )
+
+            content = ass_path.read_text(encoding="utf-8-sig")
+            self.assertIn("yi生介绍", content)
+            self.assertIn("yi生问诊", content)
+            self.assertNotIn(",,医生", content)
+
+    def test_zhongyi_safety_notice_uses_lower_top_margin(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ass_path = template_production.write_zhongyi_ass(
+                "测试文案",
+                3.0,
+                Path(temp_dir) / "subtitles.ass",
+                target_size=(1080, 1920),
+            )
+
+            notice_style = next(
+                line for line in ass_path.read_text(encoding="utf-8-sig").splitlines() if line.startswith("Style: Notice,")
+            )
+            style_fields = notice_style.split(",")
+            self.assertEqual(style_fields[2], str(max(22, round(1920 * 0.017))))
+            self.assertEqual(style_fields[-2], str(max(34, round(1920 * 0.055))))
+
     def test_material_sequence_is_deterministic_and_fills_duration(self):
         segments = [Path("a.mp4"), Path("b.mp4"), Path("c.mp4")]
         first = template_production.build_material_sequence(segments, 13, seed="task-1")

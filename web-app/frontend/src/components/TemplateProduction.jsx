@@ -8,6 +8,7 @@ const TEMPLATES = [
     name: "中医寻访",
     description: "用问诊和诊所画面生成真实、有温度的寻访口播。",
     ratio: "9:16",
+    supportsSubtitleReplacements: true,
     variables: [
       { id: "address", label: "医生地址", placeholder: "例如：湖北阳新的一条老街", required: true },
       { id: "name", label: "医生称呼", placeholder: "例如：马医生", required: true },
@@ -24,6 +25,7 @@ const TEMPLATES = [
     name: "医生介绍",
     description: "组合医生形象和医院环境，批量制作专业介绍视频。",
     ratio: "9:16",
+    supportsSubtitleReplacements: false,
     variables: [
       { id: "doctor-name", label: "医生姓名", placeholder: "例如：张医生", required: true },
       { id: "hospital", label: "所在医院", placeholder: "例如：北京协和医院", required: true },
@@ -39,6 +41,7 @@ const TEMPLATES = [
 
 const RATIO_OPTIONS = ["9:16", "16:9", "1:1", "3:4"];
 const FINAL_STATUSES = new Set(["completed", "failed"]);
+const MAX_SUBTITLE_REPLACEMENTS = 30;
 
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -58,6 +61,30 @@ function formatFileSize(size) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
+function MaterialPreview({ file, mediaType, label }) {
+  const [previewUrl, setPreviewUrl] = useState("");
+
+  useEffect(() => {
+    const nextUrl = URL.createObjectURL(file);
+    setPreviewUrl(nextUrl);
+    return () => URL.revokeObjectURL(nextUrl);
+  }, [file]);
+
+  if (!previewUrl) {
+    return <div className="material-preview-media is-loading" aria-label={`${label}加载中`} />;
+  }
+
+  return (
+    <div className="material-preview-media">
+      {mediaType === "image" ? (
+        <img src={previewUrl} alt={`${label}预览`} />
+      ) : (
+        <video src={previewUrl} controls muted playsInline preload="metadata" aria-label={`${label}预览`} />
+      )}
+    </div>
+  );
+}
+
 export default function TemplateProduction({ currentUser }) {
   const backendBaseUrl = useBackendBaseUrl();
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
@@ -66,6 +93,7 @@ export default function TemplateProduction({ currentUser }) {
   const [scriptCandidates, setScriptCandidates] = useState([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [finalScript, setFinalScript] = useState("");
+  const [subtitleReplacements, setSubtitleReplacements] = useState([]);
   const [rewritingCandidateId, setRewritingCandidateId] = useState("");
   const [ratio, setRatio] = useState("9:16");
   const [generateCount, setGenerateCount] = useState(5);
@@ -94,7 +122,36 @@ export default function TemplateProduction({ currentUser }) {
   const variablesReady = selectedTemplate.variables.every(
     (field) => !field.required || String(variables[field.id] || "").trim()
   );
-  const canSubmit = variablesReady && materialIssues.length === 0 && Boolean(finalScript.trim()) && !submitting;
+  const subtitleReplacementIssues = useMemo(() => {
+    if (!selectedTemplate.supportsSubtitleReplacements) return [];
+    const issues = [];
+    const seenSources = new Set();
+    subtitleReplacements.forEach((item, index) => {
+      const source = item.source.trim();
+      const replacement = item.replacement.trim();
+      if (!source || !replacement) {
+        issues.push(`第 ${index + 1} 条字幕替换需要填写原词和替换词`);
+      } else if (source === replacement) {
+        issues.push(`第 ${index + 1} 条字幕替换的原词和替换词不能相同`);
+      } else if (seenSources.has(source)) {
+        issues.push(`字幕原词“${source}”重复添加`);
+      }
+      if (source) seenSources.add(source);
+    });
+    return issues;
+  }, [selectedTemplate.supportsSubtitleReplacements, subtitleReplacements]);
+  const normalizedSubtitleReplacements = useMemo(
+    () => subtitleReplacements.map((item) => ({
+      source: item.source.trim(),
+      replacement: item.replacement.trim(),
+    })),
+    [subtitleReplacements]
+  );
+  const canSubmit = variablesReady
+    && materialIssues.length === 0
+    && subtitleReplacementIssues.length === 0
+    && Boolean(finalScript.trim())
+    && !submitting;
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) clearTimeout(pollRef.current);
@@ -145,6 +202,7 @@ export default function TemplateProduction({ currentUser }) {
       setScriptCandidates([]);
       setSelectedCandidateId("");
       setFinalScript("");
+      setSubtitleReplacements([]);
       setRewritingCandidateId("");
       setTask(null);
       setError("");
@@ -171,6 +229,29 @@ export default function TemplateProduction({ currentUser }) {
       ...current,
       [requirementId]: (current[requirementId] || []).filter((item) => item.id !== itemId),
     }));
+  }, []);
+
+  const addSubtitleReplacement = useCallback(() => {
+    setSubtitleReplacements((current) => {
+      if (current.length >= MAX_SUBTITLE_REPLACEMENTS) return current;
+      return [...current, { id: makeId(), source: "", replacement: "" }];
+    });
+    setError("");
+    setNotice("");
+  }, []);
+
+  const updateSubtitleReplacement = useCallback((id, field, value) => {
+    setSubtitleReplacements((current) => current.map((item) => (
+      item.id === id ? { ...item, [field]: value } : item
+    )));
+    setError("");
+    setNotice("");
+  }, []);
+
+  const removeSubtitleReplacement = useCallback((id) => {
+    setSubtitleReplacements((current) => current.filter((item) => item.id !== id));
+    setError("");
+    setNotice("");
   }, []);
 
   const generateAiScripts = useCallback(async () => {
@@ -266,7 +347,7 @@ export default function TemplateProduction({ currentUser }) {
     setError("");
     setNotice("");
     if (!canSubmit) {
-      setError(materialIssues[0] || "请完善素材和文案后再生成。");
+      setError(subtitleReplacementIssues[0] || materialIssues[0] || "请完善素材和文案后再生成。");
       return;
     }
 
@@ -299,6 +380,7 @@ export default function TemplateProduction({ currentUser }) {
       form.append("scripts", JSON.stringify([cleanScript]));
       form.append("generate_count", String(generateCount));
       form.append("video_config", JSON.stringify({ ratio }));
+      form.append("subtitle_replacements", JSON.stringify(normalizedSubtitleReplacements));
       form.append("material_manifest", JSON.stringify(manifest));
 
       const response = await apiFetch(
@@ -321,11 +403,13 @@ export default function TemplateProduction({ currentUser }) {
     generateCount,
     materialIssues,
     materials,
+    normalizedSubtitleReplacements,
     pollTask,
     ratio,
     finalScript,
     selectedTemplate,
     stopPolling,
+    subtitleReplacementIssues,
     taskStorageKey,
     templateId,
   ]);
@@ -417,14 +501,25 @@ export default function TemplateProduction({ currentUser }) {
                     </div>
                     {items.length ? (
                       <div className="material-file-list">
-                        {items.map((item) => (
-                          <div className="material-file-row" key={item.id}>
-                            <Icon name={requirement.type} size={16} />
-                            <span title={item.file.name}>{item.file.name}</span>
-                            <small>{formatFileSize(item.file.size)}</small>
-                            <button type="button" title="移除素材" onClick={() => removeMaterial(requirement.id, item.id)}>
-                              <Icon name="x" size={15} />
-                            </button>
+                        {items.map((item, index) => (
+                          <div className="material-preview-card" key={item.id}>
+                            <MaterialPreview
+                              file={item.file}
+                              mediaType={requirement.type}
+                              label={`第 ${index + 1} 个${requirement.type === "image" ? "图片" : "视频"}素材`}
+                            />
+                            <div className="material-preview-footer">
+                              <span><Icon name={requirement.type} size={14} />{formatFileSize(item.file.size)}</span>
+                              <button
+                                className="material-preview-remove"
+                                type="button"
+                                title={`移除第 ${index + 1} 个素材`}
+                                aria-label={`移除第 ${index + 1} 个素材`}
+                                onClick={() => removeMaterial(requirement.id, item.id)}
+                              >
+                                <Icon name="x" size={15} />
+                              </button>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -464,7 +559,11 @@ export default function TemplateProduction({ currentUser }) {
                         onClick={() => rewriteCandidate(candidate)}
                         disabled={Boolean(rewritingCandidateId)}
                       >
-                        <Icon name={rewritingCandidateId === candidate.id ? "loading" : "refresh"} size={15} />
+                        <Icon
+                          name={rewritingCandidateId === candidate.id ? "loading" : "refresh"}
+                          size={15}
+                          data-loading={rewritingCandidateId === candidate.id ? "true" : undefined}
+                        />
                       </button>
                     </div>
                     <button
@@ -498,6 +597,76 @@ export default function TemplateProduction({ currentUser }) {
                 }}
               />
             </label>
+            {selectedTemplate.supportsSubtitleReplacements ? (
+              <div className="subtitle-replacement-editor">
+                <div className="subtitle-replacement-heading">
+                  <div>
+                    <strong>字幕敏感词替换</strong>
+                    <small>只修改成片字幕，配音仍使用最终文案原文</small>
+                  </div>
+                  {subtitleReplacements.length ? (
+                    <button
+                      className="secondary-action subtitle-replacement-add"
+                      type="button"
+                      onClick={addSubtitleReplacement}
+                      disabled={subtitleReplacements.length >= MAX_SUBTITLE_REPLACEMENTS}
+                    >
+                      <Icon name="plus" size={14} />添加
+                    </button>
+                  ) : null}
+                </div>
+                {subtitleReplacements.length ? (
+                  <div className="subtitle-replacement-list">
+                    {subtitleReplacements.map((item, index) => (
+                      <div className="subtitle-replacement-card" key={item.id}>
+                        <label className="field subtitle-replacement-source">
+                          <span className="field-label">需要替换的词</span>
+                          <input
+                            className="control"
+                            value={item.source}
+                            maxLength={80}
+                            placeholder="例如：医生"
+                            aria-label={`第 ${index + 1} 条需要替换的词`}
+                            onChange={(event) => updateSubtitleReplacement(item.id, "source", event.target.value)}
+                          />
+                        </label>
+                        <span className="subtitle-replacement-arrow" aria-hidden="true">
+                          <Icon name="arrowRight" size={16} />
+                        </span>
+                        <label className="field subtitle-replacement-target">
+                          <span className="field-label">字幕替换成</span>
+                          <input
+                            className="control"
+                            value={item.replacement}
+                            maxLength={80}
+                            placeholder="例如：yi生"
+                            aria-label={`第 ${index + 1} 条字幕替换词`}
+                            onChange={(event) => updateSubtitleReplacement(item.id, "replacement", event.target.value)}
+                          />
+                        </label>
+                        <button
+                          className="subtitle-replacement-remove"
+                          type="button"
+                          title={`删除第 ${index + 1} 条字幕替换`}
+                          aria-label={`删除第 ${index + 1} 条字幕替换`}
+                          onClick={() => removeSubtitleReplacement(item.id)}
+                        >
+                          <Icon name="trash" size={15} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <button className="subtitle-replacement-add-card" type="button" onClick={addSubtitleReplacement}>
+                    <Icon name="plus" size={18} />
+                    <span><strong>添加替换规则</strong><small>原词用于配音，替换词仅显示在字幕中</small></span>
+                  </button>
+                )}
+                {subtitleReplacementIssues.length ? (
+                  <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{subtitleReplacementIssues[0]}</div>
+                ) : null}
+              </div>
+            ) : null}
           </section>
 
           <section className="template-work-section" aria-labelledby="template-output-config-title">

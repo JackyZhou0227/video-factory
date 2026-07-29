@@ -563,6 +563,23 @@ def _ass_text(value: str) -> str:
     return str(value).replace("\\", r"\\").replace("{", r"\{").replace("}", r"\}").replace("\n", r"\N")
 
 
+def apply_subtitle_replacements(
+    text: str,
+    replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+) -> str:
+    replacement_map = {
+        str(item.get("source") or ""): str(item.get("replacement") or "")
+        for item in replacements
+        if str(item.get("source") or "")
+    }
+    if not replacement_map:
+        return str(text or "")
+
+    sources = sorted(replacement_map, key=len, reverse=True)
+    pattern = re.compile("|".join(re.escape(source) for source in sources))
+    return pattern.sub(lambda match: replacement_map[match.group(0)], str(text or ""))
+
+
 def write_zhongyi_ass(
     script: str,
     duration: float,
@@ -570,13 +587,14 @@ def write_zhongyi_ass(
     *,
     target_size: tuple[int, int],
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
+    subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
 ) -> Path:
     width, height = target_size
     subtitle_size = max(34, round(height * 0.034))
     notice_size = max(22, round(height * 0.017))
     outline = max(3, round(height * 0.0026))
     bottom_margin = max(80, round(height * 0.13))
-    top_margin = max(34, round(height * 0.035))
+    top_margin = max(34, round(height * 0.055))
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -599,7 +617,8 @@ def write_zhongyi_ass(
         f"Dialogue: 0,{_ass_time(0)},{_ass_time(duration)},Notice,,0,0,0,,{ZHONGYI_SAFETY_NOTICE}",
     ]
     lines.extend(
-        f"Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Subtitle,,0,0,0,,{_ass_text(text)}"
+        f"Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Subtitle,,0,0,0,,"
+        f"{_ass_text(apply_subtitle_replacements(text, subtitle_replacements))}"
         for start, end, text in build_subtitle_cues(script, duration, timings)
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -623,6 +642,7 @@ def compose_zhongyi_video(
     ratio: str = "9:16",
     audio_duration: float | None = None,
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
+    subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
 ) -> Path:
     require_ffmpeg()
     duration = audio_duration or probe_duration(audio_path)
@@ -654,6 +674,7 @@ def compose_zhongyi_video(
         work_dir / "subtitles.ass",
         target_size=target_size,
         timings=timings,
+        subtitle_replacements=subtitle_replacements,
     )
     command = ["ffmpeg", "-y"]
     for segment_path in prepared:
