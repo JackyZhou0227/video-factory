@@ -1,0 +1,43 @@
+"""Pydantic models shared by backend services."""
+
+from app.models.template_definition import (
+    ContentField,
+    ContentValues,
+    FieldType,
+    MaterialManifest,
+    MaterialManifestItem,
+    MaterialRequirement,
+    MediaType,
+    ProductionBinding,
+    ResponseFormat,
+    ScriptGeneration,
+    SelectOption,
+    TemplateDefinition,
+    TemplateRuntimeValidationError,
+    material_rules,
+    normalize_material_context,
+    render_script_prompt,
+    validate_content_values,
+    validate_material_manifest,
+)
+
+__all__ = [
+    "ContentField",
+    "ContentValues",
+    "FieldType",
+    "MaterialManifest",
+    "MaterialManifestItem",
+    "MaterialRequirement",
+    "MediaType",
+    "ProductionBinding",
+    "ResponseFormat",
+    "ScriptGeneration",
+    "SelectOption",
+    "TemplateDefinition",
+    "TemplateRuntimeValidationError",
+    "material_rules",
+    "normalize_material_context",
+    "render_script_prompt",
+    "validate_content_values",
+    "validate_material_manifest",
+]

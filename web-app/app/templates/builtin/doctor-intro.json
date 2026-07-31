@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "template_version": 1,
+  "id": "doctor-intro",
+  "name": "医生介绍",
+  "description": "组合医生形象和医院环境，批量制作专业介绍视频。",
+  "content_fields": [
+    {
+      "key": "doctor-name",
+      "label": "医生姓名",
+      "input_type": "text",
+      "required": true,
+      "placeholder": "例如：张医生",
+      "max_length": 100
+    },
+    {
+      "key": "hospital",
+      "label": "所在医院",
+      "input_type": "text",
+      "required": true,
+      "placeholder": "例如：北京协和医院",
+      "max_length": 200
+    },
+    {
+      "key": "department",
+      "label": "科室",
+      "input_type": "text",
+      "required": true,
+      "placeholder": "例如：心内科",
+      "max_length": 100
+    },
+    {
+      "key": "specialty",
+      "label": "专业特长",
+      "input_type": "textarea",
+      "required": true,
+      "placeholder": "例如：冠心病、高血压诊疗",
+      "max_length": 500
+    }
+  ],
+  "material_requirements": [
+    {
+      "key": "doctor-image",
+      "label": "医生形象照",
+      "description": "清晰展示医生形象的照片。",
+      "media_type": "image",
+      "min_count": 1,
+      "max_count": 3
+    },
+    {
+      "key": "hospital-scene",
+      "label": "医院环境",
+      "description": "展示医院或科室环境的视频。",
+      "media_type": "video",
+      "min_count": 1,
+      "max_count": 3
+    }
+  ],
+  "script_generation": {
+    "system_prompt": "你是专业、克制的中文短视频文案编导，必须严格遵守事实边界和输出格式。",
+    "prompt_template": "你是一位专业的中文短视频口播文案撰写专家。\n\n【人物信息】\n{{content_context}}\n\n【可用画面】\n{{material_context}}\n\n【任务】\n生成 {{candidate_count}} 条彼此明显不同的短视频口播文案。\n每条控制在 50-100 个汉字，语言自然、适合直接配音，不要标题、编号或解释。\n突出医生的专业能力、医院背景和可信赖感，避免医疗效果承诺和夸张用语。\n\n【输出格式】\n{{response_contract}}",
+    "rewrite_prompt_template": "你是一位专业的中文短视频口播文案撰写专家。\n\n【人物信息】\n{{content_context}}\n\n【可用画面】\n{{material_context}}\n\n【当前候选】\n{{original_script}}\n\n【任务】\n保留人物事实，换一个切入角度和表达方式，将当前候选完整重写为 {{candidate_count}} 条文案。\n每条控制在 50-100 个汉字，语言自然、适合直接配音，不要标题、编号或解释。\n突出医生的专业能力、医院背景和可信赖感，避免医疗效果承诺和夸张用语。\n\n【输出格式】\n{{response_contract}}",
+    "response_format": "plain_scripts_v1",
+    "default_candidate_count": 3,
+    "temperature": 0.75,
+    "max_tokens": 2400
+  },
+  "production": {
+    "pipeline_id": "generic_concat_v1",
+    "default_ratio": "9:16",
+    "default_batch_size": 5,
+    "max_batch_size": 50
+  }
+}

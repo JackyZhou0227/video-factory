@@ -64,6 +64,39 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(updated["instance_type"], "")
         self.assertEqual(settings_store.get_runninghub_settings()["instance_type"], "")
 
+    def test_subtitle_replacements_support_global_crud_and_validation(self):
+        created = settings_store.create_subtitle_replacement(source="医生", replacement="yi生")
+        self.assertEqual(created["source"], "医生")
+        self.assertEqual(created["replacement"], "yi生")
+        self.assertEqual(len(settings_store.list_subtitle_replacements()), 1)
+
+        updated = settings_store.update_subtitle_replacement(
+            created["id"],
+            source="名医",
+            replacement="ming yi",
+        )
+        self.assertEqual(updated["source"], "名医")
+        self.assertEqual(updated["replacement"], "ming yi")
+
+        with self.assertRaises(settings_store.SubtitleReplacementConflictError):
+            settings_store.create_subtitle_replacement(source="名医", replacement="other")
+        with self.assertRaises(ValueError):
+            settings_store.create_subtitle_replacement(source="same", replacement="same")
+        with self.assertRaises(ValueError):
+            settings_store.create_subtitle_replacement(source="line\nbreak", replacement="safe")
+
+        settings_store.delete_subtitle_replacement(created["id"])
+        self.assertEqual(settings_store.list_subtitle_replacements(), [])
+        with self.assertRaises(settings_store.SubtitleReplacementNotFoundError):
+            settings_store.delete_subtitle_replacement(created["id"])
+
+    def test_subtitle_replacement_maximum_is_enforced(self):
+        for index in range(settings_store.MAX_SUBTITLE_REPLACEMENTS):
+            settings_store.create_subtitle_replacement(source=f"source-{index}", replacement=f"target-{index}")
+
+        with self.assertRaises(ValueError):
+            settings_store.create_subtitle_replacement(source="one-more", replacement="target")
+
 
 if __name__ == "__main__":
     unittest.main()

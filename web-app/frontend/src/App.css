@@ -2794,6 +2794,19 @@ a {
   margin-bottom: 0;
 }
 
+.template-heading-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.template-heading-actions .status-pill {
+  min-height: 34px;
+}
+
 .template-selector {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
@@ -2862,6 +2875,23 @@ a {
   font-size: 14px;
 }
 
+.template-choice strong {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.template-owned-label {
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-strong);
+  color: var(--accent-dark);
+  font-size: 10px;
+  font-style: normal;
+  font-weight: 700;
+}
+
 .template-choice small,
 .template-section-heading small {
   color: var(--text-muted);
@@ -2921,6 +2951,12 @@ a {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.template-variable-grid textarea {
+  min-height: 96px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
 .material-requirement-list,
 .template-script-list {
   display: grid;
@@ -2951,6 +2987,12 @@ a {
 
 .material-requirement-heading strong {
   font-size: 13px;
+}
+
+.material-requirement-heading small {
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
 }
 
 .material-requirement-heading span,
@@ -2993,6 +3035,28 @@ a {
 
 .material-preview-media.is-loading {
   background: var(--surface-muted);
+}
+
+.template-empty-state {
+  grid-column: 1 / -1;
+  min-height: 86px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 9px;
+  padding: 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.template-empty-state.is-error {
+  color: var(--danger);
+}
+
+.template-empty-state > .lucide-loader-circle {
+  animation: vf-spin 0.9s linear infinite;
 }
 
 .material-preview-media img,
@@ -3229,7 +3293,7 @@ a {
 .subtitle-replacement-card {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 24px minmax(0, 1fr) 34px;
+  grid-template-columns: minmax(150px, 0.75fr) 24px minmax(0, 1.25fr) 88px 34px;
   align-items: end;
   gap: 8px;
   padding: 10px;
@@ -3267,6 +3331,19 @@ a {
   background: var(--surface);
   color: var(--text-muted);
   cursor: pointer;
+}
+
+.subtitle-replacement-save {
+  width: 88px;
+  height: 42px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 0 8px;
+  font-size: 12px;
+  white-space: nowrap;
 }
 
 .subtitle-replacement-remove:hover {
@@ -3312,6 +3389,87 @@ a {
   color: var(--danger);
   font-size: 11px;
   line-height: 1.4;
+}
+
+.subtitle-replacement-notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--success);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.bgm-control-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: end;
+  gap: 8px;
+}
+
+.bgm-select-field {
+  min-width: 0;
+}
+
+.bgm-delete-button {
+  width: 38px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.bgm-delete-button:hover {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.bgm-delete-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bgm-preview {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.bgm-preview audio {
+  width: 100%;
+  height: 36px;
+}
+
+.bgm-preview-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.bgm-status-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.bgm-status-line.is-error {
+  color: var(--danger);
+}
+
+.bgm-status-line.is-success {
+  color: var(--success);
 }
 
 .template-config-grid {
@@ -3646,6 +3804,16 @@ a {
     padding: 18px;
   }
 
+  .template-heading-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .template-heading-actions .status-pill {
+    width: 100%;
+    order: -1;
+  }
+
   .template-selector,
   .template-variable-grid,
   .script-candidate-grid,
@@ -3674,7 +3842,7 @@ a {
   }
 
   .subtitle-replacement-card {
-    grid-template-columns: minmax(0, 1fr) 34px;
+    grid-template-columns: minmax(0, 1fr) 88px 34px;
   }
 
   .subtitle-replacement-source,
@@ -3689,6 +3857,11 @@ a {
   }
 
   .subtitle-replacement-remove {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .subtitle-replacement-save {
     grid-column: 2;
     grid-row: 1;
   }

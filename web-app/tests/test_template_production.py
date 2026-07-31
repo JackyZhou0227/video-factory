@@ -85,7 +85,7 @@ class TemplateProductionTests(unittest.TestCase):
 
     def test_subtitle_replacements_apply_after_cue_timing_is_built(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            ass_path = template_production.write_zhongyi_ass(
+            ass_path = template_production.write_subtitle_ass(
                 "医生介绍\n医生问诊",
                 4.0,
                 Path(temp_dir) / "subtitles.ass",
@@ -98,9 +98,25 @@ class TemplateProductionTests(unittest.TestCase):
             self.assertIn("yi生问诊", content)
             self.assertNotIn(",,医生", content)
 
-    def test_zhongyi_safety_notice_uses_lower_top_margin(self):
+    def test_generic_subtitles_apply_replacements_with_shared_safety_notice(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            ass_path = template_production.write_zhongyi_ass(
+            ass_path = template_production.write_subtitle_ass(
+                "医生介绍\n医生问诊",
+                4.0,
+                Path(temp_dir) / "subtitles.ass",
+                target_size=(1080, 1920),
+                subtitle_replacements=[{"source": "医生", "replacement": "yi生"}],
+            )
+
+            content = ass_path.read_text(encoding="utf-8-sig")
+            self.assertIn("yi生介绍", content)
+            self.assertIn("yi生问诊", content)
+            self.assertIn("Style: Notice,", content)
+            self.assertIn(template_production.TEMPLATE_SAFETY_NOTICE, content)
+
+    def test_shared_safety_notice_uses_lower_top_margin(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ass_path = template_production.write_subtitle_ass(
                 "测试文案",
                 3.0,
                 Path(temp_dir) / "subtitles.ass",
@@ -165,10 +181,14 @@ class TemplateProductionTests(unittest.TestCase):
                 root / "output.mp4",
                 seed="integration",
                 segment_duration=1,
+                script="医生介绍",
+                work_dir=root / "generic-work",
+                subtitle_replacements=[{"source": "医生", "replacement": "yi生"}],
             )
             self.assertTrue(output_path.exists())
             self.assertGreater(output_path.stat().st_size, 1000)
             self.assertGreater(template_production.probe_duration(output_path), 1.8)
+            self.assertFalse((root / "generic-work" / "subtitles.ass").exists())
 
             zhongyi_output = root / "zhongyi-output.mp4"
             materials = [

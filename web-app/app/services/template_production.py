@@ -10,14 +10,15 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from app.models.template_definition import (
+    TemplateDefinition,
+    TemplateRuntimeValidationError,
+    render_script_prompt,
+)
+from app.services import template_registry
 from app.services.tts import TTSTiming
 
-TEMPLATE_IDS = {"zhongyi-xunfang", "doctor-intro"}
 ZHONGYI_TEMPLATE_ID = "zhongyi-xunfang"
-ZHONGYI_MIN_CHARS = 150
-ZHONGYI_MAX_CHARS = 180
-ZHONGYI_MIN_SENTENCES = 14
-ZHONGYI_MAX_SENTENCES = 18
 VIDEO_RATIOS = {
     "9:16": (1080, 1920),
     "16:9": (1920, 1080),
@@ -34,7 +35,8 @@ ZHONGYI_SLOT_PLAN = (
     ("doctor-scene", 0.18, ("clinic-scene",)),
 )
 ZHONGYI_TRANSITION_DURATION = 0.3
-ZHONGYI_SAFETY_NOTICE = "人文记录 无不良引导\\N如有不适 请线上就医"
+TEMPLATE_SAFETY_NOTICE = "人文记录 无不良引导\\N如有不适 请线上就医"
+BGM_VOLUME_WEIGHT = 0.6
 
 
 class TemplateProductionError(RuntimeError):
@@ -51,93 +53,59 @@ class TimelineSegment:
 
 
 def require_template(template_id: str) -> str:
-    normalized = str(template_id or "").strip()
-    if normalized not in TEMPLATE_IDS:
+    return resolve_template_definition(template_id).id
+
+
+def resolve_template_definition(template: str | TemplateDefinition) -> TemplateDefinition:
+    if isinstance(template, TemplateDefinition):
+        return template
+    normalized = str(template or "").strip()
+    try:
+        # String-based calls are kept for built-in-template compatibility. User
+        # templates are resolved by the API and passed here as definitions.
+        entry = template_registry.template_registry.get_entry("__builtin__", normalized)
+    except template_registry.TemplateRegistryError as exc:
+        raise TemplateProductionError(f"不支持的模板：{normalized or '空'}") from exc
+    if not entry.is_builtin:
         raise TemplateProductionError(f"不支持的模板：{normalized or '空'}")
-    return normalized
-
-
-def _required_value(variables: dict[str, str], key: str, label: str) -> str:
-    value = str(variables.get(key) or "").strip()
-    if not value:
-        raise TemplateProductionError(f"请填写{label}")
-    return value
+    return entry.definition
 
 
 def build_script_prompt(
-    template_id: str,
+    template: str | TemplateDefinition,
     variables: dict[str, str],
     count: int = 3,
     material_context: dict[str, int] | None = None,
 ) -> str:
-    template_id = require_template(template_id)
-    count = max(1, min(10, int(count)))
+    definition = resolve_template_definition(template)
+    try:
+        return render_script_prompt(
+            definition,
+            variables,
+            candidate_count=max(1, min(10, int(count))),
+            material_context=material_context,
+        )
+    except (TemplateRuntimeValidationError, TypeError, ValueError) as exc:
+        raise TemplateProductionError(str(exc)) from exc
 
-    if template_id == ZHONGYI_TEMPLATE_ID:
-        address = _required_value(variables, "address", "医生地址")
-        name = _required_value(variables, "name", "医生称呼")
-        specialty = _required_value(variables, "specialty", "医生专长")
-        feature = str(variables.get("feature") or "").strip()
-        material_names = {
-            "doctor-scene": "中医师问诊画面",
-            "clinic-scene": "诊所环境画面",
-        }
-        available_materials = [
-            f"- {material_names[key]}：{max(0, int(value))} 个"
-            for key, value in (material_context or {}).items()
-            if key in material_names and int(value) > 0
-        ]
-        material_summary = "\n".join(available_materials) or "- 尚未提供素材数量，仅按人物信息创作文案"
-        feature_value = feature or "未提供"
-        return f"""你是一名大健康领域的人文纪实短视频编导。
-请根据用户提供的信息，生成 {count} 条“中医寻访”口播文案。
 
-【用户提供的信息】
-- 医生地址：{address}
-- 医生称呼：{name}
-- 医生专长：{specialty}
-- 医生特点：{feature_value}
-
-【可用画面】
-{material_summary}
-
-【创作要求】
-1. 使用第一人称寻访视角，语气真实、克制、有温度，不使用广告腔。
-2. 每条文案包含 {ZHONGYI_MIN_CHARS}-{ZHONGYI_MAX_CHARS} 个汉字，拆分为 {ZHONGYI_MIN_SENTENCES}-{ZHONGYI_MAX_SENTENCES} 个短句。
-3. 每个短句适合单独显示为一行短视频字幕，不要在句子中换行。
-4. 开头两句从医生地址切入，并自然表达“找到这位医生”。
-5. 中段依次描述现场印象、医生专长、相关健康困扰和问诊状态。
-6. 结尾落到医生的职业态度、人物特点或给人的信任感。
-7. 各条文案分别侧重寻访过程、问诊观察和人物特点；不足三条时按此前顺序选择，超过三条时继续变换切入角度。
-8. 地址、称呼、专长和特点必须与输入一致，不得擅自增加具体事实。
-9. 如果医生特点为“未提供”，不得编造中医世家、祖传、几代行医、秘方、古法、患者慕名而来或远道而来等信息。
-10. 不虚构医院、科室、从医年限、患者数量、真实病例或素材中无法确认的事件。
-11. 不承诺医疗效果，不使用“治愈”“根治”“包好”“保证有效”等表达。
-12. 不添加关注、私信、咨询、购买或其他引流内容。
-13. 只输出合法 JSON，不使用 Markdown 代码块或额外解释。
-
-【输出格式】
-{{
-  "scripts": [
-    {{"style": "寻访过程", "sentences": ["第一句", "第二句"]}},
-    {{"style": "问诊观察", "sentences": ["第一句", "第二句"]}},
-    {{"style": "人物特点", "sentences": ["第一句", "第二句"]}}
-  ]
-}}"""
-
-    doctor_name = _required_value(variables, "doctor-name", "医生姓名")
-    hospital = _required_value(variables, "hospital", "所在医院")
-    department = _required_value(variables, "department", "科室")
-    specialty = _required_value(variables, "specialty", "专业特长")
-    subject = f"姓名：{doctor_name}\n医院：{hospital}\n科室：{department}\n专业特长：{specialty}"
-    return (
-        "你是一位专业的中文短视频口播文案撰写专家。\n\n"
-        f"【人物信息】\n{subject}\n\n"
-        f"【任务】\n生成 {count} 条彼此明显不同的短视频口播文案。\n"
-        "每条控制在 50-100 个汉字，语言自然、适合直接配音，不要标题、编号或解释。\n"
-        "突出医生的专业能力、医院背景和可信赖感，避免医疗效果承诺和夸张用语。\n\n"
-        "【输出格式】\n只输出 JSON 字符串数组，例如：[\"第一条文案\", \"第二条文案\"]"
-    )
+def build_rewrite_prompt(
+    template: str | TemplateDefinition,
+    variables: dict[str, str],
+    original_script: str,
+    material_context: dict[str, int] | None = None,
+) -> str:
+    definition = resolve_template_definition(template)
+    try:
+        return render_script_prompt(
+            definition,
+            variables,
+            candidate_count=1,
+            material_context=material_context,
+            original_script=original_script,
+        )
+    except TemplateRuntimeValidationError as exc:
+        raise TemplateProductionError(str(exc)) from exc
 
 
 def parse_generated_scripts(content: str, limit: int = 10) -> list[str]:
@@ -399,32 +367,66 @@ def compose_video(
     seed: str,
     audio_duration: float | None = None,
     segment_duration: float = 4.0,
+    script: str | None = None,
+    work_dir: Path | None = None,
+    ratio: str = "9:16",
+    timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
+    subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    bgm_path: Path | None = None,
 ) -> Path:
     require_ffmpeg()
     duration = audio_duration or probe_duration(audio_path)
     sequence = build_material_sequence(segments, duration, seed=seed, segment_duration=segment_duration)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     concat_path = output_path.with_suffix(".concat.txt")
+    ass_path: Path | None = None
+    if script and script.strip():
+        subtitle_dir = work_dir or output_path.parent
+        ass_path = write_subtitle_ass(
+            script,
+            duration,
+            subtitle_dir / "subtitles.ass",
+            target_size=ratio_size(ratio),
+            timings=timings,
+            subtitle_replacements=subtitle_replacements,
+        )
     concat_path.write_text("\n".join(_concat_line(path) for path in sequence), encoding="utf-8")
     try:
-        _run(
+        command = [
+            "ffmpeg",
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(concat_path),
+            "-i",
+            str(audio_path),
+        ]
+        has_bgm = bgm_path is not None
+        if has_bgm:
+            command.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
+        command.extend(["-t", f"{duration:.3f}"])
+
+        filter_parts: list[str] = []
+        if has_bgm:
+            filter_parts.append(
+                f"[1:a][2:a]amix=inputs=2:duration=first:dropout_transition=0:"
+                f"weights='1 {BGM_VOLUME_WEIGHT}':normalize=0[aout]"
+            )
+        if filter_parts:
+            if ass_path is not None:
+                filter_parts.append(f"[0:v]ass=filename='{_ffmpeg_filter_path(ass_path)}'[vout]")
+            command.extend(["-filter_complex", ";".join(filter_parts)])
+            command.extend(["-map", "[vout]" if ass_path is not None else "0:v:0"])
+            command.extend(["-map", "[aout]"])
+        else:
+            command.extend(["-map", "0:v:0", "-map", "1:a:0"])
+            if ass_path is not None:
+                command.extend(["-vf", f"ass=filename='{_ffmpeg_filter_path(ass_path)}'"])
+        command.extend(
             [
-                "ffmpeg",
-                "-y",
-                "-f",
-                "concat",
-                "-safe",
-                "0",
-                "-i",
-                str(concat_path),
-                "-i",
-                str(audio_path),
-                "-t",
-                f"{duration:.3f}",
-                "-map",
-                "0:v:0",
-                "-map",
-                "1:a:0",
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -443,8 +445,11 @@ def compose_video(
                 str(output_path),
             ]
         )
+        _run(command)
     finally:
         concat_path.unlink(missing_ok=True)
+        if ass_path is not None:
+            ass_path.unlink(missing_ok=True)
     return output_path
 
 
@@ -580,7 +585,7 @@ def apply_subtitle_replacements(
     return pattern.sub(lambda match: replacement_map[match.group(0)], str(text or ""))
 
 
-def write_zhongyi_ass(
+def write_subtitle_ass(
     script: str,
     duration: float,
     output_path: Path,
@@ -588,13 +593,12 @@ def write_zhongyi_ass(
     target_size: tuple[int, int],
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    notice_text: str | None = TEMPLATE_SAFETY_NOTICE,
 ) -> Path:
     width, height = target_size
     subtitle_size = max(34, round(height * 0.034))
-    notice_size = max(22, round(height * 0.017))
     outline = max(3, round(height * 0.0026))
     bottom_margin = max(80, round(height * 0.13))
-    top_margin = max(34, round(height * 0.055))
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -609,13 +613,21 @@ def write_zhongyi_ass(
         "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
         f"Style: Subtitle,Microsoft YaHei,{subtitle_size},&H001FD2FF,&H001FD2FF,&H00000000,&H70000000,"
         f"-1,0,0,0,100,100,0,0,1,{outline},1,2,70,70,{bottom_margin},1",
-        f"Style: Notice,Microsoft YaHei,{notice_size},&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,"
-        f"0,0,0,0,100,100,0,0,1,1,1,8,50,50,{top_margin},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
-        f"Dialogue: 0,{_ass_time(0)},{_ass_time(duration)},Notice,,0,0,0,,{ZHONGYI_SAFETY_NOTICE}",
     ]
+    if notice_text:
+        notice_size = max(22, round(height * 0.017))
+        top_margin = max(34, round(height * 0.055))
+        lines.insert(
+            -3,
+            f"Style: Notice,Microsoft YaHei,{notice_size},&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,"
+            f"0,0,0,0,100,100,0,0,1,1,1,8,50,50,{top_margin},1",
+        )
+        lines.append(
+            f"Dialogue: 0,{_ass_time(0)},{_ass_time(duration)},Notice,,0,0,0,,{notice_text}"
+        )
     lines.extend(
         f"Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Subtitle,,0,0,0,,"
         f"{_ass_text(apply_subtitle_replacements(text, subtitle_replacements))}"
@@ -643,6 +655,7 @@ def compose_zhongyi_video(
     audio_duration: float | None = None,
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    bgm_path: Path | None = None,
 ) -> Path:
     require_ffmpeg()
     duration = audio_duration or probe_duration(audio_path)
@@ -668,7 +681,7 @@ def compose_zhongyi_video(
         )
         prepared.append(segment_path)
 
-    ass_path = write_zhongyi_ass(
+    ass_path = write_subtitle_ass(
         script,
         duration,
         work_dir / "subtitles.ass",
@@ -680,6 +693,10 @@ def compose_zhongyi_video(
     for segment_path in prepared:
         command.extend(["-i", str(segment_path)])
     command.extend(["-i", str(audio_path)])
+    audio_input_index = len(prepared)
+    has_bgm = bgm_path is not None
+    if has_bgm:
+        command.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
 
     filters: list[str] = []
     cumulative = timeline[0].duration
@@ -693,15 +710,37 @@ def compose_zhongyi_video(
         previous_label = output_label
         cumulative += timeline[index].duration
     filters.append(f"{previous_label}ass=filename='{_ffmpeg_filter_path(ass_path)}'[vout]")
+    if has_bgm:
+        bgm_input_index = audio_input_index + 1
+        filters.append(
+            f"[{audio_input_index}:a][{bgm_input_index}:a]amix=inputs=2:duration=first:"
+            f"dropout_transition=0:weights='1 {BGM_VOLUME_WEIGHT}':normalize=0[aout]"
+        )
     output_path.parent.mkdir(parents=True, exist_ok=True)
+    if has_bgm:
+        command.extend(
+            [
+                "-filter_complex",
+                ";".join(filters),
+                "-map",
+                "[vout]",
+                "-map",
+                "[aout]",
+            ]
+        )
+    else:
+        command.extend(
+            [
+                "-filter_complex",
+                ";".join(filters),
+                "-map",
+                "[vout]",
+                "-map",
+                f"{audio_input_index}:a:0",
+            ]
+        )
     command.extend(
         [
-            "-filter_complex",
-            ";".join(filters),
-            "-map",
-            "[vout]",
-            "-map",
-            f"{len(prepared)}:a:0",
             "-t",
             f"{duration:.3f}",
             "-c:v",

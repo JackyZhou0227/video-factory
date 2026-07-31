@@ -2,46 +2,48 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
 import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
 
-const TEMPLATES = [
-  {
-    id: "zhongyi-xunfang",
-    name: "中医寻访",
-    description: "用问诊和诊所画面生成真实、有温度的寻访口播。",
-    ratio: "9:16",
-    supportsSubtitleReplacements: true,
-    variables: [
-      { id: "address", label: "医生地址", placeholder: "例如：湖北阳新的一条老街", required: true },
-      { id: "name", label: "医生称呼", placeholder: "例如：马医生", required: true },
-      { id: "specialty", label: "医生专长", placeholder: "例如：中医内科、慢性病调理", required: true },
-      { id: "feature", label: "医生特点", placeholder: "例如：三代中医世家", required: false },
-    ],
-    requirements: [
-      { id: "doctor-scene", name: "中医师问诊画面", type: "video", min: 1, max: 5 },
-      { id: "clinic-scene", name: "诊所环境展示", type: "video", min: 1, max: 3 },
-    ],
-  },
-  {
-    id: "doctor-intro",
-    name: "医生介绍",
-    description: "组合医生形象和医院环境，批量制作专业介绍视频。",
-    ratio: "9:16",
-    supportsSubtitleReplacements: false,
-    variables: [
-      { id: "doctor-name", label: "医生姓名", placeholder: "例如：张医生", required: true },
-      { id: "hospital", label: "所在医院", placeholder: "例如：北京协和医院", required: true },
-      { id: "department", label: "科室", placeholder: "例如：心内科", required: true },
-      { id: "specialty", label: "专业特长", placeholder: "例如：冠心病、高血压诊疗", required: true },
-    ],
-    requirements: [
-      { id: "doctor-image", name: "医生形象照", type: "image", min: 1, max: 3 },
-      { id: "hospital-scene", name: "医院环境", type: "video", min: 1, max: 3 },
-    ],
-  },
-];
-
 const RATIO_OPTIONS = ["9:16", "16:9", "1:1", "3:4"];
 const FINAL_STATUSES = new Set(["completed", "failed"]);
 const MAX_SUBTITLE_REPLACEMENTS = 30;
+
+function templateContentDefaults(template) {
+  return Object.fromEntries(
+    (template?.content_fields || [])
+      .filter((field) => field.default !== null && field.default !== undefined)
+      .map((field) => [field.key, String(field.default)])
+  );
+}
+
+function templateDefaultRatio(template) {
+  return template?.production?.default_ratio || template?.runtime_capabilities?.allowed_ratios?.[0] || "9:16";
+}
+
+function templateDefaultBatchSize(template) {
+  const maximum = Math.max(1, Number(template?.production?.max_batch_size) || 50);
+  return Math.max(1, Math.min(maximum, Number(template?.production?.default_batch_size) || 5));
+}
+
+function templateCandidateCount(template) {
+  return Math.max(1, Number(template?.script_generation?.default_candidate_count) || 3);
+}
+
+async function responseError(response, fallback) {
+  const data = await response.json().catch(() => ({}));
+  return data.detail || data.message || fallback || `HTTP ${response.status}`;
+}
+
+function exportFilename(response, templateId) {
+  const disposition = response.headers.get("Content-Disposition") || "";
+  const utf8Name = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+  if (utf8Name) {
+    try {
+      return decodeURIComponent(utf8Name);
+    } catch {
+      return `${templateId}.json`;
+    }
+  }
+  return disposition.match(/filename="?([^";]+)"?/i)?.[1] || `${templateId}.json`;
+}
 
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -59,6 +61,13 @@ function statusLabel(status) {
 function formatFileSize(size) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${minutes}:${String(secs).padStart(2, "0")}`;
 }
 
 function MaterialPreview({ file, mediaType, label }) {
@@ -85,15 +94,79 @@ function MaterialPreview({ file, mediaType, label }) {
   );
 }
 
+function ContentFieldControl({ field, value, onChange }) {
+  const inputId = `template-variable-${field.key}`;
+  const sharedProps = {
+    className: "control",
+    id: inputId,
+    value,
+    required: Boolean(field.required),
+    onChange: (event) => onChange(event.target.value),
+  };
+
+  let control;
+  if (field.input_type === "textarea") {
+    control = (
+      <textarea
+        {...sharedProps}
+        minLength={field.min_length ?? undefined}
+        maxLength={field.max_length ?? undefined}
+        placeholder={field.placeholder || "请输入内容"}
+        rows={4}
+      />
+    );
+  } else if (field.input_type === "select") {
+    control = (
+      <select {...sharedProps}>
+        <option value="">{field.placeholder || `请选择${field.label}`}</option>
+        {(field.options || []).map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    );
+  } else {
+    control = (
+      <input
+        {...sharedProps}
+        type="text"
+        minLength={field.min_length ?? undefined}
+        maxLength={field.max_length ?? undefined}
+        placeholder={field.placeholder || "请输入内容"}
+      />
+    );
+  }
+
+  return (
+    <label className="field" htmlFor={inputId}>
+      <span className="field-label">{field.label}{field.required ? " *" : ""}</span>
+      {control}
+      {field.help_text ? <small className="field-help">{field.help_text}</small> : null}
+    </label>
+  );
+}
+
 export default function TemplateProduction({ currentUser }) {
   const backendBaseUrl = useBackendBaseUrl();
-  const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+  const [templateError, setTemplateError] = useState("");
+  const [templateNotice, setTemplateNotice] = useState("");
+  const [importingTemplate, setImportingTemplate] = useState(false);
+  const [exportingTemplate, setExportingTemplate] = useState(false);
+  const [templateId, setTemplateId] = useState("");
   const [variables, setVariables] = useState({});
   const [materials, setMaterials] = useState({});
   const [scriptCandidates, setScriptCandidates] = useState([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [finalScript, setFinalScript] = useState("");
   const [subtitleReplacements, setSubtitleReplacements] = useState([]);
+  const [subtitleReplacementsLoading, setSubtitleReplacementsLoading] = useState(true);
+  const [subtitleReplacementError, setSubtitleReplacementError] = useState("");
+  const [subtitleReplacementNotice, setSubtitleReplacementNotice] = useState("");
+  const [savingSubtitleReplacementIds, setSavingSubtitleReplacementIds] = useState(() => new Set());
+  const [dirtySubtitleReplacementIds, setDirtySubtitleReplacementIds] = useState(() => new Set());
+  const [savedSubtitleReplacementIds, setSavedSubtitleReplacementIds] = useState(() => new Set());
+  const [subtitleReplacementPendingDelete, setSubtitleReplacementPendingDelete] = useState(null);
   const [rewritingCandidateId, setRewritingCandidateId] = useState("");
   const [ratio, setRatio] = useState("9:16");
   const [generateCount, setGenerateCount] = useState(5);
@@ -102,28 +175,224 @@ export default function TemplateProduction({ currentUser }) {
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [bgmTracks, setBgmTracks] = useState([]);
+  const [selectedBgmId, setSelectedBgmId] = useState("");
+  const [bgmLoading, setBgmLoading] = useState(true);
+  const [bgmError, setBgmError] = useState("");
+  const [bgmNotice, setBgmNotice] = useState("");
+  const [uploadingBgm, setUploadingBgm] = useState(false);
+  const [deletingBgmId, setDeletingBgmId] = useState(null);
+  const [pendingBgmDelete, setPendingBgmDelete] = useState(null);
   const pollRef = useRef(null);
+  const templateFileInputRef = useRef(null);
+  const bgmFileInputRef = useRef(null);
+  const previousTemplateIdRef = useRef("");
 
   const selectedTemplate = useMemo(
-    () => TEMPLATES.find((item) => item.id === templateId) || TEMPLATES[0],
-    [templateId]
+    () => templates.find((item) => item.id === templateId) || null,
+    [templateId, templates]
   );
   const taskStorageKey = `vf.templateProductionTask.v1.${currentUser?.id || "local"}`;
 
+  const allowedRatios = useMemo(() => {
+    const configured = selectedTemplate?.runtime_capabilities?.allowed_ratios;
+    if (Array.isArray(configured) && configured.length) return configured;
+    const defaultRatio = templateDefaultRatio(selectedTemplate);
+    return RATIO_OPTIONS.includes(defaultRatio) ? RATIO_OPTIONS : [defaultRatio, ...RATIO_OPTIONS];
+  }, [selectedTemplate]);
+
+  const maxBatchSize = Math.max(1, Number(selectedTemplate?.production?.max_batch_size) || 50);
+  const defaultCandidateCount = templateCandidateCount(selectedTemplate);
+
+  const loadTemplates = useCallback(async ({ signal, selectId } = {}) => {
+    setTemplatesLoading(true);
+    setTemplateError("");
+    try {
+      const response = await apiFetch(
+        "/api/template-production/templates",
+        signal ? { signal } : undefined,
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "读取模板列表失败"));
+      const data = await response.json();
+      const nextTemplates = Array.isArray(data.templates) ? data.templates : [];
+      setTemplates(nextTemplates);
+      setTemplateId((currentId) => {
+        if (selectId && nextTemplates.some((item) => item.id === selectId)) return selectId;
+        if (nextTemplates.some((item) => item.id === currentId)) return currentId;
+        return nextTemplates[0]?.id || "";
+      });
+      return nextTemplates;
+    } catch (err) {
+      if (err?.name === "AbortError") return null;
+      setTemplateError(err.message || "读取模板列表失败");
+      return null;
+    } finally {
+      if (!signal?.aborted) setTemplatesLoading(false);
+    }
+  }, [backendBaseUrl]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadTemplates({ signal: controller.signal });
+    return () => controller.abort();
+  }, [currentUser?.id, loadTemplates]);
+
+  const loadSubtitleReplacements = useCallback(async ({ signal } = {}) => {
+    setSubtitleReplacementsLoading(true);
+    setSubtitleReplacementError("");
+    setSubtitleReplacementNotice("");
+    try {
+      const response = await apiFetch(
+        "/api/template-production/subtitle-replacements",
+        signal ? { signal } : undefined,
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "读取全局敏感词替换失败"));
+      const data = await response.json();
+      setSubtitleReplacements(Array.isArray(data.replacements) ? data.replacements : []);
+      setDirtySubtitleReplacementIds(new Set());
+      setSavedSubtitleReplacementIds(new Set());
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        setSubtitleReplacementError(err.message || "读取全局敏感词替换失败");
+      }
+    } finally {
+      if (!signal?.aborted) setSubtitleReplacementsLoading(false);
+    }
+  }, [backendBaseUrl]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadSubtitleReplacements({ signal: controller.signal });
+    return () => controller.abort();
+  }, [currentUser?.id, loadSubtitleReplacements]);
+
+  const loadBgmTracks = useCallback(async ({ signal } = {}) => {
+    setBgmLoading(true);
+    setBgmError("");
+    setBgmNotice("");
+    try {
+      const response = await apiFetch(
+        "/api/template-production/bgm",
+        signal ? { signal } : undefined,
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "读取背景音乐列表失败"));
+      const data = await response.json();
+      const nextTracks = Array.isArray(data.bgm_tracks) ? data.bgm_tracks : [];
+      setBgmTracks(nextTracks);
+      setSelectedBgmId((currentId) => {
+        if (currentId && nextTracks.some((track) => track.id === currentId)) return currentId;
+        return "";
+      });
+    } catch (err) {
+      if (err?.name !== "AbortError") {
+        setBgmError(err.message || "读取背景音乐列表失败");
+      }
+    } finally {
+      if (!signal?.aborted) setBgmLoading(false);
+    }
+  }, [backendBaseUrl]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    loadBgmTracks({ signal: controller.signal });
+    return () => controller.abort();
+  }, [currentUser?.id, loadBgmTracks]);
+
+  const uploadBgm = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    setUploadingBgm(true);
+    setBgmError("");
+    setBgmNotice("");
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const response = await apiFetch(
+        "/api/template-production/bgm",
+        { method: "POST", body: form },
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "上传背景音乐失败"));
+      const data = await response.json();
+      const track = data.bgm_track;
+      setBgmTracks((current) => [...current, track]);
+      setSelectedBgmId(track.id);
+      setBgmNotice(`已上传背景音乐“${track.name}”。`);
+    } catch (err) {
+      setBgmError(err.message || "上传背景音乐失败");
+    } finally {
+      setUploadingBgm(false);
+    }
+  }, [backendBaseUrl]);
+
+  const requestBgmDelete = useCallback((track) => {
+    if (track) setPendingBgmDelete(track);
+  }, []);
+
+  const confirmBgmDelete = useCallback(async () => {
+    if (!pendingBgmDelete) return;
+    const trackId = pendingBgmDelete.id;
+    setDeletingBgmId(trackId);
+    setBgmError("");
+    setBgmNotice("");
+    try {
+      const response = await apiFetch(
+        `/api/template-production/bgm/${encodeURIComponent(trackId)}`,
+        { method: "DELETE" },
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "删除背景音乐失败"));
+      setBgmTracks((current) => current.filter((track) => track.id !== trackId));
+      setSelectedBgmId((current) => (current === trackId ? "" : current));
+      setBgmNotice("背景音乐已删除。");
+      setPendingBgmDelete(null);
+    } catch (err) {
+      setBgmError(err.message || "删除背景音乐失败");
+    } finally {
+      setDeletingBgmId(null);
+    }
+  }, [backendBaseUrl, pendingBgmDelete]);
+
+  const selectedBgmTrack = useMemo(
+    () => bgmTracks.find((track) => track.id === selectedBgmId) || null,
+    [bgmTracks, selectedBgmId]
+  );
+
   const materialIssues = useMemo(() => {
-    return selectedTemplate.requirements.flatMap((requirement) => {
-      const count = materials[requirement.id]?.length || 0;
-      if (count < requirement.min) return [`${requirement.name}至少需要 ${requirement.min} 个素材`];
-      if (count > requirement.max) return [`${requirement.name}最多选择 ${requirement.max} 个素材`];
+    return (selectedTemplate?.material_requirements || []).flatMap((requirement) => {
+      const count = materials[requirement.key]?.length || 0;
+      if (count < requirement.min_count) return [`${requirement.label}至少需要 ${requirement.min_count} 个素材`];
+      if (count > requirement.max_count) return [`${requirement.label}最多选择 ${requirement.max_count} 个素材`];
       return [];
     });
   }, [materials, selectedTemplate]);
 
-  const variablesReady = selectedTemplate.variables.every(
-    (field) => !field.required || String(variables[field.id] || "").trim()
-  );
+  const contentIssues = useMemo(() => {
+    return (selectedTemplate?.content_fields || []).flatMap((field) => {
+      const value = String(variables[field.key] || "");
+      const trimmed = value.trim();
+      if (field.required && !trimmed) return [`请填写${field.label}`];
+      if (!trimmed) return [];
+      if (field.min_length && trimmed.length < field.min_length) {
+        return [`${field.label}至少需要 ${field.min_length} 个字符`];
+      }
+      if (field.max_length && trimmed.length > field.max_length) {
+        return [`${field.label}最多填写 ${field.max_length} 个字符`];
+      }
+      if (field.input_type === "select" && !(field.options || []).some((option) => option.value === value)) {
+        return [`请选择有效的${field.label}`];
+      }
+      return [];
+    });
+  }, [selectedTemplate, variables]);
+  const variablesReady = Boolean(selectedTemplate) && contentIssues.length === 0;
   const subtitleReplacementIssues = useMemo(() => {
-    if (!selectedTemplate.supportsSubtitleReplacements) return [];
+    if (!selectedTemplate?.runtime_capabilities?.subtitle_replacements) return [];
     const issues = [];
     const seenSources = new Set();
     subtitleReplacements.forEach((item, index) => {
@@ -139,17 +408,12 @@ export default function TemplateProduction({ currentUser }) {
       if (source) seenSources.add(source);
     });
     return issues;
-  }, [selectedTemplate.supportsSubtitleReplacements, subtitleReplacements]);
-  const normalizedSubtitleReplacements = useMemo(
-    () => subtitleReplacements.map((item) => ({
-      source: item.source.trim(),
-      replacement: item.replacement.trim(),
-    })),
-    [subtitleReplacements]
-  );
+  }, [selectedTemplate, subtitleReplacements]);
+  const hasUnsavedSubtitleReplacements = dirtySubtitleReplacementIds.size > 0;
   const canSubmit = variablesReady
     && materialIssues.length === 0
     && subtitleReplacementIssues.length === 0
+    && !hasUnsavedSubtitleReplacements
     && Boolean(finalScript.trim())
     && !submitting;
 
@@ -157,6 +421,30 @@ export default function TemplateProduction({ currentUser }) {
     if (pollRef.current) clearTimeout(pollRef.current);
     pollRef.current = null;
   }, []);
+
+  useEffect(() => {
+    if (!selectedTemplate || previousTemplateIdRef.current === selectedTemplate.id) return;
+
+    const previousTemplateId = previousTemplateIdRef.current;
+    previousTemplateIdRef.current = selectedTemplate.id;
+    setVariables(templateContentDefaults(selectedTemplate));
+    setMaterials({});
+    setScriptCandidates([]);
+    setSelectedCandidateId("");
+    setFinalScript("");
+    setRewritingCandidateId("");
+    setRatio(templateDefaultRatio(selectedTemplate));
+    setGenerateCount(templateDefaultBatchSize(selectedTemplate));
+    setError("");
+    setNotice("");
+
+    if (previousTemplateId) {
+      stopPolling();
+      localStorage.removeItem(taskStorageKey);
+      setTask(null);
+      setSubmitting(false);
+    }
+  }, [selectedTemplate?.id, stopPolling, taskStorageKey]);
 
   const pollTask = useCallback(
     async (taskId) => {
@@ -193,33 +481,89 @@ export default function TemplateProduction({ currentUser }) {
   const switchTemplate = useCallback(
     (nextTemplate) => {
       if (submitting) return;
-      stopPolling();
-      localStorage.removeItem(taskStorageKey);
       setTemplateId(nextTemplate.id);
-      setRatio(nextTemplate.ratio);
-      setVariables({});
-      setMaterials({});
-      setScriptCandidates([]);
-      setSelectedCandidateId("");
-      setFinalScript("");
-      setSubtitleReplacements([]);
-      setRewritingCandidateId("");
-      setTask(null);
-      setError("");
-      setNotice("");
+      setTemplateNotice("");
     },
-    [stopPolling, submitting, taskStorageKey]
+    [submitting]
   );
 
+  const importTemplate = useCallback(async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (file.size > 128 * 1024) {
+      setTemplateError("模板 JSON 不能超过 128 KiB");
+      setTemplateNotice("");
+      return;
+    }
+
+    setImportingTemplate(true);
+    setTemplateError("");
+    setTemplateNotice("");
+    const knownIds = new Set(templates.map((item) => item.id));
+    try {
+      const form = new FormData();
+      form.append("file", file, file.name);
+      const response = await apiFetch(
+        "/api/template-production/templates/import",
+        { method: "POST", body: form },
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "导入模板失败"));
+      const data = await response.json().catch(() => ({}));
+      const importedId = data.template?.id || data.id || data.template_id || "";
+      const nextTemplates = await loadTemplates({ selectId: importedId });
+      if (!nextTemplates) return;
+      const inferredTemplate = importedId
+        ? nextTemplates.find((item) => item.id === importedId)
+        : nextTemplates.find((item) => !knownIds.has(item.id));
+      if (inferredTemplate) setTemplateId(inferredTemplate.id);
+      setTemplateNotice(`模板“${inferredTemplate?.name || importedId || file.name}”已导入`);
+    } catch (err) {
+      setTemplateError(err.message || "导入模板失败");
+    } finally {
+      setImportingTemplate(false);
+    }
+  }, [backendBaseUrl, loadTemplates, templates]);
+
+  const exportTemplate = useCallback(async () => {
+    if (!selectedTemplate) return;
+    setExportingTemplate(true);
+    setTemplateError("");
+    setTemplateNotice("");
+    try {
+      const response = await apiFetch(
+        `/api/template-production/templates/${encodeURIComponent(selectedTemplate.id)}/export`,
+        undefined,
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "导出模板失败"));
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = exportFilename(response, selectedTemplate.id);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      setTemplateNotice(`模板“${selectedTemplate.name}”已导出`);
+    } catch (err) {
+      setTemplateError(err.message || "导出模板失败");
+    } finally {
+      setExportingTemplate(false);
+    }
+  }, [backendBaseUrl, selectedTemplate]);
+
   const addMaterialFiles = useCallback((requirement, fileList) => {
-    const acceptedPrefix = requirement.type === "image" ? "image/" : "video/";
+    const acceptedPrefix = requirement.media_type === "image" ? "image/" : "video/";
     const selected = Array.from(fileList || []).filter((file) => file.type.startsWith(acceptedPrefix));
     if (!selected.length) return;
     setMaterials((current) => {
-      const existing = current[requirement.id] || [];
-      const available = Math.max(0, requirement.max - existing.length);
+      const existing = current[requirement.key] || [];
+      const available = Math.max(0, requirement.max_count - existing.length);
       const additions = selected.slice(0, available).map((file) => ({ id: makeId(), file }));
-      return { ...current, [requirement.id]: [...existing, ...additions] };
+      return { ...current, [requirement.key]: [...existing, ...additions] };
     });
     setError("");
   }, []);
@@ -232,39 +576,152 @@ export default function TemplateProduction({ currentUser }) {
   }, []);
 
   const addSubtitleReplacement = useCallback(() => {
+    const id = makeId();
     setSubtitleReplacements((current) => {
       if (current.length >= MAX_SUBTITLE_REPLACEMENTS) return current;
-      return [...current, { id: makeId(), source: "", replacement: "" }];
+      return [...current, { id, source: "", replacement: "" }];
     });
     setError("");
     setNotice("");
+    setSubtitleReplacementNotice("");
   }, []);
 
   const updateSubtitleReplacement = useCallback((id, field, value) => {
     setSubtitleReplacements((current) => current.map((item) => (
       item.id === id ? { ...item, [field]: value } : item
     )));
+    setDirtySubtitleReplacementIds((current) => new Set(current).add(id));
+    setSavedSubtitleReplacementIds((current) => {
+      const next = new Set(current);
+      next.delete(id);
+      return next;
+    });
+    setSubtitleReplacementNotice("");
     setError("");
     setNotice("");
   }, []);
 
-  const removeSubtitleReplacement = useCallback((id) => {
-    setSubtitleReplacements((current) => current.filter((item) => item.id !== id));
-    setError("");
-    setNotice("");
-  }, []);
+  const saveSubtitleReplacement = useCallback(async (id) => {
+    const item = subtitleReplacements.find((replacement) => replacement.id === id);
+    if (!item) return;
+    const source = item.source.trim();
+    const replacement = item.replacement.trim();
+    if (!source || !replacement || source === replacement) return;
+
+    setSavingSubtitleReplacementIds((current) => new Set(current).add(id));
+    setSubtitleReplacementError("");
+    try {
+      const isDraft = typeof id === "string";
+      const response = await apiFetch(
+        isDraft
+          ? "/api/template-production/subtitle-replacements"
+          : `/api/template-production/subtitle-replacements/${id}`,
+        {
+          method: isDraft ? "POST" : "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source, replacement }),
+        },
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "保存全局敏感词替换失败"));
+      const data = await response.json();
+      setSubtitleReplacements((current) => current.map((currentItem) => (
+        currentItem.id === id ? data.replacement : currentItem
+      )));
+      setDirtySubtitleReplacementIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setSavedSubtitleReplacementIds((current) => new Set(current).add(data.replacement.id));
+      setSubtitleReplacementNotice("全局敏感词替换已保存。");
+    } catch (err) {
+      setSubtitleReplacementError(err.message || "保存全局敏感词替换失败");
+    } finally {
+      setSavingSubtitleReplacementIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [backendBaseUrl, subtitleReplacements]);
+
+  const removeSubtitleReplacement = useCallback(async (id) => {
+    if (typeof id === "string") {
+      setSubtitleReplacements((current) => current.filter((item) => item.id !== id));
+      setDirtySubtitleReplacementIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setSavedSubtitleReplacementIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setSubtitleReplacementNotice("全局敏感词替换已删除。");
+      return true;
+    }
+
+    setSavingSubtitleReplacementIds((current) => new Set(current).add(id));
+    setSubtitleReplacementError("");
+    try {
+      const response = await apiFetch(
+        `/api/template-production/subtitle-replacements/${id}`,
+        { method: "DELETE" },
+        backendBaseUrl
+      );
+      if (!response.ok) throw new Error(await responseError(response, "删除全局敏感词替换失败"));
+      setSubtitleReplacements((current) => current.filter((item) => item.id !== id));
+      setDirtySubtitleReplacementIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setSavedSubtitleReplacementIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+      setSubtitleReplacementNotice("全局敏感词替换已删除。");
+      return true;
+    } catch (err) {
+      setSubtitleReplacementError(err.message || "删除全局敏感词替换失败");
+      return false;
+    } finally {
+      setSavingSubtitleReplacementIds((current) => {
+        const next = new Set(current);
+        next.delete(id);
+        return next;
+      });
+    }
+  }, [backendBaseUrl]);
+
+  const requestSubtitleReplacementDelete = useCallback((id) => {
+    const item = subtitleReplacements.find((replacement) => replacement.id === id);
+    if (item) setSubtitleReplacementPendingDelete(item);
+  }, [subtitleReplacements]);
+
+  const confirmSubtitleReplacementDelete = useCallback(async () => {
+    if (!subtitleReplacementPendingDelete) return;
+    const deleted = await removeSubtitleReplacement(subtitleReplacementPendingDelete.id);
+    if (deleted) setSubtitleReplacementPendingDelete(null);
+  }, [removeSubtitleReplacement, subtitleReplacementPendingDelete]);
 
   const generateAiScripts = useCallback(async () => {
     setError("");
     setNotice("");
     if (!variablesReady) {
-      setError("请先填写模板的必填信息。");
+      setError(contentIssues[0] || "请先填写模板的必填信息。");
       return;
     }
     setGeneratingScripts(true);
     try {
       const materialContext = Object.fromEntries(
-        selectedTemplate.requirements.map((requirement) => [requirement.id, materials[requirement.id]?.length || 0])
+        selectedTemplate.material_requirements.map((requirement) => [
+          requirement.key,
+          materials[requirement.key]?.length || 0,
+        ])
       );
       const response = await apiFetch(
         "/api/template-production/scripts/generate",
@@ -274,7 +731,7 @@ export default function TemplateProduction({ currentUser }) {
           body: JSON.stringify({
             template_id: templateId,
             variables,
-            count: 3,
+            count: defaultCandidateCount,
             material_context: materialContext,
           }),
         },
@@ -294,7 +751,16 @@ export default function TemplateProduction({ currentUser }) {
     } finally {
       setGeneratingScripts(false);
     }
-  }, [backendBaseUrl, materials, selectedTemplate, templateId, variables, variablesReady]);
+  }, [
+    backendBaseUrl,
+    contentIssues,
+    defaultCandidateCount,
+    materials,
+    selectedTemplate,
+    templateId,
+    variables,
+    variablesReady,
+  ]);
 
   const selectCandidate = useCallback((candidate) => {
     setSelectedCandidateId(candidate.id);
@@ -309,7 +775,10 @@ export default function TemplateProduction({ currentUser }) {
     setNotice("");
     try {
       const materialContext = Object.fromEntries(
-        selectedTemplate.requirements.map((requirement) => [requirement.id, materials[requirement.id]?.length || 0])
+        selectedTemplate.material_requirements.map((requirement) => [
+          requirement.key,
+          materials[requirement.key]?.length || 0,
+        ])
       );
       const response = await apiFetch(
         "/api/template-production/scripts/rewrite",
@@ -347,7 +816,12 @@ export default function TemplateProduction({ currentUser }) {
     setError("");
     setNotice("");
     if (!canSubmit) {
-      setError(subtitleReplacementIssues[0] || materialIssues[0] || "请完善素材和文案后再生成。");
+      setError(
+        contentIssues[0]
+        || subtitleReplacementIssues[0]
+        || materialIssues[0]
+        || (hasUnsavedSubtitleReplacements ? "请先保存全局敏感词替换规则。" : "请完善素材和文案后再生成。")
+      );
       return;
     }
 
@@ -364,13 +838,13 @@ export default function TemplateProduction({ currentUser }) {
       const form = new FormData();
       const manifest = [];
       let fileIndex = 0;
-      selectedTemplate.requirements.forEach((requirement) => {
-        (materials[requirement.id] || []).forEach((item) => {
+      selectedTemplate.material_requirements.forEach((requirement) => {
+        (materials[requirement.key] || []).forEach((item) => {
           form.append("materials", item.file, item.file.name);
           manifest.push({
-            requirement_id: requirement.id,
+            requirement_id: requirement.key,
             file_index: fileIndex,
-            media_type: requirement.type,
+            media_type: requirement.media_type,
             name: item.file.name,
           });
           fileIndex += 1;
@@ -380,8 +854,8 @@ export default function TemplateProduction({ currentUser }) {
       form.append("scripts", JSON.stringify([cleanScript]));
       form.append("generate_count", String(generateCount));
       form.append("video_config", JSON.stringify({ ratio }));
-      form.append("subtitle_replacements", JSON.stringify(normalizedSubtitleReplacements));
       form.append("material_manifest", JSON.stringify(manifest));
+      if (selectedBgmId) form.append("bgm_id", selectedBgmId);
 
       const response = await apiFetch(
         "/api/template-production/tasks",
@@ -400,13 +874,15 @@ export default function TemplateProduction({ currentUser }) {
   }, [
     backendBaseUrl,
     canSubmit,
+    contentIssues,
     generateCount,
+    hasUnsavedSubtitleReplacements,
     materialIssues,
     materials,
-    normalizedSubtitleReplacements,
     pollTask,
     ratio,
     finalScript,
+    selectedBgmId,
     selectedTemplate,
     stopPolling,
     subtitleReplacementIssues,
@@ -421,14 +897,74 @@ export default function TemplateProduction({ currentUser }) {
           <span className="section-kicker">Template Production</span>
           <h2 id="template-production-title">模板量产</h2>
         </div>
-        <span className={`status-pill ${task?.status || (canSubmit ? "ready" : "pending")}`}>
-          <Icon name={submitting ? "loading" : task?.status === "completed" ? "check" : "template"} size={14} />
-          {task ? statusLabel(task.status) : canSubmit ? "可以生成" : "准备素材"}
-        </span>
+        <div className="template-heading-actions">
+          <input
+            ref={templateFileInputRef}
+            hidden
+            type="file"
+            accept="application/json,.json"
+            onChange={importTemplate}
+          />
+          <button
+            className="secondary-action compact-action"
+            type="button"
+            onClick={() => templateFileInputRef.current?.click()}
+            disabled={submitting || importingTemplate}
+            title="导入模板 JSON"
+          >
+            <Icon name={importingTemplate ? "loading" : "upload"} size={15} />
+            {importingTemplate ? "导入中" : "导入模板"}
+          </button>
+          <button
+            className="secondary-action compact-action"
+            type="button"
+            onClick={exportTemplate}
+            disabled={!selectedTemplate || exportingTemplate}
+            title="导出当前模板 JSON"
+          >
+            <Icon name={exportingTemplate ? "loading" : "download"} size={15} />
+            {exportingTemplate ? "导出中" : "导出模板"}
+          </button>
+          <span className={`status-pill ${task?.status || (canSubmit ? "ready" : "pending")}`}>
+            <Icon
+              name={templatesLoading || submitting ? "loading" : task?.status === "completed" ? "check" : "template"}
+              size={14}
+            />
+            {templatesLoading
+              ? "加载模板"
+              : task
+                ? statusLabel(task.status)
+                : !selectedTemplate
+                  ? "暂无模板"
+                  : canSubmit
+                    ? "可以生成"
+                    : "准备素材"}
+          </span>
+        </div>
       </div>
 
-      <div className="template-selector" role="tablist" aria-label="模板选择">
-        {TEMPLATES.map((item) => (
+      <div
+        className="template-selector"
+        role={templates.length ? "tablist" : "status"}
+        aria-label="模板选择"
+        aria-busy={templatesLoading}
+      >
+        {templatesLoading && !templates.length ? (
+          <div className="template-empty-state"><Icon name="loading" size={20} />正在加载模板...</div>
+        ) : templateError && !templates.length ? (
+          <div className="template-empty-state is-error">
+            <Icon name="alert" size={20} />
+            <span>{templateError}</span>
+            <button className="secondary-action compact-action" type="button" onClick={() => loadTemplates()}>
+              <Icon name="refresh" size={14} />重新加载
+            </button>
+          </div>
+        ) : !templates.length ? (
+          <div className="template-empty-state">
+            <Icon name="template" size={20} />
+            <span>还没有可用模板，请导入模板 JSON。</span>
+          </div>
+        ) : templates.map((item) => (
           <button
             className={`template-choice ${item.id === templateId ? "is-active" : ""}`}
             key={item.id}
@@ -439,13 +975,19 @@ export default function TemplateProduction({ currentUser }) {
             disabled={submitting}
           >
             <span className="template-choice-icon"><Icon name="template" size={20} /></span>
-            <span><strong>{item.name}</strong><small>{item.description}</small></span>
+            <span>
+              <strong>{item.name}{!item.is_builtin ? <em className="template-owned-label">我的</em> : null}</strong>
+              <small>{item.description || "暂无模板说明"}</small>
+            </span>
             {item.id === templateId ? <Icon name="check" size={17} /> : null}
           </button>
         ))}
       </div>
 
-      <div className="template-production-grid">
+      {templateError && templates.length ? <div className="form-alert failed">{templateError}</div> : null}
+      {templateNotice ? <div className="form-alert completed">{templateNotice}</div> : null}
+
+      {selectedTemplate ? <div className="template-production-grid">
         <div className="template-production-column">
           <section className="template-work-section" aria-labelledby="template-info-title">
             <div className="template-section-heading">
@@ -453,17 +995,13 @@ export default function TemplateProduction({ currentUser }) {
               <div><strong id="template-info-title">内容信息</strong><small>用于生成匹配当前模板的口播文案</small></div>
             </div>
             <div className="field-grid template-variable-grid">
-              {selectedTemplate.variables.map((field) => (
-                <label className="field" key={field.id} htmlFor={`template-variable-${field.id}`}>
-                  <span className="field-label">{field.label}{field.required ? " *" : ""}</span>
-                  <input
-                    className="control"
-                    id={`template-variable-${field.id}`}
-                    value={variables[field.id] || ""}
-                    placeholder={field.placeholder}
-                    onChange={(event) => setVariables((current) => ({ ...current, [field.id]: event.target.value }))}
-                  />
-                </label>
+              {selectedTemplate.content_fields.map((field) => (
+                <ContentFieldControl
+                  field={field}
+                  key={field.key}
+                  value={variables[field.key] || ""}
+                  onChange={(value) => setVariables((current) => ({ ...current, [field.key]: value }))}
+                />
               ))}
             </div>
           </section>
@@ -474,15 +1012,16 @@ export default function TemplateProduction({ currentUser }) {
               <div><strong id="template-material-title">上传素材</strong><small>素材会在每条成片中重新编排</small></div>
             </div>
             <div className="material-requirement-list">
-              {selectedTemplate.requirements.map((requirement) => {
-                const items = materials[requirement.id] || [];
+              {selectedTemplate.material_requirements.map((requirement) => {
+                const items = materials[requirement.key] || [];
                 return (
-                  <div className="material-requirement" key={requirement.id}>
+                  <div className="material-requirement" key={requirement.key}>
                     <div className="material-requirement-heading">
                       <div>
-                        <strong>{requirement.name}</strong>
+                        <strong>{requirement.label}</strong>
+                        {requirement.description ? <small>{requirement.description}</small> : null}
                         <span>
-                          {requirement.type === "image" ? "图片" : "视频"} · {requirement.min > 0 ? `${requirement.min}-${requirement.max} 个` : `选填，最多 ${requirement.max} 个`}
+                          {requirement.media_type === "image" ? "图片" : "视频"} · {requirement.min_count > 0 ? `${requirement.min_count}-${requirement.max_count} 个` : `选填，最多 ${requirement.max_count} 个`}
                         </span>
                       </div>
                       <label className="secondary-action compact-action">
@@ -491,7 +1030,7 @@ export default function TemplateProduction({ currentUser }) {
                           hidden
                           multiple
                           type="file"
-                          accept={requirement.type === "image" ? "image/*" : "video/*"}
+                          accept={requirement.media_type === "image" ? "image/*" : "video/*"}
                           onChange={(event) => {
                             addMaterialFiles(requirement, event.target.files);
                             event.target.value = "";
@@ -505,17 +1044,17 @@ export default function TemplateProduction({ currentUser }) {
                           <div className="material-preview-card" key={item.id}>
                             <MaterialPreview
                               file={item.file}
-                              mediaType={requirement.type}
-                              label={`第 ${index + 1} 个${requirement.type === "image" ? "图片" : "视频"}素材`}
+                              mediaType={requirement.media_type}
+                              label={`第 ${index + 1} 个${requirement.media_type === "image" ? "图片" : "视频"}素材`}
                             />
                             <div className="material-preview-footer">
-                              <span><Icon name={requirement.type} size={14} />{formatFileSize(item.file.size)}</span>
+                              <span><Icon name={requirement.media_type} size={14} />{formatFileSize(item.file.size)}</span>
                               <button
                                 className="material-preview-remove"
                                 type="button"
                                 title={`移除第 ${index + 1} 个素材`}
                                 aria-label={`移除第 ${index + 1} 个素材`}
-                                onClick={() => removeMaterial(requirement.id, item.id)}
+                                onClick={() => removeMaterial(requirement.key, item.id)}
                               >
                                 <Icon name="x" size={15} />
                               </button>
@@ -524,7 +1063,7 @@ export default function TemplateProduction({ currentUser }) {
                         ))}
                       </div>
                     ) : (
-                      <div className="material-empty">尚未选择{requirement.type === "image" ? "图片" : "视频"}</div>
+                      <div className="material-empty">尚未选择{requirement.media_type === "image" ? "图片" : "视频"}</div>
                     )}
                   </div>
                 );
@@ -552,19 +1091,21 @@ export default function TemplateProduction({ currentUser }) {
                   >
                     <div className="script-candidate-heading">
                       <span>候选 {index + 1}</span>
-                      <button
-                        type="button"
-                        title={`重写候选 ${index + 1}`}
-                        aria-label={`重写候选 ${index + 1}`}
-                        onClick={() => rewriteCandidate(candidate)}
-                        disabled={Boolean(rewritingCandidateId)}
-                      >
-                        <Icon
-                          name={rewritingCandidateId === candidate.id ? "loading" : "refresh"}
-                          size={15}
-                          data-loading={rewritingCandidateId === candidate.id ? "true" : undefined}
-                        />
-                      </button>
+                      {selectedTemplate.runtime_capabilities?.script_rewrite ? (
+                        <button
+                          type="button"
+                          title={`重写候选 ${index + 1}`}
+                          aria-label={`重写候选 ${index + 1}`}
+                          onClick={() => rewriteCandidate(candidate)}
+                          disabled={Boolean(rewritingCandidateId)}
+                        >
+                          <Icon
+                            name={rewritingCandidateId === candidate.id ? "loading" : "refresh"}
+                            size={15}
+                            data-loading={rewritingCandidateId === candidate.id ? "true" : undefined}
+                          />
+                        </button>
+                      ) : null}
                     </div>
                     <button
                       className="script-candidate-select"
@@ -581,7 +1122,7 @@ export default function TemplateProduction({ currentUser }) {
             ) : (
               <div className="script-empty-state">
                 <Icon name="sparkles" size={22} />
-                <span>填写内容信息后生成三条候选文案。</span>
+                <span>填写内容信息后生成 {defaultCandidateCount} 条候选文案。</span>
               </div>
             )}
             <label className="field final-script-field">
@@ -597,12 +1138,12 @@ export default function TemplateProduction({ currentUser }) {
                 }}
               />
             </label>
-            {selectedTemplate.supportsSubtitleReplacements ? (
+            {selectedTemplate.runtime_capabilities?.subtitle_replacements ? (
               <div className="subtitle-replacement-editor">
                 <div className="subtitle-replacement-heading">
                   <div>
-                    <strong>字幕敏感词替换</strong>
-                    <small>只修改成片字幕，配音仍使用最终文案原文</small>
+                    <strong>全局敏感词替换</strong>
+                    <small>所有用户和模板共用，只修改成片字幕，配音仍使用最终文案原文</small>
                   </div>
                   {subtitleReplacements.length ? (
                     <button
@@ -617,7 +1158,18 @@ export default function TemplateProduction({ currentUser }) {
                 </div>
                 {subtitleReplacements.length ? (
                   <div className="subtitle-replacement-list">
-                    {subtitleReplacements.map((item, index) => (
+                    {subtitleReplacements.map((item, index) => {
+                      const isSaving = savingSubtitleReplacementIds.has(item.id);
+                      const isDirty = dirtySubtitleReplacementIds.has(item.id);
+                      const isSaved = savedSubtitleReplacementIds.has(item.id);
+                      const source = item.source.trim();
+                      const replacement = item.replacement.trim();
+                      const duplicateSource = subtitleReplacements.some((other) => (
+                        other.id !== item.id && other.source.trim() === source
+                      ));
+                      const canSave = isDirty && Boolean(source) && Boolean(replacement)
+                        && source !== replacement && !duplicateSource;
+                      return (
                       <div className="subtitle-replacement-card" key={item.id}>
                         <label className="field subtitle-replacement-source">
                           <span className="field-label">需要替换的词</span>
@@ -628,6 +1180,7 @@ export default function TemplateProduction({ currentUser }) {
                             placeholder="例如：医生"
                             aria-label={`第 ${index + 1} 条需要替换的词`}
                             onChange={(event) => updateSubtitleReplacement(item.id, "source", event.target.value)}
+                            disabled={isSaving}
                           />
                         </label>
                         <span className="subtitle-replacement-arrow" aria-hidden="true">
@@ -642,19 +1195,32 @@ export default function TemplateProduction({ currentUser }) {
                             placeholder="例如：yi生"
                             aria-label={`第 ${index + 1} 条字幕替换词`}
                             onChange={(event) => updateSubtitleReplacement(item.id, "replacement", event.target.value)}
+                            disabled={isSaving}
                           />
                         </label>
+                        <button
+                          className="primary-action subtitle-replacement-save"
+                          type="button"
+                          title="保存此条全局敏感词替换"
+                          onClick={() => saveSubtitleReplacement(item.id)}
+                          disabled={!canSave || isSaving}
+                        >
+                          <Icon name={isSaving ? "loading" : isSaved ? "check" : "save"} size={14} />
+                          {isSaving ? "保存中" : isSaved ? "已保存" : "保存"}
+                        </button>
                         <button
                           className="subtitle-replacement-remove"
                           type="button"
                           title={`删除第 ${index + 1} 条字幕替换`}
                           aria-label={`删除第 ${index + 1} 条字幕替换`}
-                          onClick={() => removeSubtitleReplacement(item.id)}
+                          onClick={() => requestSubtitleReplacementDelete(item.id)}
+                          disabled={isSaving}
                         >
                           <Icon name="trash" size={15} />
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <button className="subtitle-replacement-add-card" type="button" onClick={addSubtitleReplacement}>
@@ -664,6 +1230,15 @@ export default function TemplateProduction({ currentUser }) {
                 )}
                 {subtitleReplacementIssues.length ? (
                   <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{subtitleReplacementIssues[0]}</div>
+                ) : null}
+                {subtitleReplacementsLoading ? (
+                  <div className="subtitle-replacement-issue"><Icon name="loading" size={14} />正在加载全局规则</div>
+                ) : null}
+                {subtitleReplacementError ? (
+                  <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{subtitleReplacementError}</div>
+                ) : null}
+                {subtitleReplacementNotice ? (
+                  <div className="subtitle-replacement-notice"><Icon name="check" size={14} />{subtitleReplacementNotice}</div>
                 ) : null}
               </div>
             ) : null}
@@ -677,17 +1252,109 @@ export default function TemplateProduction({ currentUser }) {
             <div className="template-config-grid">
               <div className="field ratio-field">
                 <span className="field-label">画面比例</span>
-                <div className="segmented-control compact-segments" role="radiogroup" aria-label="画面比例">
-                  {RATIO_OPTIONS.map((item) => (
+                <div
+                  className="segmented-control compact-segments"
+                  role="radiogroup"
+                  aria-label="画面比例"
+                  style={{ gridTemplateColumns: `repeat(${Math.min(allowedRatios.length, 4)}, minmax(0, 1fr))` }}
+                >
+                  {allowedRatios.map((item) => (
                     <button key={item} type="button" className={`segment ${ratio === item ? "is-active" : ""}`} onClick={() => setRatio(item)}>{item}</button>
                   ))}
                 </div>
               </div>
               <label className="field count-field">
                 <span className="field-label">生成数量</span>
-                <input className="control" type="number" min="1" max="50" value={generateCount} onChange={(event) => setGenerateCount(Math.max(1, Math.min(50, Number(event.target.value) || 1)))} />
+                <input
+                  className="control"
+                  type="number"
+                  min="1"
+                  max={maxBatchSize}
+                  value={generateCount}
+                  onChange={(event) => setGenerateCount(Math.max(1, Math.min(maxBatchSize, Number(event.target.value) || 1)))}
+                />
               </label>
             </div>
+          </section>
+
+          <section className="template-work-section" aria-labelledby="template-bgm-title">
+            <div className="template-section-heading with-actions">
+              <span><Icon name="music" size={17} /></span>
+              <div><strong id="template-bgm-title">背景音乐</strong><small>为所有成片添加 BGM，可上传保存后反复使用</small></div>
+              <input
+                ref={bgmFileInputRef}
+                hidden
+                type="file"
+                accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac"
+                onChange={uploadBgm}
+              />
+              <button
+                className="secondary-action compact-action"
+                type="button"
+                onClick={() => bgmFileInputRef.current?.click()}
+                disabled={submitting || uploadingBgm}
+                title="上传背景音乐"
+              >
+                <Icon name={uploadingBgm ? "loading" : "upload"} size={15} />
+                {uploadingBgm ? "上传中" : "上传"}
+              </button>
+            </div>
+            <div className="bgm-control-row">
+              <label className="field bgm-select-field">
+                <span className="field-label">选择背景音乐</span>
+                <select
+                  className="control"
+                  value={selectedBgmId}
+                  onChange={(event) => {
+                    setSelectedBgmId(event.target.value);
+                    setBgmNotice("");
+                    setBgmError("");
+                  }}
+                  disabled={submitting || uploadingBgm || bgmLoading}
+                >
+                  <option value="">不使用背景音乐</option>
+                  {bgmTracks.map((track) => (
+                    <option key={track.id} value={track.id}>
+                      {track.name}（{formatDuration(track.duration)}）
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedBgmTrack ? (
+                <button
+                  className="bgm-delete-button"
+                  type="button"
+                  title={`删除背景音乐“${selectedBgmTrack.name}”`}
+                  aria-label={`删除背景音乐“${selectedBgmTrack.name}”`}
+                  onClick={() => requestBgmDelete(selectedBgmTrack)}
+                  disabled={submitting || uploadingBgm || deletingBgmId === selectedBgmTrack.id}
+                >
+                  <Icon name={deletingBgmId === selectedBgmTrack.id ? "loading" : "trash"} size={15} />
+                </button>
+              ) : null}
+            </div>
+            {selectedBgmTrack ? (
+              <div className="bgm-preview">
+                <audio
+                  controls
+                  preload="metadata"
+                  src={resolveBackendAssetUrl(selectedBgmTrack.preview_url, backendBaseUrl)}
+                />
+                <span className="bgm-preview-meta">
+                  <Icon name="audio" size={14} />
+                  {formatFileSize(selectedBgmTrack.file_size)} · {formatDuration(selectedBgmTrack.duration)}
+                </span>
+              </div>
+            ) : null}
+            {bgmLoading ? (
+              <div className="bgm-status-line"><Icon name="loading" size={14} />正在加载背景音乐</div>
+            ) : null}
+            {bgmError ? (
+              <div className="bgm-status-line is-error"><Icon name="alert" size={14} />{bgmError}</div>
+            ) : null}
+            {bgmNotice ? (
+              <div className="bgm-status-line is-success"><Icon name="check" size={14} />{bgmNotice}</div>
+            ) : null}
           </section>
 
           {error ? <div className="form-alert failed">{error}</div> : null}
@@ -699,7 +1366,74 @@ export default function TemplateProduction({ currentUser }) {
             {submitting ? "正在批量生成" : `生成 ${generateCount} 条视频`}
           </button>
         </div>
-      </div>
+      </div> : null}
+
+      {subtitleReplacementPendingDelete ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="modal-panel"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="subtitle-replacement-delete-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <span className="section-kicker">Global Rule</span>
+                <h3 id="subtitle-replacement-delete-title">确认删除敏感词替换？</h3>
+              </div>
+            </div>
+            <div className="modal-body">
+              <p>“{subtitleReplacementPendingDelete.source}”将不再替换为“{subtitleReplacementPendingDelete.replacement}”。</p>
+              <small>此变更会影响所有用户后续创建的视频任务，已创建的任务不受影响。</small>
+            </div>
+            <div className="delete-confirm-actions">
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => setSubtitleReplacementPendingDelete(null)}
+              >取消</button>
+              <button
+                className="danger-action"
+                type="button"
+                onClick={confirmSubtitleReplacementDelete}
+              ><Icon name="trash" size={15} />确认删除</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      {pendingBgmDelete ? (
+        <div className="modal-backdrop" role="presentation">
+          <section
+            className="modal-panel"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="bgm-delete-title"
+          >
+            <div className="modal-heading">
+              <div>
+                <span className="section-kicker">BGM</span>
+                <h3 id="bgm-delete-title">确认删除背景音乐？</h3>
+              </div>
+            </div>
+            <div className="modal-body">
+              <p>“{pendingBgmDelete.name}”将被永久删除，无法恢复。</p>
+            </div>
+            <div className="delete-confirm-actions">
+              <button
+                className="secondary-action"
+                type="button"
+                onClick={() => setPendingBgmDelete(null)}
+              >取消</button>
+              <button
+                className="danger-action"
+                type="button"
+                onClick={confirmBgmDelete}
+              ><Icon name="trash" size={15} />确认删除</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
 
       {task ? (
         <section className="template-results" aria-labelledby="template-results-title">

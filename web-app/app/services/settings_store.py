@@ -15,6 +15,22 @@ FIXED_DIGITAL_HUMAN_WORKFLOW_ID = "2003717471859294210"
 DEFAULT_RUNNINGHUB_INSTANCE_TYPE = "plus"
 USER_PUBLIC_COLUMNS = "id, username, display_name, role, is_default, created_at, updated_at"
 DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
+MAX_SUBTITLE_REPLACEMENTS = 30
+MAX_SUBTITLE_REPLACEMENT_LENGTH = 80
+MAX_BGM_TRACKS_PER_USER = 20
+BGM_TRACK_COLUMNS = "id, user_id, name, relative_path, duration, file_size, created_at, updated_at"
+
+
+class SubtitleReplacementNotFoundError(LookupError):
+    pass
+
+
+class SubtitleReplacementConflictError(ValueError):
+    pass
+
+
+class BgmTrackNotFoundError(LookupError):
+    pass
 
 
 def _root() -> Path:
@@ -347,10 +363,47 @@ def _ensure_settings_schema(conn: sqlite3.Connection) -> None:
     conn.execute("DROP TABLE settings_legacy_key")
 
 
+def _ensure_subtitle_replacements_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS subtitle_replacements (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            source TEXT NOT NULL UNIQUE,
+            replacement TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+
+
+def _ensure_bgm_tracks_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS bgm_tracks (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            relative_path TEXT NOT NULL,
+            duration REAL NOT NULL DEFAULT 0,
+            file_size INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        )
+        """
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_bgm_tracks_user ON bgm_tracks (user_id)"
+    )
+
+
 def init_db(config: Optional[dict[str, Any]] = None) -> None:
     with _connect() as conn:
         _ensure_users_schema(conn)
         _ensure_settings_schema(conn)
+        _ensure_subtitle_replacements_schema(conn)
+        _ensure_bgm_tracks_schema(conn)
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_settings_user_namespace
@@ -536,3 +589,191 @@ def public_llm_settings(
         "api_key_configured": bool(api_key),
         "api_key_masked": mask_api_key(api_key),
     }
+
+
+def normalize_subtitle_replacement(source: Any, replacement: Any) -> tuple[str, str]:
+    normalized_source = str(source or "").strip()
+    normalized_replacement = str(replacement or "").strip()
+    if not normalized_source or not normalized_replacement:
+        raise ValueError("字幕替换规则需要填写原词和替换词")
+    if "\n" in normalized_source or "\r" in normalized_source:
+        raise ValueError("字幕替换规则不能包含换行")
+    if "\n" in normalized_replacement or "\r" in normalized_replacement:
+        raise ValueError("字幕替换规则不能包含换行")
+    if (
+        len(normalized_source) > MAX_SUBTITLE_REPLACEMENT_LENGTH
+        or len(normalized_replacement) > MAX_SUBTITLE_REPLACEMENT_LENGTH
+    ):
+        raise ValueError(
+            f"字幕替换规则的词语长度不能超过 {MAX_SUBTITLE_REPLACEMENT_LENGTH} 个字符"
+        )
+    if normalized_source == normalized_replacement:
+        raise ValueError("字幕替换规则的原词和替换词不能相同")
+    return normalized_source, normalized_replacement
+
+
+def list_subtitle_replacements() -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, source, replacement, created_at, updated_at
+            FROM subtitle_replacements
+            ORDER BY id ASC
+            """
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def create_subtitle_replacement(*, source: Any, replacement: Any) -> dict[str, Any]:
+    normalized_source, normalized_replacement = normalize_subtitle_replacement(source, replacement)
+    init_db()
+    now = _now_iso()
+    try:
+        with _connect() as conn:
+            count = conn.execute("SELECT COUNT(*) FROM subtitle_replacements").fetchone()[0]
+            if count >= MAX_SUBTITLE_REPLACEMENTS:
+                raise ValueError(f"字幕替换规则最多添加 {MAX_SUBTITLE_REPLACEMENTS} 条")
+            cursor = conn.execute(
+                """
+                INSERT INTO subtitle_replacements (source, replacement, created_at, updated_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (normalized_source, normalized_replacement, now, now),
+            )
+            row = conn.execute(
+                """
+                SELECT id, source, replacement, created_at, updated_at
+                FROM subtitle_replacements
+                WHERE id = ?
+                """,
+                (cursor.lastrowid,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise SubtitleReplacementConflictError(f"字幕原词“{normalized_source}”已存在") from exc
+    return dict(row)
+
+
+def update_subtitle_replacement(
+    replacement_id: int,
+    *,
+    source: Any,
+    replacement: Any,
+) -> dict[str, Any]:
+    if replacement_id < 1:
+        raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
+    normalized_source, normalized_replacement = normalize_subtitle_replacement(source, replacement)
+    init_db()
+    try:
+        with _connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE subtitle_replacements
+                SET source = ?, replacement = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (normalized_source, normalized_replacement, _now_iso(), replacement_id),
+            )
+            if cursor.rowcount == 0:
+                raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
+            row = conn.execute(
+                """
+                SELECT id, source, replacement, created_at, updated_at
+                FROM subtitle_replacements
+                WHERE id = ?
+                """,
+                (replacement_id,),
+            ).fetchone()
+    except sqlite3.IntegrityError as exc:
+        raise SubtitleReplacementConflictError(f"字幕原词“{normalized_source}”已存在") from exc
+    return dict(row)
+
+
+def delete_subtitle_replacement(replacement_id: int) -> None:
+    if replacement_id < 1:
+        raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
+    init_db()
+    with _connect() as conn:
+        cursor = conn.execute(
+            "DELETE FROM subtitle_replacements WHERE id = ?",
+            (replacement_id,),
+        )
+        if cursor.rowcount == 0:
+            raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
+
+
+def _fetch_bgm_track(conn: sqlite3.Connection, bgm_id: str, user_id: str) -> Optional[sqlite3.Row]:
+    return conn.execute(
+        f"SELECT {BGM_TRACK_COLUMNS} FROM bgm_tracks WHERE id = ? AND user_id = ?",
+        (bgm_id, user_id),
+    ).fetchone()
+
+
+def list_bgm_tracks(user_id: str) -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            f"SELECT {BGM_TRACK_COLUMNS} FROM bgm_tracks WHERE user_id = ? ORDER BY created_at ASC",
+            (user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_bgm_track(user_id: str, bgm_id: str) -> dict[str, Any]:
+    init_db()
+    with _connect() as conn:
+        row = _fetch_bgm_track(conn, bgm_id, user_id)
+    if row is None:
+        raise BgmTrackNotFoundError("背景音乐不存在")
+    return dict(row)
+
+
+def create_bgm_track(
+    *,
+    user_id: str,
+    bgm_id: str,
+    name: str,
+    relative_path: str,
+    duration: float,
+    file_size: int,
+) -> dict[str, Any]:
+    normalized_name = str(name or "").strip()
+    if not normalized_name:
+        raise ValueError("背景音乐名称不能为空")
+    normalized_path = str(relative_path or "").strip()
+    if not normalized_path:
+        raise ValueError("背景音乐文件路径不能为空")
+    init_db()
+    now = _now_iso()
+    with _connect() as conn:
+        count = conn.execute(
+            "SELECT COUNT(*) FROM bgm_tracks WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()[0]
+        if count >= MAX_BGM_TRACKS_PER_USER:
+            raise ValueError(f"每个用户最多保存 {MAX_BGM_TRACKS_PER_USER} 个背景音乐")
+        conn.execute(
+            """
+            INSERT INTO bgm_tracks (id, user_id, name, relative_path, duration, file_size, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (bgm_id, user_id, normalized_name, normalized_path, float(duration), int(file_size), now, now),
+        )
+        row = conn.execute(
+            f"SELECT {BGM_TRACK_COLUMNS} FROM bgm_tracks WHERE id = ?",
+            (bgm_id,),
+        ).fetchone()
+    return dict(row)
+
+
+def delete_bgm_track(user_id: str, bgm_id: str) -> dict[str, Any]:
+    init_db()
+    with _connect() as conn:
+        row = _fetch_bgm_track(conn, bgm_id, user_id)
+        if row is None:
+            raise BgmTrackNotFoundError("背景音乐不存在")
+        conn.execute(
+            "DELETE FROM bgm_tracks WHERE id = ? AND user_id = ?",
+            (bgm_id, user_id),
+        )
+    return dict(row)

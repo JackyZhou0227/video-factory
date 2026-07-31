@@ -219,6 +219,19 @@ python scripts\init_admin.py --username admin --password 12345678 --display-name
 
 这些设置按用户保存在后端本机 SQLite：`web-app/data/video_factory.db`。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。模板量产首版使用 Edge-TTS，生成任务状态只保存在当前后端进程中，服务重启后任务状态不会恢复。
 
+## 模板 JSON
+
+模板量产使用 Pydantic 校验的版本化 JSON 定义。模板只描述内容字段、素材槽、文案提示词和服务端流水线绑定，不包含某次任务填写的内容、上传文件、生成文案或任务状态。页面支持导入模板 JSON，也可以把当前模板直接导出。
+
+内置模板位于 `web-app/app/templates/builtin/` 且不可覆盖；用户导入的模板按账号隔离保存在 `web-app/data/templates/users/`。导入文件最大为 128 KiB，当前只允许绑定 `generic_concat_v1` 或 `zhongyi_visit_v1`，不会执行模板中提供的 Python 表达式或任意函数。
+
+模板接口：
+
+- `GET /api/template-production/templates`：列出当前用户可用的内置模板和个人模板。
+- `GET /api/template-production/templates/{template_id}`：读取模板详情。
+- `POST /api/template-production/templates/import`：以 multipart 字段 `file` 导入模板 JSON。
+- `GET /api/template-production/templates/{template_id}/export`：导出纯模板定义 JSON。
+
 ## 启动应用
 
 ```powershell
