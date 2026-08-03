@@ -342,6 +342,71 @@ class TemplateProductionApiTests(unittest.TestCase):
             [{"source": "医生", "replacement": "yi生"}],
         )
 
+    def test_task_captures_and_passes_subtitle_style(self):
+        manifest = [
+            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
+            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
+        ]
+        requested_style = {
+            "font_family": "SimHei",
+            "font_size": 72,
+            "color": "#123456",
+            "outline_width": 3,
+            "alignment": "left",
+            "notice_enabled": False,
+        }
+        run_task = AsyncMock(return_value=None)
+        with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
+            template_api.template_production, "require_ffmpeg"
+        ), patch.object(template_api, "_run_task", run_task):
+            response = self.client.post(
+                "/api/template-production/tasks",
+                data={
+                    "template_id": "zhongyi-xunfang",
+                    "scripts": json.dumps(["这是一条用于验证字幕样式配置传递的模板量产测试文案。"], ensure_ascii=False),
+                    "generate_count": "1",
+                    "video_config": json.dumps({"ratio": "16:9", "subtitle_style": requested_style}),
+                    "material_manifest": json.dumps(manifest, ensure_ascii=False),
+                },
+                files=[
+                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
+                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
+                ],
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        task_id = response.json()["task_id"]
+        expected_style = template_api.template_production.normalize_subtitle_style(requested_style)
+        self.assertEqual(template_api._tasks[task_id]["_subtitle_style"], expected_style)
+        self.assertEqual(run_task.call_args.kwargs["subtitle_style"], expected_style)
+        self.assertEqual(
+            run_task.call_args.kwargs["ratio"],
+            template_api.template_production.DEFAULT_VIDEO_RATIO,
+        )
+
+    def test_task_rejects_non_object_subtitle_style(self):
+        manifest = [
+            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
+            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
+        ]
+        with patch.object(template_api.template_production, "require_ffmpeg"):
+            response = self.client.post(
+                "/api/template-production/tasks",
+                data={
+                    "template_id": "zhongyi-xunfang",
+                    "scripts": json.dumps(["这是一条用于验证字幕样式参数校验的模板量产测试文案。"], ensure_ascii=False),
+                    "generate_count": "1",
+                    "video_config": json.dumps({"ratio": "9:16", "subtitle_style": "invalid"}),
+                    "material_manifest": json.dumps(manifest, ensure_ascii=False),
+                },
+                files=[
+                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
+                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
+                ],
+            )
+
+        self.assertEqual(response.status_code, 422, response.text)
+
     def test_run_task_keeps_tts_text_original_and_passes_subtitle_replacements(self):
         task_id = "subtitle-replacement-task"
         task_dir = self.output_root / task_id
@@ -399,6 +464,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertNotIn("yi生", tts_request.text)
         self.assertEqual(compose.call_args.kwargs["script"], original_script)
         self.assertEqual(compose.call_args.kwargs["subtitle_replacements"], replacements)
+        self.assertIsNone(compose.call_args.kwargs["subtitle_style"])
 
     def test_template_tts_request_uses_fixed_yunjian_voice(self):
         request = template_api._template_tts_request("固定配音测试")

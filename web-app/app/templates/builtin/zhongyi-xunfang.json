@@ -32,7 +32,7 @@
     {
       "key": "feature",
       "label": "医生特点",
-      "input_type": "textarea",
+      "input_type": "text",
       "required": false,
       "placeholder": "例如：三代中医世家",
       "max_length": 1000

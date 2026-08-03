@@ -130,6 +130,107 @@ class TemplateProductionTests(unittest.TestCase):
             self.assertEqual(style_fields[2], str(max(22, round(1920 * 0.017))))
             self.assertEqual(style_fields[-2], str(max(34, round(1920 * 0.055))))
 
+    def test_default_subtitle_style_keeps_current_ass_visual_settings(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ass_path = template_production.write_subtitle_ass(
+                "测试文案",
+                3.0,
+                Path(temp_dir) / "subtitles.ass",
+                target_size=(1080, 1920),
+            )
+
+            styles = {
+                line.split(",", 2)[0].removeprefix("Style: "): line.split(",")
+                for line in ass_path.read_text(encoding="utf-8-sig").splitlines()
+                if line.startswith("Style: ")
+            }
+            self.assertEqual(styles["Subtitle"][1:], [
+                "Microsoft YaHei", "65", "&H001FD2FF", "&H001FD2FF", "&H00000000", "&H70000000",
+                "-1", "0", "0", "0", "100", "100", "0", "0", "1", "5", "1", "2", "70", "70", "250", "1",
+            ])
+            self.assertEqual(styles["Notice"][1:], [
+                "Microsoft YaHei", "33", "&H00FFFFFF", "&H00FFFFFF", "&H50000000", "&H50000000",
+                "0", "0", "0", "0", "100", "100", "0", "0", "1", "1", "1", "8", "50", "50", "106", "1",
+            ])
+
+    def test_default_subtitle_style_keeps_legacy_scaling_for_other_output_ratios(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for height in (1080, 1440):
+                ass_path = template_production.write_subtitle_ass(
+                    "测试文案",
+                    3.0,
+                    Path(temp_dir) / f"subtitles-{height}.ass",
+                    target_size=(1080, height),
+                )
+                styles = {
+                    line.split(",", 2)[0].removeprefix("Style: "): line.split(",")
+                    for line in ass_path.read_text(encoding="utf-8-sig").splitlines()
+                    if line.startswith("Style: ")
+                }
+
+                self.assertEqual(styles["Subtitle"][2], str(max(34, round(height * 0.034))))
+                self.assertEqual(styles["Subtitle"][16], str(max(3, round(height * 0.0026))))
+                self.assertEqual(styles["Subtitle"][21], str(max(80, round(height * 0.13))))
+                self.assertEqual(styles["Notice"][2], str(max(22, round(height * 0.017))))
+                self.assertEqual(styles["Notice"][16], "1")
+                self.assertEqual(styles["Notice"][21], str(max(34, round(height * 0.055))))
+
+    def test_normalize_subtitle_style_rejects_non_boolean_notice_and_non_finite_numbers(self):
+        style = template_production.normalize_subtitle_style(
+            {"font_size": float("inf"), "notice_enabled": "false"}
+        )
+
+        self.assertEqual(style["font_size"], template_production.DEFAULT_SUBTITLE_STYLE["font_size"])
+        self.assertTrue(style["notice_enabled"])
+        self.assertFalse(template_production.normalize_subtitle_style({"notice_enabled": False})["notice_enabled"])
+
+    def test_custom_subtitle_style_updates_ass_and_can_hide_notice(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ass_path = template_production.write_subtitle_ass(
+                "测试文案",
+                3.0,
+                Path(temp_dir) / "subtitles.ass",
+                target_size=(1080, 1920),
+                subtitle_style={
+                    "font_family": "SimHei",
+                    "font_size": 72,
+                    "color": "#123456",
+                    "outline_color": "#FEDCBA",
+                    "outline_width": 3,
+                    "bottom_margin": 190,
+                    "alignment": "left",
+                    "notice_enabled": False,
+                },
+            )
+
+            content = ass_path.read_text(encoding="utf-8-sig")
+            self.assertIn("Style: Subtitle,SimHei,72,&H00563412,&H00563412,&H00BADCFE,&H70000000,", content)
+            self.assertIn("1,3,1,1,70,70,190,1", content)
+            self.assertNotIn("Style: Notice,", content)
+            self.assertNotIn(",Notice,,", content)
+
+    def test_custom_notice_content_and_style_are_rendered(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            ass_path = template_production.write_subtitle_ass(
+                "测试文案",
+                3.0,
+                Path(temp_dir) / "subtitles.ass",
+                target_size=(1080, 1920),
+                subtitle_style={
+                    "notice_text": "请谨遵医嘱\n内容仅作参考",
+                    "notice_font_size": 42,
+                    "notice_color": "#112233",
+                    "notice_outline_color": "#445566",
+                    "notice_outline_width": 2,
+                    "notice_top_margin": 70,
+                },
+            )
+
+            content = ass_path.read_text(encoding="utf-8-sig")
+            self.assertIn("Style: Notice,Microsoft YaHei,42,&H00332211,&H00332211,&H50665544,&H50000000,", content)
+            self.assertIn("1,2,1,8,50,50,70,1", content)
+            self.assertIn("请谨遵医嘱\\N内容仅作参考", content)
+
     def test_material_sequence_is_deterministic_and_fills_duration(self):
         segments = [Path("a.mp4"), Path("b.mp4"), Path("c.mp4")]
         first = template_production.build_material_sequence(segments, 13, seed="task-1")

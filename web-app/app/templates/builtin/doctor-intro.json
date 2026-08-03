@@ -32,7 +32,7 @@
     {
       "key": "specialty",
       "label": "专业特长",
-      "input_type": "textarea",
+      "input_type": "text",
       "required": true,
       "placeholder": "例如：冠心病、高血压诊疗",
       "max_length": 500

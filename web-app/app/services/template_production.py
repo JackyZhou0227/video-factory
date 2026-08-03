@@ -19,8 +19,9 @@ from app.services import template_registry
 from app.services.tts import TTSTiming
 
 ZHONGYI_TEMPLATE_ID = "zhongyi-xunfang"
+DEFAULT_VIDEO_RATIO = "9:16"
 VIDEO_RATIOS = {
-    "9:16": (1080, 1920),
+    DEFAULT_VIDEO_RATIO: (1080, 1920),
     "16:9": (1920, 1080),
     "1:1": (1080, 1080),
     "3:4": (1080, 1440),
@@ -37,10 +38,91 @@ ZHONGYI_SLOT_PLAN = (
 ZHONGYI_TRANSITION_DURATION = 0.3
 TEMPLATE_SAFETY_NOTICE = "人文记录 无不良引导\\N如有不适 请线上就医"
 BGM_VOLUME_WEIGHT = 0.6
-
+DEFAULT_SUBTITLE_STYLE = {
+    "font_family": "Microsoft YaHei",
+    "font_size": 65,
+    "color": "#FFD21F",
+    "outline_color": "#000000",
+    "outline_width": 5,
+    "bottom_margin": 250,
+    "alignment": "center",
+    "notice_enabled": True,
+    "notice_text": "人文记录 无不良引导\n如有不适 请线上就医",
+    "notice_font_size": 33,
+    "notice_color": "#FFFFFF",
+    "notice_outline_color": "#000000",
+    "notice_outline_width": 1,
+    "notice_top_margin": 106,
+}
+SUBTITLE_FONT_FAMILIES = frozenset({"Microsoft YaHei", "SimHei", "SimSun", "KaiTi"})
+SUBTITLE_ALIGNMENT_CODES = {"left": 1, "center": 2, "right": 3}
 
 class TemplateProductionError(RuntimeError):
     pass
+
+
+def normalize_subtitle_style(value: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Normalize user-facing subtitle style values into ASS-safe settings."""
+
+    raw = value if isinstance(value, dict) else {}
+
+    def number(name: str, minimum: int, maximum: int) -> int:
+        try:
+            parsed = int(float(raw.get(name, DEFAULT_SUBTITLE_STYLE[name])))
+        except (TypeError, ValueError, OverflowError):
+            parsed = DEFAULT_SUBTITLE_STYLE[name]
+        return max(minimum, min(maximum, parsed))
+
+    def color(name: str) -> str:
+        candidate = str(raw.get(name, DEFAULT_SUBTITLE_STYLE[name]) or "").strip()
+        if re.fullmatch(r"#[0-9A-Fa-f]{6}", candidate):
+            return candidate.upper()
+        return DEFAULT_SUBTITLE_STYLE[name]
+
+    family = str(raw.get("font_family", DEFAULT_SUBTITLE_STYLE["font_family"]) or "").strip()
+    alignment = str(raw.get("alignment", DEFAULT_SUBTITLE_STYLE["alignment"]) or "").strip().lower()
+    notice_text = str(raw.get("notice_text", DEFAULT_SUBTITLE_STYLE["notice_text"]) or "").strip()
+    notice_text = notice_text.replace("\r\n", "\n").replace("\r", "\n")
+
+    notice_enabled = raw.get("notice_enabled", DEFAULT_SUBTITLE_STYLE["notice_enabled"])
+
+    return {
+        "font_family": family if family in SUBTITLE_FONT_FAMILIES else DEFAULT_SUBTITLE_STYLE["font_family"],
+        "font_size": number("font_size", 36, 108),
+        "color": color("color"),
+        "outline_color": color("outline_color"),
+        "outline_width": number("outline_width", 0, 12),
+        "bottom_margin": number("bottom_margin", 80, 480),
+        "alignment": alignment if alignment in SUBTITLE_ALIGNMENT_CODES else DEFAULT_SUBTITLE_STYLE["alignment"],
+        "notice_enabled": notice_enabled if isinstance(notice_enabled, bool) else DEFAULT_SUBTITLE_STYLE["notice_enabled"],
+        "notice_text": notice_text[:120],
+        "notice_font_size": number("notice_font_size", 18, 58),
+        "notice_color": color("notice_color"),
+        "notice_outline_color": color("notice_outline_color"),
+        "notice_outline_width": number("notice_outline_width", 0, 6),
+        "notice_top_margin": number("notice_top_margin", 30, 260),
+    }
+
+
+def _ass_color(value: str, alpha: str = "00") -> str:
+    normalized = str(value or "#000000").lstrip("#")
+    red, green, blue = normalized[0:2], normalized[2:4], normalized[4:6]
+    return f"&H{alpha}{blue}{green}{red}"
+
+
+def _scaled_subtitle_value(
+    style: dict[str, Any],
+    name: str,
+    height: int,
+    *,
+    legacy_minimum: int,
+    legacy_ratio: float,
+) -> int:
+    """Keep the existing rendered defaults exact at every output ratio."""
+
+    if style[name] == DEFAULT_SUBTITLE_STYLE[name]:
+        return max(legacy_minimum, round(height * legacy_ratio))
+    return max(0, round(style[name] * height / 1920))
 
 
 @dataclass(frozen=True)
@@ -372,6 +454,7 @@ def compose_video(
     ratio: str = "9:16",
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    subtitle_style: dict[str, Any] | None = None,
     bgm_path: Path | None = None,
 ) -> Path:
     require_ffmpeg()
@@ -389,6 +472,7 @@ def compose_video(
             target_size=ratio_size(ratio),
             timings=timings,
             subtitle_replacements=subtitle_replacements,
+            subtitle_style=subtitle_style,
         )
     concat_path.write_text("\n".join(_concat_line(path) for path in sequence), encoding="utf-8")
     try:
@@ -593,12 +677,20 @@ def write_subtitle_ass(
     target_size: tuple[int, int],
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
-    notice_text: str | None = TEMPLATE_SAFETY_NOTICE,
+    subtitle_style: dict[str, Any] | None = None,
 ) -> Path:
     width, height = target_size
-    subtitle_size = max(34, round(height * 0.034))
-    outline = max(3, round(height * 0.0026))
-    bottom_margin = max(80, round(height * 0.13))
+    style = normalize_subtitle_style(subtitle_style)
+    subtitle_size = _scaled_subtitle_value(
+        style, "font_size", height, legacy_minimum=34, legacy_ratio=0.034
+    )
+    outline = _scaled_subtitle_value(
+        style, "outline_width", height, legacy_minimum=3, legacy_ratio=0.0026
+    )
+    bottom_margin = _scaled_subtitle_value(
+        style, "bottom_margin", height, legacy_minimum=80, legacy_ratio=0.13
+    )
+    subtitle_alignment = SUBTITLE_ALIGNMENT_CODES[style["alignment"]]
     lines = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -611,22 +703,34 @@ def write_subtitle_ass(
         "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, "
         "Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
-        f"Style: Subtitle,Microsoft YaHei,{subtitle_size},&H001FD2FF,&H001FD2FF,&H00000000,&H70000000,"
-        f"-1,0,0,0,100,100,0,0,1,{outline},1,2,70,70,{bottom_margin},1",
+        f"Style: Subtitle,{style['font_family']},{subtitle_size},{_ass_color(style['color'])},"
+        f"{_ass_color(style['color'])},{_ass_color(style['outline_color'])},&H70000000,"
+        f"-1,0,0,0,100,100,0,0,1,{outline},1,{subtitle_alignment},70,70,{bottom_margin},1",
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
-    if notice_text:
-        notice_size = max(22, round(height * 0.017))
-        top_margin = max(34, round(height * 0.055))
+    if style["notice_enabled"] and style["notice_text"]:
+        notice_size = _scaled_subtitle_value(
+            style, "notice_font_size", height, legacy_minimum=22, legacy_ratio=0.017
+        )
+        notice_outline = (
+            1
+            if style["notice_outline_width"] == DEFAULT_SUBTITLE_STYLE["notice_outline_width"]
+            else max(0, round(style["notice_outline_width"] * height / 1920))
+        )
+        top_margin = _scaled_subtitle_value(
+            style, "notice_top_margin", height, legacy_minimum=34, legacy_ratio=0.055
+        )
         lines.insert(
             -3,
-            f"Style: Notice,Microsoft YaHei,{notice_size},&H00FFFFFF,&H00FFFFFF,&H50000000,&H50000000,"
-            f"0,0,0,0,100,100,0,0,1,1,1,8,50,50,{top_margin},1",
+            f"Style: Notice,{style['font_family']},{notice_size},{_ass_color(style['notice_color'])},"
+            f"{_ass_color(style['notice_color'])},{_ass_color(style['notice_outline_color'], '50')},&H50000000,"
+            f"0,0,0,0,100,100,0,0,1,{notice_outline},1,8,50,50,{top_margin},1",
         )
         lines.append(
-            f"Dialogue: 0,{_ass_time(0)},{_ass_time(duration)},Notice,,0,0,0,,{notice_text}"
+            f"Dialogue: 0,{_ass_time(0)},{_ass_time(duration)},Notice,,0,0,0,,"
+            f"{_ass_text(style['notice_text'])}"
         )
     lines.extend(
         f"Dialogue: 1,{_ass_time(start)},{_ass_time(end)},Subtitle,,0,0,0,,"
@@ -655,6 +759,7 @@ def compose_zhongyi_video(
     audio_duration: float | None = None,
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    subtitle_style: dict[str, Any] | None = None,
     bgm_path: Path | None = None,
 ) -> Path:
     require_ffmpeg()
@@ -688,6 +793,7 @@ def compose_zhongyi_video(
         target_size=target_size,
         timings=timings,
         subtitle_replacements=subtitle_replacements,
+        subtitle_style=subtitle_style,
     )
     command = ["ffmpeg", "-y"]
     for segment_path in prepared:

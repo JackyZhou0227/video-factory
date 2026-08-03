@@ -70,7 +70,6 @@ def _runtime_capabilities(template: TemplateDefinition) -> dict[str, Any]:
         **pipeline,
         "subtitle_replacements": True,
         "script_rewrite": template.script_generation.rewrite_prompt_template is not None,
-        "allowed_ratios": list(template_production.VIDEO_RATIOS),
     }
 
 
@@ -452,6 +451,10 @@ async def create_task(
     if not script_values or len(script_values) > MAX_GENERATE_COUNT:
         raise HTTPException(status_code=422, detail="文案数量必须在 1-50 之间")
     video = _parse_json_field(video_config, "video_config", dict)
+    subtitle_style_value = video.get("subtitle_style")
+    if subtitle_style_value is not None and not isinstance(subtitle_style_value, dict):
+        raise HTTPException(status_code=422, detail="subtitle_style 格式不正确")
+    subtitle_style = template_production.normalize_subtitle_style(subtitle_style_value)
     # The form field remains accepted for older clients, but production always
     # uses the shared database rules captured when this task is created.
     stored_replacements = settings_store.list_subtitle_replacements()
@@ -462,11 +465,10 @@ async def create_task(
     manifest = _parse_json_field(material_manifest, "material_manifest", list)
     manifest = _validate_material_manifest(template, manifest, len(materials))
 
-    ratio = str(video.get("ratio") or template.production.default_ratio)
-    try:
-        template_production.ratio_size(ratio)
-    except template_production.TemplateProductionError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
+    # Template production is intentionally portrait-only. Accepting the legacy
+    # video_config.ratio field keeps older clients compatible without allowing
+    # it to alter the rendered output.
+    ratio = template_production.DEFAULT_VIDEO_RATIO
 
     bgm_path: Path | None = None
     bgm_name: str | None = None
@@ -532,6 +534,7 @@ async def create_task(
         "pipeline_id": template.production.pipeline_id,
         "_template_snapshot": template.model_dump(mode="json", exclude_none=True),
         "_subtitle_replacements": parsed_replacements,
+        "_subtitle_style": subtitle_style,
         "_bgm_path": bgm_path,
         "bgm_name": bgm_name,
         "status": "pending",
@@ -550,6 +553,7 @@ async def create_task(
             materials=saved_materials,
             ratio=ratio,
             subtitle_replacements=parsed_replacements,
+            subtitle_style=subtitle_style,
             bgm_path=bgm_path,
         )
     )
@@ -573,6 +577,7 @@ async def _run_task(
     materials: list[dict[str, Any]],
     ratio: str,
     subtitle_replacements: list[dict[str, str]],
+    subtitle_style: dict[str, Any] | None = None,
     bgm_path: Path | None = None,
 ) -> None:
     task = _tasks[task_id]
@@ -638,6 +643,7 @@ async def _run_task(
                         audio_duration=audio_duration,
                         timings=tts_result.timings,
                         subtitle_replacements=subtitle_replacements,
+                        subtitle_style=subtitle_style,
                         bgm_path=bgm_path,
                     )
                 else:
@@ -653,6 +659,7 @@ async def _run_task(
                         ratio=ratio,
                         timings=tts_result.timings,
                         subtitle_replacements=subtitle_replacements,
+                        subtitle_style=subtitle_style,
                         bgm_path=bgm_path,
                     )
                 completed_outputs.append(output_path)

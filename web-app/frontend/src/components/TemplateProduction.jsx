@@ -2,9 +2,84 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
 import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
 
-const RATIO_OPTIONS = ["9:16", "16:9", "1:1", "3:4"];
 const FINAL_STATUSES = new Set(["completed", "failed"]);
 const MAX_SUBTITLE_REPLACEMENTS = 30;
+const SUBTITLE_PREVIEW_TEXT = "这是一段用于查看字幕样式的预览内容";
+const DEFAULT_SUBTITLE_STYLE = {
+  font_family: "Microsoft YaHei",
+  font_size: 65,
+  color: "#FFD21F",
+  outline_color: "#000000",
+  outline_width: 5,
+  bottom_margin: 250,
+  alignment: "center",
+  notice_enabled: true,
+  notice_text: "人文记录 无不良引导\n如有不适 请线上就医",
+  notice_font_size: 33,
+  notice_color: "#FFFFFF",
+  notice_outline_color: "#000000",
+  notice_outline_width: 1,
+  notice_top_margin: 106,
+};
+
+function cloneDefaultSubtitleStyle() {
+  return { ...DEFAULT_SUBTITLE_STYLE };
+}
+
+function withOpacity(color, opacity) {
+  const normalized = String(color || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(normalized) ? `${normalized}${opacity}` : normalized;
+}
+
+function subtitlePreviewStyle(style, type) {
+  const isNotice = type === "notice";
+  const fontSize = Number(isNotice ? style.notice_font_size : style.font_size) || 1;
+  const outlineWidth = Number(isNotice ? style.notice_outline_width : style.outline_width) || 0;
+  const color = isNotice ? style.notice_color : style.color;
+  const outlineColor = isNotice
+    ? withOpacity(style.notice_outline_color, "B0")
+    : style.outline_color;
+  const fontFamily = style.font_family || DEFAULT_SUBTITLE_STYLE.font_family;
+
+  return {
+    color,
+    fontFamily: `"${fontFamily}", "Microsoft YaHei", sans-serif`,
+    // The preview canvas uses container-query units so the 1080x1920 design
+    // remains proportional when the editor column changes width.
+    fontSize: `${(fontSize / 1920) * 100}cqh`,
+    WebkitTextStroke: outlineWidth > 0 ? `${(outlineWidth / 1920) * 100}cqh ${outlineColor}` : undefined,
+    textShadow: outlineWidth > 0 ? `0 0 ${(outlineWidth / 1920) * 1.5}cqh ${outlineColor}` : "none",
+  };
+}
+
+function SubtitleStylePreview({ style }) {
+  const noticeText = String(style.notice_text || "").trim();
+
+  return (
+    <div className="subtitle-style-preview" aria-label="字幕样式预览">
+      <div className="subtitle-preview-canvas">
+        <div className="subtitle-preview-backdrop" aria-hidden="true" />
+        {style.notice_enabled && noticeText ? (
+          <div
+            className="subtitle-preview-notice"
+            style={{ ...subtitlePreviewStyle(style, "notice"), top: `${(Number(style.notice_top_margin) / 1920) * 100}%` }}
+          >
+            {noticeText}
+          </div>
+        ) : null}
+        <div
+          className={`subtitle-preview-main is-${style.alignment || "center"}`}
+          style={{
+            ...subtitlePreviewStyle(style, "subtitle"),
+            bottom: `${(Number(style.bottom_margin) / 1920) * 100}%`,
+          }}
+        >
+          {SUBTITLE_PREVIEW_TEXT}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function templateContentDefaults(template) {
   return Object.fromEntries(
@@ -12,10 +87,6 @@ function templateContentDefaults(template) {
       .filter((field) => field.default !== null && field.default !== undefined)
       .map((field) => [field.key, String(field.default)])
   );
-}
-
-function templateDefaultRatio(template) {
-  return template?.production?.default_ratio || template?.runtime_capabilities?.allowed_ratios?.[0] || "9:16";
 }
 
 function templateDefaultBatchSize(template) {
@@ -159,6 +230,8 @@ export default function TemplateProduction({ currentUser }) {
   const [scriptCandidates, setScriptCandidates] = useState([]);
   const [selectedCandidateId, setSelectedCandidateId] = useState("");
   const [finalScript, setFinalScript] = useState("");
+  const [subtitleStyle, setSubtitleStyle] = useState(cloneDefaultSubtitleStyle);
+  const [subtitleStyleDialogOpen, setSubtitleStyleDialogOpen] = useState(false);
   const [subtitleReplacements, setSubtitleReplacements] = useState([]);
   const [subtitleReplacementsLoading, setSubtitleReplacementsLoading] = useState(true);
   const [subtitleReplacementError, setSubtitleReplacementError] = useState("");
@@ -168,7 +241,6 @@ export default function TemplateProduction({ currentUser }) {
   const [savedSubtitleReplacementIds, setSavedSubtitleReplacementIds] = useState(() => new Set());
   const [subtitleReplacementPendingDelete, setSubtitleReplacementPendingDelete] = useState(null);
   const [rewritingCandidateId, setRewritingCandidateId] = useState("");
-  const [ratio, setRatio] = useState("9:16");
   const [generateCount, setGenerateCount] = useState(5);
   const [generatingScripts, setGeneratingScripts] = useState(false);
   const [task, setTask] = useState(null);
@@ -193,13 +265,6 @@ export default function TemplateProduction({ currentUser }) {
     [templateId, templates]
   );
   const taskStorageKey = `vf.templateProductionTask.v1.${currentUser?.id || "local"}`;
-
-  const allowedRatios = useMemo(() => {
-    const configured = selectedTemplate?.runtime_capabilities?.allowed_ratios;
-    if (Array.isArray(configured) && configured.length) return configured;
-    const defaultRatio = templateDefaultRatio(selectedTemplate);
-    return RATIO_OPTIONS.includes(defaultRatio) ? RATIO_OPTIONS : [defaultRatio, ...RATIO_OPTIONS];
-  }, [selectedTemplate]);
 
   const maxBatchSize = Math.max(1, Number(selectedTemplate?.production?.max_batch_size) || 50);
   const defaultCandidateCount = templateCandidateCount(selectedTemplate);
@@ -432,8 +497,9 @@ export default function TemplateProduction({ currentUser }) {
     setScriptCandidates([]);
     setSelectedCandidateId("");
     setFinalScript("");
+    setSubtitleStyle(cloneDefaultSubtitleStyle());
+    setSubtitleStyleDialogOpen(false);
     setRewritingCandidateId("");
-    setRatio(templateDefaultRatio(selectedTemplate));
     setGenerateCount(templateDefaultBatchSize(selectedTemplate));
     setError("");
     setNotice("");
@@ -445,6 +511,26 @@ export default function TemplateProduction({ currentUser }) {
       setSubmitting(false);
     }
   }, [selectedTemplate?.id, stopPolling, taskStorageKey]);
+
+  useEffect(() => {
+    if (!subtitleStyleDialogOpen || !selectedTemplate) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setSubtitleStyleDialogOpen(false);
+    };
+
+    document.body.style.overflow = "hidden";
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedTemplate, subtitleStyleDialogOpen]);
+
+  useEffect(() => {
+    if (!selectedTemplate && subtitleStyleDialogOpen) setSubtitleStyleDialogOpen(false);
+  }, [selectedTemplate, subtitleStyleDialogOpen]);
 
   const pollTask = useCallback(
     async (taskId) => {
@@ -769,6 +855,18 @@ export default function TemplateProduction({ currentUser }) {
     setNotice("已将候选文案填入最终文案。");
   }, []);
 
+  const updateSubtitleStyle = useCallback((field, value) => {
+    setSubtitleStyle((current) => ({ ...current, [field]: value }));
+    setError("");
+    setNotice("");
+  }, []);
+
+  const resetSubtitleStyle = useCallback(() => {
+    setSubtitleStyle(cloneDefaultSubtitleStyle());
+    setError("");
+    setNotice("");
+  }, []);
+
   const rewriteCandidate = useCallback(async (candidate) => {
     setRewritingCandidateId(candidate.id);
     setError("");
@@ -853,7 +951,7 @@ export default function TemplateProduction({ currentUser }) {
       form.append("template_id", templateId);
       form.append("scripts", JSON.stringify([cleanScript]));
       form.append("generate_count", String(generateCount));
-      form.append("video_config", JSON.stringify({ ratio }));
+      form.append("video_config", JSON.stringify({ subtitle_style: subtitleStyle }));
       form.append("material_manifest", JSON.stringify(manifest));
       if (selectedBgmId) form.append("bgm_id", selectedBgmId);
 
@@ -880,11 +978,11 @@ export default function TemplateProduction({ currentUser }) {
     materialIssues,
     materials,
     pollTask,
-    ratio,
     finalScript,
     selectedBgmId,
     selectedTemplate,
     stopPolling,
+    subtitleStyle,
     subtitleReplacementIssues,
     taskStorageKey,
     templateId,
@@ -1138,6 +1236,184 @@ export default function TemplateProduction({ currentUser }) {
                 }}
               />
             </label>
+            <div className="subtitle-style-launcher">
+              <div className="subtitle-style-launcher-copy">
+                <span className="subtitle-style-launcher-icon"><Icon name="sliders" size={17} /></span>
+                <div>
+                  <strong>字幕样式</strong>
+                  <small>{subtitleStyle.notice_enabled ? "主字幕与小字免责申明" : "主字幕，已隐藏小字免责申明"}</small>
+                </div>
+              </div>
+              <button
+                className="secondary-action compact-action subtitle-style-open"
+                type="button"
+                onClick={() => setSubtitleStyleDialogOpen(true)}
+                disabled={submitting}
+                aria-haspopup="dialog"
+                aria-expanded={subtitleStyleDialogOpen}
+              >
+                <Icon name="edit" size={15} />编辑样式
+              </button>
+            </div>
+            {subtitleStyleDialogOpen ? (
+              <div
+                className="modal-backdrop subtitle-style-modal-backdrop"
+                role="presentation"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) setSubtitleStyleDialogOpen(false);
+                }}
+              >
+                <section
+                  className="modal-panel subtitle-style-modal"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="subtitle-style-dialog-title"
+                  onMouseDown={(event) => event.stopPropagation()}
+                >
+                  <div className="subtitle-style-editor">
+              <div className="subtitle-style-heading">
+                <div>
+                  <strong id="subtitle-style-dialog-title">字幕样式</strong>
+                  <small>预览使用固定示例内容；成片仍按最终文案、分句和替换规则填充字幕</small>
+                </div>
+                <div className="subtitle-style-heading-actions">
+                  <button
+                    className="secondary-action subtitle-style-reset"
+                    type="button"
+                    onClick={resetSubtitleStyle}
+                    title="恢复当前默认字幕样式"
+                  >
+                    <Icon name="refresh" size={14} />恢复默认
+                  </button>
+                  <button
+                    className="icon-button subtitle-style-close"
+                    type="button"
+                    onClick={() => setSubtitleStyleDialogOpen(false)}
+                    title="关闭字幕样式编辑"
+                    aria-label="关闭字幕样式编辑"
+                  >
+                    <Icon name="x" size={17} />
+                  </button>
+                </div>
+              </div>
+              <div className="subtitle-style-layout">
+                <SubtitleStylePreview style={subtitleStyle} />
+                <div className="subtitle-style-controls">
+                  <section className="subtitle-style-section" aria-labelledby="subtitle-main-style-title">
+                    <div className="subtitle-style-section-heading">
+                      <strong id="subtitle-main-style-title">主字幕</strong>
+                      <span>仅调整样式</span>
+                    </div>
+                    <div className="subtitle-style-field-grid">
+                      <label className="field">
+                        <span className="field-label">字体</span>
+                        <select
+                          className="control"
+                          value={subtitleStyle.font_family}
+                          onChange={(event) => updateSubtitleStyle("font_family", event.target.value)}
+                        >
+                          <option value="Microsoft YaHei">微软雅黑</option>
+                          <option value="SimHei">黑体</option>
+                          <option value="SimSun">宋体</option>
+                          <option value="KaiTi">楷体</option>
+                        </select>
+                      </label>
+                      <label className="field">
+                        <span className="field-label">对齐</span>
+                        <select
+                          className="control"
+                          value={subtitleStyle.alignment}
+                          onChange={(event) => updateSubtitleStyle("alignment", event.target.value)}
+                        >
+                          <option value="left">左对齐</option>
+                          <option value="center">居中</option>
+                          <option value="right">右对齐</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="subtitle-style-slider-grid">
+                      <label className="field">
+                        <span className="field-label">字号 {subtitleStyle.font_size}</span>
+                        <input className="speed-slider" type="range" min="36" max="108" value={subtitleStyle.font_size} onChange={(event) => updateSubtitleStyle("font_size", Number(event.target.value))} />
+                      </label>
+                      <label className="field">
+                        <span className="field-label">描边 {subtitleStyle.outline_width}</span>
+                        <input className="speed-slider" type="range" min="0" max="12" value={subtitleStyle.outline_width} onChange={(event) => updateSubtitleStyle("outline_width", Number(event.target.value))} />
+                      </label>
+                      <label className="field">
+                        <span className="field-label">底部边距 {subtitleStyle.bottom_margin}</span>
+                        <input className="speed-slider" type="range" min="80" max="480" step="5" value={subtitleStyle.bottom_margin} onChange={(event) => updateSubtitleStyle("bottom_margin", Number(event.target.value))} />
+                      </label>
+                    </div>
+                    <div className="subtitle-style-swatch-grid">
+                      <label><span>文字</span><input type="color" value={subtitleStyle.color} onChange={(event) => updateSubtitleStyle("color", event.target.value)} /></label>
+                      <label><span>描边</span><input type="color" value={subtitleStyle.outline_color} onChange={(event) => updateSubtitleStyle("outline_color", event.target.value)} /></label>
+                    </div>
+                  </section>
+                  <section className="subtitle-style-section" aria-labelledby="subtitle-notice-style-title">
+                    <div className="subtitle-style-section-heading">
+                      <strong id="subtitle-notice-style-title">小字免责申明</strong>
+                      <label className="subtitle-notice-toggle">
+                        <input
+                          type="checkbox"
+                          checked={subtitleStyle.notice_enabled}
+                          onChange={(event) => updateSubtitleStyle("notice_enabled", event.target.checked)}
+                        />
+                        <span aria-hidden="true" />
+                        <em>{subtitleStyle.notice_enabled ? "显示" : "不显示"}</em>
+                      </label>
+                    </div>
+                    {subtitleStyle.notice_enabled ? (
+                      <>
+                        <label className="field subtitle-notice-text-field">
+                          <span className="field-label">申明内容</span>
+                          <textarea
+                            className="control"
+                            rows={3}
+                            maxLength={120}
+                            value={subtitleStyle.notice_text}
+                            onChange={(event) => updateSubtitleStyle("notice_text", event.target.value)}
+                          />
+                        </label>
+                        <div className="subtitle-style-slider-grid">
+                          <label className="field">
+                            <span className="field-label">字号 {subtitleStyle.notice_font_size}</span>
+                            <input className="speed-slider" type="range" min="18" max="58" value={subtitleStyle.notice_font_size} onChange={(event) => updateSubtitleStyle("notice_font_size", Number(event.target.value))} />
+                          </label>
+                          <label className="field">
+                            <span className="field-label">描边 {subtitleStyle.notice_outline_width}</span>
+                            <input className="speed-slider" type="range" min="0" max="6" value={subtitleStyle.notice_outline_width} onChange={(event) => updateSubtitleStyle("notice_outline_width", Number(event.target.value))} />
+                          </label>
+                          <label className="field">
+                            <span className="field-label">顶部边距 {subtitleStyle.notice_top_margin}</span>
+                            <input className="speed-slider" type="range" min="30" max="260" value={subtitleStyle.notice_top_margin} onChange={(event) => updateSubtitleStyle("notice_top_margin", Number(event.target.value))} />
+                          </label>
+                        </div>
+                        <div className="subtitle-style-swatch-grid">
+                          <label><span>文字</span><input type="color" value={subtitleStyle.notice_color} onChange={(event) => updateSubtitleStyle("notice_color", event.target.value)} /></label>
+                          <label><span>描边</span><input type="color" value={subtitleStyle.notice_outline_color} onChange={(event) => updateSubtitleStyle("notice_outline_color", event.target.value)} /></label>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="subtitle-notice-hidden">小字免责申明不会显示在本次生成的成片中。</div>
+                    )}
+                  </section>
+                </div>
+              </div>
+                  </div>
+                  <div className="subtitle-style-modal-footer">
+                    <button
+                      className="primary-action subtitle-style-confirm"
+                      type="button"
+                      onClick={() => setSubtitleStyleDialogOpen(false)}
+                      title="确认当前字幕样式"
+                    >
+                      <Icon name="check" size={15} />确认
+                    </button>
+                  </div>
+                </section>
+              </div>
+            ) : null}
             {selectedTemplate.runtime_capabilities?.subtitle_replacements ? (
               <div className="subtitle-replacement-editor">
                 <div className="subtitle-replacement-heading">
@@ -1244,39 +1520,6 @@ export default function TemplateProduction({ currentUser }) {
             ) : null}
           </section>
 
-          <section className="template-work-section" aria-labelledby="template-output-config-title">
-            <div className="template-section-heading">
-              <span><Icon name="sliders" size={17} /></span>
-              <div><strong id="template-output-config-title">生成设置</strong><small>成片规格</small></div>
-            </div>
-            <div className="template-config-grid">
-              <div className="field ratio-field">
-                <span className="field-label">画面比例</span>
-                <div
-                  className="segmented-control compact-segments"
-                  role="radiogroup"
-                  aria-label="画面比例"
-                  style={{ gridTemplateColumns: `repeat(${Math.min(allowedRatios.length, 4)}, minmax(0, 1fr))` }}
-                >
-                  {allowedRatios.map((item) => (
-                    <button key={item} type="button" className={`segment ${ratio === item ? "is-active" : ""}`} onClick={() => setRatio(item)}>{item}</button>
-                  ))}
-                </div>
-              </div>
-              <label className="field count-field">
-                <span className="field-label">生成数量</span>
-                <input
-                  className="control"
-                  type="number"
-                  min="1"
-                  max={maxBatchSize}
-                  value={generateCount}
-                  onChange={(event) => setGenerateCount(Math.max(1, Math.min(maxBatchSize, Number(event.target.value) || 1)))}
-                />
-              </label>
-            </div>
-          </section>
-
           <section className="template-work-section" aria-labelledby="template-bgm-title">
             <div className="template-section-heading with-actions">
               <span><Icon name="music" size={17} /></span>
@@ -1361,10 +1604,24 @@ export default function TemplateProduction({ currentUser }) {
           {notice ? <div className="form-alert completed">{notice}</div> : null}
           {materialIssues.length && finalScript.trim() ? <div className="template-inline-warning">{materialIssues[0]}</div> : null}
 
-          <button className="primary-action template-submit-action" type="button" onClick={submitTask} disabled={!canSubmit}>
-            <Icon name={submitting ? "loading" : "wand"} size={17} />
-            {submitting ? "正在批量生成" : `生成 ${generateCount} 条视频`}
-          </button>
+          <div className="template-submit-row">
+            <label className="template-submit-count" htmlFor="template-generate-count">
+              <span>生成数量</span>
+              <input
+                id="template-generate-count"
+                className="control"
+                type="number"
+                min="1"
+                max={maxBatchSize}
+                value={generateCount}
+                onChange={(event) => setGenerateCount(Math.max(1, Math.min(maxBatchSize, Number(event.target.value) || 1)))}
+              />
+            </label>
+            <button className="primary-action template-submit-action" type="button" onClick={submitTask} disabled={!canSubmit}>
+              <Icon name={submitting ? "loading" : "wand"} size={17} />
+              {submitting ? "正在批量生成" : `生成 ${generateCount} 条视频`}
+            </button>
+          </div>
         </div>
       </div> : null}
 
