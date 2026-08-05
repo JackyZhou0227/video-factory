@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import subprocess
 from pathlib import Path
 
 from app.services.tts.base import EDGE_TTS_MODEL, TTSRequest, TTSResult, TTSServiceError, TTSTiming
 
-EDGE_VOICES = [
+_LEGACY_EDGE_VOICES = [
     {"id": "zh-CN-XiaoxiaoNeural", "name": "晓晓", "gender": "female", "description": "温暖自然"},
     {"id": "zh-CN-XiaoyiNeural", "name": "晓伊", "gender": "female", "description": "活泼明亮"},
     {"id": "zh-CN-XiaochenNeural", "name": "晓辰", "gender": "female", "description": "清晰专业"},
@@ -22,6 +23,83 @@ EDGE_VOICES = [
     {"id": "zh-CN-YunhaoNeural", "name": "云皓", "gender": "male", "description": "广告表现力"},
     {"id": "zh-CN-YunyeNeural", "name": "云野", "gender": "male", "description": "纪录片质感"},
 ]
+
+EDGE_VOICE_CATALOG_PATH = Path(__file__).resolve().parents[4] / "data" / "edge_tts_voices.json"
+EDGE_CHINESE_NAMES = {
+    "zh-CN-XiaoxiaoNeural": "晓晓",
+    "zh-CN-XiaoyiNeural": "晓伊",
+    "zh-CN-YunjianNeural": "云健",
+    "zh-CN-YunxiNeural": "云希",
+    "zh-CN-YunxiaNeural": "云夏",
+    "zh-CN-YunyangNeural": "云扬",
+    "zh-CN-liaoning-XiaobeiNeural": "晓北（辽宁）",
+    "zh-CN-shaanxi-XiaoniNeural": "晓妮（陕西）",
+    "zh-HK-HiuGaaiNeural": "晓佳（香港）",
+    "zh-HK-HiuMaanNeural": "晓曼（香港）",
+    "zh-HK-WanLungNeural": "云龙（香港）",
+    "zh-TW-HsiaoChenNeural": "晓臻（台湾）",
+    "zh-TW-YunJheNeural": "云哲（台湾）",
+    "zh-TW-HsiaoYuNeural": "晓雨（台湾）",
+}
+EDGE_CHINESE_DESCRIPTIONS = {
+    "zh-CN-XiaoxiaoNeural": "温暖自然",
+    "zh-CN-XiaoyiNeural": "活泼明亮",
+    "zh-CN-YunjianNeural": "沉稳有力",
+    "zh-CN-YunxiNeural": "年轻自然",
+    "zh-CN-YunxiaNeural": "亲切柔和",
+    "zh-CN-YunyangNeural": "清晰阳光",
+    "zh-CN-liaoning-XiaobeiNeural": "东北口音，爽朗自然",
+    "zh-CN-shaanxi-XiaoniNeural": "陕西口音，亲切自然",
+    "zh-HK-HiuGaaiNeural": "粤语女声，明快自然",
+    "zh-HK-HiuMaanNeural": "粤语女声，温柔亲和",
+    "zh-HK-WanLungNeural": "粤语男声，稳重清晰",
+    "zh-TW-HsiaoChenNeural": "台湾女声，温柔自然",
+    "zh-TW-YunJheNeural": "台湾男声，沉稳清晰",
+    "zh-TW-HsiaoYuNeural": "台湾女声，轻柔亲切",
+}
+EDGE_CHINESE_REGION_ORDER = {
+    "zh-CN-liaoning-XiaobeiNeural": 1,
+    "zh-CN-shaanxi-XiaoniNeural": 2,
+    "zh-TW-HsiaoChenNeural": 3,
+    "zh-TW-YunJheNeural": 3,
+    "zh-TW-HsiaoYuNeural": 3,
+    "zh-HK-HiuGaaiNeural": 4,
+    "zh-HK-HiuMaanNeural": 4,
+    "zh-HK-WanLungNeural": 4,
+}
+
+
+def _load_edge_voice_catalog() -> list[dict]:
+    """Load voices successfully probed by scripts/check_edge_tts_voices.py."""
+    if EDGE_VOICE_CATALOG_PATH.is_file():
+        try:
+            payload = json.loads(EDGE_VOICE_CATALOG_PATH.read_text(encoding="utf-8"))
+            voices = payload.get("voices", payload) if isinstance(payload, (dict, list)) else []
+            if isinstance(voices, list):
+                selected_voices = [
+                    {
+                        **voice,
+                        "name": EDGE_CHINESE_NAMES.get(voice["id"], voice.get("name") or voice["id"]),
+                        "description": EDGE_CHINESE_DESCRIPTIONS.get(voice["id"], "中文在线音色"),
+                        "language": "zh-CN",
+                        "language_label": "中文",
+                    }
+                    for voice in voices
+                    if isinstance(voice, dict)
+                    and voice.get("id") in EDGE_CHINESE_NAMES
+                    and voice.get("available") is True
+                ]
+                return sorted(
+                    selected_voices,
+                    key=lambda voice: (
+                        1 if voice["id"] in EDGE_CHINESE_REGION_ORDER else 0,
+                        EDGE_CHINESE_REGION_ORDER.get(voice["id"], 0),
+                        voice["name"],
+                    ),
+                )
+        except (OSError, TypeError, ValueError):
+            pass
+    return []
 
 
 def _percent(value: float) -> str:
@@ -63,14 +141,14 @@ class EdgeTtsProvider:
         self.default_voice = default_voice
 
     def list_voices(self) -> list[dict]:
-        return [{**voice, "model_name": self.model_name} for voice in EDGE_VOICES]
+        return [{**voice, "model_name": self.model_name} for voice in _load_edge_voice_catalog()]
 
     async def synthesize(self, request: TTSRequest, output_path: Path) -> TTSResult:
         text = request.text.strip()
         if not text:
             raise TTSServiceError("TTS 文本不能为空")
         voice_id = request.voice_id or self.default_voice
-        if voice_id not in {voice["id"] for voice in EDGE_VOICES}:
+        if voice_id not in {voice["id"] for voice in _load_edge_voice_catalog()}:
             raise TTSServiceError(f"Edge-TTS 不支持音色：{voice_id}")
 
         try:

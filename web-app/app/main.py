@@ -9,6 +9,7 @@ from app.api.auth import router as auth_router
 from app.api.digital_human import router as digital_human_router
 from app.api.poster_video import router as poster_video_router
 from app.api.template_production import router as template_production_router
+from app.api.tts_studio import router as tts_studio_router
 from app.core.config import ROOT, app_config, resolve_output_dir
 from app.services import auth_store, settings_store
 
@@ -39,6 +40,7 @@ def create_app() -> FastAPI:
     application.include_router(auth_router, prefix="/api")
     application.include_router(admin_router, prefix="/api")
     application.include_router(digital_human_router, prefix="/api")
+    application.include_router(tts_studio_router, prefix="/api")
     application.include_router(poster_video_router, prefix="/api")
     application.include_router(template_production_router, prefix="/api")
 

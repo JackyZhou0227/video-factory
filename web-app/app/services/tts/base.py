@@ -5,7 +5,6 @@ from pathlib import Path
 from typing import Protocol
 
 EDGE_TTS_MODEL = "Edge-TTS"
-QWEN3_TTS_CUSTOM_VOICE_MODEL = "Qwen3-TTS-12Hz-1.7B-CustomVoice"
 QWEN3_TTS_BASE_MODEL = "Qwen3-TTS-12Hz-1.7B-Base"
 
 
@@ -20,7 +19,6 @@ class TTSRequest:
     language: str = "Chinese"
     speed: float = 1.0
     volume: int = 100
-    instruct: str | None = None
     reference_audio: Path | None = None
     reference_text: str | None = None
 

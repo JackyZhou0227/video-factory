@@ -3,6 +3,7 @@ import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
 import PosterVideo from "./components/PosterVideo";
 import TemplateProduction from "./components/TemplateProduction";
+import TTSStudio from "./components/TTSStudio";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
 import { getCurrentUser, login, logout, register } from "./lib/auth";
@@ -15,10 +16,16 @@ const NAV_ITEMS = [
     icon: "digitalHuman",
   },
   {
+    id: "tts-studio",
+    label: "语音合成",
+    description: "独立 TTS 工作台",
+    icon: "mic",
+  },
+  {
     id: "poster-video",
     label: "大字报视频",
     description: "批量竖屏叠字",
-    icon: "wand",
+    icon: "type",
   },
   {
     id: "template-production",
@@ -45,9 +52,16 @@ const PAGE_META = {
   "digital-human": {
     eyebrow: "Video Factory",
     title: "数字人口播视频",
-    description: "上传人物形象，输入口播文案或音频，一站式生成数字人口播视频。",
+    description: "上传人物图片与已生成的口播音频，提交 RunningHub 生成数字人口播视频。",
     badge: "本地工作台",
     badgeIcon: "monitorCog",
+  },
+  "tts-studio": {
+    eyebrow: "TTS Studio",
+    title: "独立语音合成",
+    description: "使用共享克隆音色库或 edge-tts 在线音色生成语音，试听并下载音频文件。",
+    badge: "本地音频生成",
+    badgeIcon: "waves",
   },
   "poster-video": {
     eyebrow: "Poster Video",
@@ -349,7 +363,10 @@ export default function App() {
 
         <div className="page-stack">
           <div className={`app-main page-panel ${activePage === "digital-human" ? "is-active" : ""}`}>
-            <DigitalHuman />
+            <DigitalHuman onOpenTtsStudio={() => handlePageChange("tts-studio")} />
+          </div>
+          <div className={`app-main page-panel ${activePage === "tts-studio" ? "is-active" : ""}`}>
+            <TTSStudio active={activePage === "tts-studio"} />
           </div>
           <div className={`app-main page-panel ${activePage === "poster-video" ? "is-active" : ""}`}>
             <PosterVideo />

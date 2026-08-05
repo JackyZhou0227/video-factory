@@ -65,7 +65,7 @@ def _voice_audio_path(voice: dict) -> Path:
 def _with_audio_url(voice: dict) -> dict:
     return {
         **voice,
-        "audio_url": f"/api/voice-profiles/{voice['id']}/audio",
+        "audio_url": f"/api/tts-studio/voice-profiles/{voice['id']}/audio",
     }
 
 

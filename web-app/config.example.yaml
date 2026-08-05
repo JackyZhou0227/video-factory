@@ -9,12 +9,9 @@ runninghub:
   instance_type: plus
 
 tts:
-  # CustomVoice model path:
-  customvoice_model_path: ""
   # Base voice-clone model path:
   base_model_path: ""
   device: "cpu"
-  default_speaker: "Uncle_Fu"
   default_language: "Chinese"
   # Default provider for the template-production module.
   default_provider: "Edge-TTS"

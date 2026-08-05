@@ -83,10 +83,7 @@ npm run build
 
 ## 下载 Hugging Face 模型
 
-本项目支持两种 Qwen3-TTS 模式：
-
-- `CustomVoice`：使用官方内置音色
-- `Base`：使用参考音频 + 参考文本做 voice clone
+语音克隆使用 Qwen3-TTS Base 模型，通过参考音频和参考文本生成目标语音。在线音色由 Edge-TTS 提供，不需要下载额外模型。
 
 推荐先安装 Hugging Face Hub CLI：
 
@@ -106,12 +103,6 @@ pip install -U "huggingface_hub[cli]"
 $env:HF_HOME = "D:\models\hf_home"
 ```
 
-下载 CustomVoice 模型：
-
-```powershell
-hf download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice
-```
-
 下载 Base 模型：
 
 ```powershell
@@ -121,18 +112,13 @@ hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base
 如果希望下载到一个普通目录，而不是 Hugging Face cache，可以使用：
 
 ```powershell
-hf download Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice --local-dir D:\models\Qwen3-TTS-12Hz-0.6B-CustomVoice
-```
-
-```powershell
 hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir D:\models\Qwen3-TTS-12Hz-1.7B-Base
 ```
 
-`config.yaml` 里的模型路径要分别填写：
+`config.yaml` 里填写 Base 模型路径：
 
 ```yaml
 tts:
-  customvoice_model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
   base_model_path: "D:/models/Qwen3-TTS-12Hz-1.7B-Base"
 ```
 
@@ -140,7 +126,6 @@ tts:
 
 ```yaml
 tts:
-  customvoice_model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-CustomVoice/snapshots/<revision>"
   base_model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base/snapshots/<revision>"
 ```
 
@@ -157,11 +142,10 @@ Copy-Item web-app\config.example.yaml web-app\config.yaml
 
 ```yaml
 tts:
-  customvoice_model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-CustomVoice"
   base_model_path: "D:/models/Qwen3-TTS-12Hz-1.7B-Base"
   device: "cuda"
-  default_speaker: "Uncle_Fu"
   default_language: "Chinese"
+  edge_default_voice: "zh-CN-XiaoxiaoNeural"
 
 server:
   host: "0.0.0.0"
@@ -171,11 +155,10 @@ server:
 
 配置说明：
 
-- `tts.customvoice_model_path`：CustomVoice 模型目录。
 - `tts.base_model_path`：Base voice clone 模型目录。
 - `tts.device`：有 NVIDIA GPU 时通常填 `cuda`；只用 CPU 时填 `cpu`，但生成会很慢。
-- `tts.default_speaker`：CustomVoice 的默认音色。
 - `tts.default_language`：默认语言。
+- `tts.edge_default_voice`：Edge-TTS 默认在线音色。
 - `server.output_dir`：生成的音频、视频输出目录，相对路径会解析到 `web-app/output`。
 
 Base 模式在页面里会让你上传：
@@ -279,16 +262,16 @@ pip install -r requirements.txt
 Invoke-RestMethod http://127.0.0.1:18888/api/health
 ```
 
-检查音色接口：
+检查 Edge-TTS 音色接口：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:18888/api/speakers
+Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/edge-tts/voices
 ```
 
 检查语言接口：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:18888/api/tts/languages
+Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/languages
 ```
 
 检查 PyTorch 是否能看到 NVIDIA GPU：

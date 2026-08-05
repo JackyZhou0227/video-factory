@@ -6,14 +6,13 @@ from pathlib import Path
 from app.services.tts.base import (
     EDGE_TTS_MODEL,
     QWEN3_TTS_BASE_MODEL,
-    QWEN3_TTS_CUSTOM_VOICE_MODEL,
     TTSProvider,
     TTSRequest,
     TTSResult,
     TTSServiceError,
 )
 from app.services.tts.providers.edge_tts import EdgeTtsProvider
-from app.services.tts.providers.qwen3_tts import Qwen3TtsBaseProvider, Qwen3TtsCustomVoiceProvider
+from app.services.tts.providers.qwen3_tts import Qwen3TtsBaseProvider
 
 
 class TTSService:
@@ -53,14 +52,6 @@ def create_tts_service(config: dict | None = None) -> TTSService:
     service.register(
         EDGE_TTS_MODEL,
         lambda: EdgeTtsProvider(default_voice=tts_config.get("edge_default_voice") or "zh-CN-XiaoxiaoNeural"),
-    )
-    service.register(
-        QWEN3_TTS_CUSTOM_VOICE_MODEL,
-        lambda: Qwen3TtsCustomVoiceProvider(
-            model_path=tts_config.get("customvoice_model_path") or tts_config.get("model_path") or "",
-            device=tts_config.get("device") or "cpu",
-            default_voice=tts_config.get("default_speaker") or "Uncle_Fu",
-        ),
     )
     service.register(
         QWEN3_TTS_BASE_MODEL,

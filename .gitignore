@@ -14,7 +14,8 @@ web-app/config.yaml
 
 # Runtime outputs
 /output/
-web-app/data/
+web-app/data/*
+!web-app/data/edge_tts_voices.json
 web-app/output/
 example/
 workflow/

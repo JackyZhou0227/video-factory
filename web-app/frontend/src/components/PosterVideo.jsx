@@ -231,7 +231,7 @@ export default function PosterVideo() {
       label: "大字报模板",
       detail: `${blocks.filter((block) => block.text.trim()).length} 个文字块`,
       state: blocks.some((block) => block.text.trim()) ? "completed" : "idle",
-      icon: "sliders",
+      icon: "type",
     },
     {
       label: "本地批处理",
@@ -440,11 +440,11 @@ export default function PosterVideo() {
           <span className="required-note">本地 FFmpeg 批处理</span>
         </div>
 
-        <div className="pipeline-strip" aria-label="大字报视频流程状态">
+        <div className="pipeline-strip poster-video-pipeline" aria-label="大字报视频流程状态">
           {pipelineItems.map((item, index) => (
             <div key={item.label} className={`pipeline-step ${item.state}`}>
               <span className="pipeline-index">
-                <Icon name={item.state === "completed" ? "check" : item.icon} size={14} />
+                <Icon name={item.icon} size={14} />
                 <span>{String(index + 1).padStart(2, "0")}</span>
               </span>
               <span className="pipeline-copy">

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from app.services.tts.base import (
     QWEN3_TTS_BASE_MODEL,
-    QWEN3_TTS_CUSTOM_VOICE_MODEL,
     TTSRequest,
     TTSResult,
     TTSServiceError,
@@ -32,41 +31,6 @@ def _probe_duration(path: Path) -> float:
         return max(0.0, float(result.stdout.strip())) if result.returncode == 0 else 0.0
     except ValueError:
         return 0.0
-
-
-class Qwen3TtsCustomVoiceProvider:
-    model_name = QWEN3_TTS_CUSTOM_VOICE_MODEL
-    capabilities = frozenset({"preset_voice", "language", "instruct"})
-
-    def __init__(self, *, model_path: str, device: str = "cpu", default_voice: str = "Uncle_Fu"):
-        self.model_path = model_path
-        self.device = device
-        self.default_voice = default_voice
-
-    def list_voices(self) -> list[dict]:
-        module = _legacy_qwen_module()
-        return [{**voice, "model_name": self.model_name} for voice in module.list_speakers()]
-
-    async def synthesize(self, request: TTSRequest, output_path: Path) -> TTSResult:
-        if not self.model_path:
-            raise TTSServiceError("未配置 Qwen3-TTS CustomVoice 模型路径")
-        module = _legacy_qwen_module()
-        voice_id = request.voice_id or self.default_voice
-        try:
-            await module.synthesize(
-                text=request.text.strip(),
-                output_path=output_path,
-                model_path=self.model_path,
-                device=self.device,
-                mode="customvoice",
-                speaker=voice_id,
-                language=request.language,
-                instruct=request.instruct,
-            )
-        except Exception as exc:
-            raise TTSServiceError(f"{self.model_name} 生成失败：{exc}") from exc
-        duration = await asyncio.to_thread(_probe_duration, output_path)
-        return TTSResult(output_path, duration, self.model_name, voice_id)
 
 
 class Qwen3TtsBaseProvider:
@@ -95,7 +59,6 @@ class Qwen3TtsBaseProvider:
                 output_path=output_path,
                 model_path=self.model_path,
                 device=self.device,
-                mode="base",
                 language=request.language,
                 ref_audio=request.reference_audio,
                 ref_text=request.reference_text,
