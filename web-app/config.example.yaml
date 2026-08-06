@@ -9,9 +9,13 @@ runninghub:
   instance_type: plus
 
 tts:
-  # Base voice-clone model path:
-  base_model_path: ""
-  device: "cpu"
+  qwen3_tts_base:
+    # Keep false on servers that do not deploy the local voice-clone model.
+    enabled: false
+    # Compatible Qwen3-TTS Base directory, such as 0.6B-Base or 1.7B-Base.
+    model_path: ""
+    # Supported values: cpu, cuda, cuda:0, cuda:1, ...
+    device: "cpu"
   default_language: "Chinese"
   # Default provider for the template-production module.
   default_provider: "Edge-TTS"

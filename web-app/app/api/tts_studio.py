@@ -183,6 +183,11 @@ def _with_tts_studio_audio_url(voice: dict) -> dict:
     }
 
 
+@router.get("/providers")
+def get_tts_providers():
+    return tts_service.provider_statuses()
+
+
 @router.get("/edge-tts/voices")
 def get_edge_tts_voices():
     return tts_service.list_voices(EDGE_TTS_MODEL)

@@ -98,6 +98,28 @@ class TTSStudioApiTests(unittest.TestCase):
         self.assertEqual(request.speed, 1.0)
         self.assertEqual(output_path.suffix, ".mp3")
 
+    def test_provider_status_endpoint_returns_tts_availability(self):
+        provider_statuses = [
+            {
+                "id": "edge_tts",
+                "model_name": "Edge-TTS",
+                "display_name": "预设音色",
+                "runtime": "cloud",
+                "enabled": True,
+                "available": True,
+                "status": "available",
+                "reason": None,
+                "validation": "deferred_network",
+                "checks": {"configuration": "passed", "network": "deferred"},
+            }
+        ]
+        with patch.object(tts_studio.tts_service, "provider_statuses", return_value=provider_statuses) as statuses:
+            response = self.client.get("/api/tts-studio/providers")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), provider_statuses)
+        statuses.assert_called_once_with()
+
     def test_speech_rate_variant_keeps_original_audio_and_returns_separate_adjusted_audio(self):
         original_path = self.output_root / "tts-studio" / self.user_id / "preview" / "preview_original.wav"
         original_path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,6 +183,7 @@ class TTSStudioApiTests(unittest.TestCase):
         app.dependency_overrides[require_current_user] = self._current_user
 
         route_methods = app.openapi()["paths"]
+        self.assertIn("/api/tts-studio/providers", route_methods)
         self.assertIn("/api/tts-studio/edge-tts/voices", route_methods)
         self.assertIn("/api/tts-studio/edge-tts/preview", route_methods)
         self.assertIn("post", route_methods["/api/tts-studio/edge-tts/preview"])

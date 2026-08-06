@@ -37,6 +37,12 @@ class TTSService:
     def list_voices(self, model_name: str) -> list[dict]:
         return self.get_provider(model_name).list_voices()
 
+    def provider_status(self, model_name: str, *, refresh: bool = False) -> dict:
+        return self.get_provider(model_name).status(refresh=refresh)
+
+    def provider_statuses(self, *, refresh: bool = False) -> list[dict]:
+        return [self.provider_status(model_name, refresh=refresh) for model_name in self.model_names()]
+
     async def synthesize(self, model_name: str, request: TTSRequest, output_path: Path) -> TTSResult:
         return await self.get_provider(model_name).synthesize(request, output_path)
 
@@ -48,6 +54,7 @@ def create_tts_service(config: dict | None = None) -> TTSService:
         config = app_config
 
     tts_config = config.get("tts") or {}
+    qwen3_tts_base_config = tts_config.get("qwen3_tts_base") or {}
     service = TTSService()
     service.register(
         EDGE_TTS_MODEL,
@@ -56,8 +63,9 @@ def create_tts_service(config: dict | None = None) -> TTSService:
     service.register(
         QWEN3_TTS_BASE_MODEL,
         lambda: Qwen3TtsBaseProvider(
-            model_path=tts_config.get("base_model_path") or "",
-            device=tts_config.get("device") or "cpu",
+            enabled=qwen3_tts_base_config.get("enabled") is True,
+            model_path=qwen3_tts_base_config.get("model_path") or "",
+            device=qwen3_tts_base_config.get("device") or "cpu",
         ),
     )
     return service

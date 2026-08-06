@@ -35,10 +35,11 @@ async def _load_model(model_path: str, device: str):
         import torch
         from qwen_tts import Qwen3TTSModel
 
+        dtype = torch.float32 if device == "cpu" else torch.bfloat16
         model = Qwen3TTSModel.from_pretrained(
             model_path,
             device_map=device,
-            dtype=torch.bfloat16,
+            dtype=dtype,
         )
         _model_cache[cache_key] = model
         return model

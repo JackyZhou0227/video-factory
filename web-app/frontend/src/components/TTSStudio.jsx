@@ -3,8 +3,8 @@ import Icon from "./Icon";
 import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
 
 const TTS_MODE_OPTIONS = [
-  { value: "base", label: "语音克隆" },
-  { value: "edge-tts", label: "edge-tts" },
+  { value: "base", providerId: "qwen3_tts_base", label: "音色克隆", detail: "Qwen3-TTS Base · 本地" },
+  { value: "edge-tts", providerId: "edge_tts", label: "预设音色", detail: "Edge-TTS · 云端" },
 ];
 
 const DEFAULT_LANGUAGES = [
@@ -45,7 +45,10 @@ export default function TTSStudio({ active = false }) {
   const backendBaseUrl = useBackendBaseUrl();
   const refAudioInputRef = useRef(null);
   const [text, setText] = useState("");
-  const [ttsMode, setTtsMode] = useState("base");
+  const [ttsMode, setTtsMode] = useState("edge-tts");
+  const [providerStatuses, setProviderStatuses] = useState([]);
+  const [providerStatusesLoading, setProviderStatusesLoading] = useState(true);
+  const [providerStatusError, setProviderStatusError] = useState("");
   const [edgeVoices, setEdgeVoices] = useState([]);
   const [edgeVoicesLoading, setEdgeVoicesLoading] = useState(true);
   const [edgeVoice, setEdgeVoice] = useState("zh-CN-XiaoxiaoNeural");
@@ -82,6 +85,16 @@ export default function TTSStudio({ active = false }) {
     () => edgeVoices,
     [edgeVoices]
   );
+  const providerStatusById = useMemo(
+    () => new Map(providerStatuses.map((provider) => [provider.id, provider])),
+    [providerStatuses]
+  );
+  const qwenProviderStatus = providerStatusById.get("qwen3_tts_base") ?? null;
+  const qwenProviderAvailable = qwenProviderStatus?.available === true;
+  const qwenProviderReason =
+    providerStatusError ||
+    qwenProviderStatus?.reason ||
+    (!providerStatusesLoading && !qwenProviderStatus ? "无法确认本地 Qwen3-TTS Base 状态" : "");
 
   useEffect(() => {
     if (!filteredEdgeVoices.length) {
@@ -127,6 +140,33 @@ export default function TTSStudio({ active = false }) {
       setVoiceProfilesLoading(false);
     }
   }, [backendBaseUrl]);
+
+  useEffect(() => {
+    if (!active) return undefined;
+    let cancelled = false;
+    setProviderStatusesLoading(true);
+    setProviderStatusError("");
+    apiFetch("/api/tts-studio/providers", undefined, backendBaseUrl)
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await readApiError(response));
+        return response.json();
+      })
+      .then((list) => {
+        if (cancelled) return;
+        setProviderStatuses(Array.isArray(list) ? list : []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setProviderStatuses([]);
+        setProviderStatusError(err.message || "无法加载 TTS 服务状态");
+      })
+      .finally(() => {
+        if (!cancelled) setProviderStatusesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [active, backendBaseUrl]);
 
   useEffect(() => {
     if (!active) return undefined;
@@ -195,6 +235,12 @@ export default function TTSStudio({ active = false }) {
       setLanguage(selectedVoiceProfile.language);
     }
   }, [selectedVoiceProfile, ttsMode]);
+
+  useEffect(() => {
+    if (!providerStatusesLoading && ttsMode === "base" && !qwenProviderAvailable) {
+      setTtsMode("edge-tts");
+    }
+  }, [providerStatusesLoading, qwenProviderAvailable, ttsMode]);
 
   useEffect(() => {
     return () => {
@@ -408,7 +454,9 @@ export default function TTSStudio({ active = false }) {
   const canGenerate = Boolean(
     text.trim() &&
       !generating &&
-      (ttsMode === "edge-tts" ? edgeVoice && selectedEdgeVoice : voiceProfileId && selectedVoiceProfile)
+      (ttsMode === "edge-tts"
+        ? edgeVoice && selectedEdgeVoice
+        : qwenProviderAvailable && voiceProfileId && selectedVoiceProfile)
   );
   const status = generating ? "previewing" : preview && !previewStale ? "completed" : previewStale ? "ready" : "idle";
   const statusLabel =
@@ -569,22 +617,48 @@ export default function TTSStudio({ active = false }) {
               <div className="field">
                 <span className="field-label">合成方式</span>
                 <div className="segmented-control tts-studio-mode-control" role="tablist" aria-label="合成方式">
-                  {TTS_MODE_OPTIONS.map((option) => (
-                    <button
-                      className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
-                      key={option.value}
-                      type="button"
-                      role="tab"
-                      aria-selected={ttsMode === option.value}
-                      onClick={() => {
-                        setTtsMode(option.value);
-                        markPreviewStale();
-                      }}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+                  {TTS_MODE_OPTIONS.map((option) => {
+                    const providerStatus = providerStatusById.get(option.providerId);
+                    const isChecking = providerStatusesLoading && !providerStatus;
+                    const isDisabled = option.value === "base" && !providerStatus?.available;
+                    const statusLabel = isChecking
+                      ? "检测中"
+                      : providerStatus?.status === "available"
+                        ? "可用"
+                        : providerStatus?.status === "disabled"
+                          ? "未启用"
+                          : providerStatus?.status === "unavailable"
+                            ? "不可用"
+                            : "待确认";
+                    return (
+                      <button
+                        className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
+                        disabled={isDisabled}
+                        key={option.value}
+                        type="button"
+                        role="tab"
+                        aria-selected={ttsMode === option.value}
+                        onClick={() => {
+                          setTtsMode(option.value);
+                          markPreviewStale();
+                        }}
+                      >
+                        <span className="tts-studio-mode-heading">
+                          <span className="tts-studio-mode-label">{option.label}</span>
+                          <span className={`tts-studio-provider-status ${providerStatus?.status || "checking"}`}>
+                            {statusLabel}
+                          </span>
+                        </span>
+                        <span className="tts-studio-mode-detail">{option.detail}</span>
+                      </button>
+                    );
+                  })}
                 </div>
+                {qwenProviderReason && (
+                  <p className="tts-studio-provider-note" role="status">
+                    {qwenProviderReason}
+                  </p>
+                )}
               </div>
 
               {ttsMode === "base" ? (
@@ -664,7 +738,6 @@ export default function TTSStudio({ active = false }) {
                       </select>
                     </label>
                   </div>
-                  <p className="tts-studio-edge-hint">{selectedEdgeVoice ? `${selectedEdgeVoice.name || selectedEdgeVoice.id} · ${selectedEdgeVoice.gender === "female" ? "女声" : selectedEdgeVoice.gender === "male" ? "男声" : "在线音色"}` : "选择语言后选择音色"}</p>
                 </div>
               )}
             </section>
@@ -865,7 +938,10 @@ export default function TTSStudio({ active = false }) {
                   <button
                     className="secondary-action compact-action"
                     type="button"
+                    disabled={!qwenProviderAvailable}
+                    title={qwenProviderAvailable ? "使用这个克隆音色" : qwenProviderReason || "本地音色克隆当前不可用"}
                     onClick={() => {
+                      if (!qwenProviderAvailable) return;
                       setTtsMode("base");
                       setVoiceProfileId(profile.id);
                       markPreviewStale();

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Protocol
 
 EDGE_TTS_MODEL = "Edge-TTS"
-QWEN3_TTS_BASE_MODEL = "Qwen3-TTS-12Hz-1.7B-Base"
+QWEN3_TTS_BASE_MODEL = "Qwen3-TTS-Base"
 
 
 class TTSServiceError(RuntimeError):
@@ -40,8 +40,11 @@ class TTSResult:
 
 
 class TTSProvider(Protocol):
+    provider_id: str
     model_name: str
     capabilities: frozenset[str]
+
+    def status(self, *, refresh: bool = False) -> dict: ...
 
     def list_voices(self) -> list[dict]: ...
 

@@ -36,29 +36,116 @@ class TTSServiceTests(unittest.IsolatedAsyncioTestCase):
             Path(kwargs["output_path"]).write_bytes(b"audio")
 
         fake_module = SimpleNamespace(synthesize=synthesize)
-        config = {
-            "tts": {
-                "base_model_path": "base-model",
-                "device": "cpu",
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = Path(temp_dir) / "base-model"
+            model_path.mkdir()
+            (model_path / "config.json").write_text(
+                '{"architectures":["Qwen3TTSForConditionalGeneration"],"model_type":"qwen3_tts","tts_model_type":"base"}',
+                encoding="utf-8",
+            )
+            (model_path / "model.safetensors").write_bytes(b"weights")
+            config = {
+                "tts": {
+                    "qwen3_tts_base": {
+                        "enabled": True,
+                        "model_path": str(model_path),
+                        "device": "cpu",
+                    }
+                }
             }
-        }
-        service = create_tts_service(config)
-
-        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
-            qwen3_tts, "_legacy_qwen_module", return_value=fake_module
-        ):
+            service = create_tts_service(config)
             reference = Path(temp_dir) / "reference.wav"
             reference.write_bytes(b"reference")
-            await service.synthesize(
-                QWEN3_TTS_BASE_MODEL,
-                TTSRequest(text="base", reference_audio=reference, reference_text="reference text"),
-                Path(temp_dir) / "base.wav",
-            )
+            with patch.object(qwen3_tts, "_missing_dependencies", return_value=[]), patch.object(
+                qwen3_tts, "_runtime_validation_error", return_value=None
+            ), patch.object(qwen3_tts, "_legacy_qwen_module", return_value=fake_module):
+                await service.synthesize(
+                    QWEN3_TTS_BASE_MODEL,
+                    TTSRequest(text="base", reference_audio=reference, reference_text="reference text"),
+                    Path(temp_dir) / "base.wav",
+                )
 
         self.assertEqual(len(calls), 1)
-        self.assertEqual(calls[0]["model_path"], "base-model")
+        self.assertEqual(calls[0]["model_path"], str(model_path.resolve()))
         self.assertEqual(calls[0]["ref_audio"], reference)
         self.assertEqual(calls[0]["ref_text"], "reference text")
+
+    def test_disabled_qwen_provider_skips_all_local_checks(self):
+        service = create_tts_service(
+            {
+                "tts": {
+                    "qwen3_tts_base": {
+                        "enabled": False,
+                        "model_path": "missing-model",
+                        "device": "cuda",
+                    }
+                }
+            }
+        )
+
+        with patch.object(qwen3_tts, "_missing_dependencies") as dependencies, patch.object(
+            qwen3_tts, "_runtime_validation_error"
+        ) as runtime_check:
+            status = service.provider_status(QWEN3_TTS_BASE_MODEL)
+
+        self.assertEqual(status["status"], "disabled")
+        self.assertFalse(status["enabled"])
+        self.assertFalse(status["available"])
+        dependencies.assert_not_called()
+        runtime_check.assert_not_called()
+
+    def test_enabled_qwen_provider_reports_missing_model_path(self):
+        service = create_tts_service(
+            {"tts": {"qwen3_tts_base": {"enabled": True, "model_path": "", "device": "cpu"}}}
+        )
+
+        status = service.provider_status(QWEN3_TTS_BASE_MODEL)
+
+        self.assertEqual(status["status"], "unavailable")
+        self.assertEqual(status["checks"]["model_path"], "failed")
+        self.assertIn("未配置", status["reason"])
+
+    def test_qwen_provider_accepts_indexed_cuda_device(self):
+        self.assertTrue(qwen3_tts._is_supported_device("cuda:0"))
+        self.assertTrue(qwen3_tts._is_supported_device("cuda:12"))
+        self.assertFalse(qwen3_tts._is_supported_device("cuda:gpu"))
+
+    def test_qwen_provider_rejects_non_base_checkpoint(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            model_path = Path(temp_dir)
+            (model_path / "config.json").write_text(
+                '{"architectures":["Qwen3TTSForConditionalGeneration"],"model_type":"qwen3_tts","tts_model_type":"custom_voice"}',
+                encoding="utf-8",
+            )
+            (model_path / "model.safetensors").write_bytes(b"weights")
+            service = create_tts_service(
+                {
+                    "tts": {
+                        "qwen3_tts_base": {
+                            "enabled": True,
+                            "model_path": str(model_path),
+                            "device": "cpu",
+                        }
+                    }
+                }
+            )
+
+            status = service.provider_status(QWEN3_TTS_BASE_MODEL)
+
+        self.assertEqual(status["status"], "unavailable")
+        self.assertEqual(status["checks"]["model_config"], "failed")
+        self.assertIn("不是支持音色克隆", status["reason"])
+
+    def test_runtime_validation_explains_duplicate_openmp_runtime(self):
+        result = SimpleNamespace(
+            returncode=1,
+            stdout="",
+            stderr="OMP: Error #15: libiomp5md.dll already initialized.",
+        )
+        with patch.object(qwen3_tts.subprocess, "run", return_value=result):
+            error = qwen3_tts._runtime_validation_error("cpu")
+
+        self.assertIn("OpenMP 运行库冲突", error)
 
     async def test_edge_provider_collects_word_boundaries(self):
         class FakeCommunicate:

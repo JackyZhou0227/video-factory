@@ -1,6 +1,6 @@
 # Video Factory
 
-Video Factory 是一个本地运行的 AI 视频生产工作台。当前包含数字人口播、大字报视频和模板量产模块：前端负责素材、文案和生成参数，后端负责统一 LLM/TTS 调用、RunningHub 工作流和 FFmpeg 批量成片。
+Video Factory 是一个本地运行的 AI 视频生产工作台。当前包含数字人口播、独立语音合成、大字报视频和模板量产模块：前端负责素材、文案和生成参数，后端负责统一 LLM/TTS 调用、RunningHub 工作流和 FFmpeg 批量成片。
 
 ## 项目结构
 
@@ -23,9 +23,9 @@ web-app/
 
 - Git
 - Anaconda 或 Miniconda
-- NVIDIA 显卡驱动
+- NVIDIA 显卡驱动（仅在本地模型使用 CUDA 时需要）
 - RunningHub API Key
-- Hugging Face 上的 Qwen3-TTS 模型文件
+- Hugging Face 上的 Qwen3-TTS 模型文件（仅在启用本地音色克隆时需要）
 - FFmpeg 与 FFprobe（模板量产和大字报视频使用）
 - 可访问的 Edge-TTS 网络环境
 
@@ -83,7 +83,7 @@ npm run build
 
 ## 下载 Hugging Face 模型
 
-语音克隆使用 Qwen3-TTS Base 模型，通过参考音频和参考文本生成目标语音。在线音色由 Edge-TTS 提供，不需要下载额外模型。
+语音克隆使用 Qwen3-TTS Base 模型，通过参考音频和参考文本生成目标语音。在线预设音色由 Edge-TTS 提供，不需要下载额外模型。如果服务器不部署本地模型，可以跳过本节下载步骤，并保持 `tts.qwen3_tts_base.enabled: false`。
 
 推荐先安装 Hugging Face Hub CLI：
 
@@ -103,30 +103,42 @@ pip install -U "huggingface_hub[cli]"
 $env:HF_HOME = "D:\models\hf_home"
 ```
 
-下载 Base 模型：
+低配置机器优先下载 0.6B Base：
+
+```powershell
+hf download Qwen/Qwen3-TTS-12Hz-0.6B-Base
+```
+
+显存和内存充足时也可以使用 1.7B Base。代码按 Qwen3-TTS Base 架构加载，不限制具体参数规模：
 
 ```powershell
 hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base
 ```
 
-如果希望下载到一个普通目录，而不是 Hugging Face cache，可以使用：
+如果希望把 0.6B Base 下载到普通目录，而不是 Hugging Face cache，可以使用：
 
 ```powershell
-hf download Qwen/Qwen3-TTS-12Hz-1.7B-Base --local-dir D:\models\Qwen3-TTS-12Hz-1.7B-Base
+hf download Qwen/Qwen3-TTS-12Hz-0.6B-Base --local-dir D:/models/Qwen3-TTS-12Hz-0.6B-Base
 ```
 
 `config.yaml` 里填写 Base 模型路径：
 
 ```yaml
 tts:
-  base_model_path: "D:/models/Qwen3-TTS-12Hz-1.7B-Base"
+  qwen3_tts_base:
+    enabled: true
+    model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-Base"
+    device: "cpu"
 ```
 
 或者填写 Hugging Face cache 里的 snapshot 路径：
 
 ```yaml
 tts:
-  base_model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-1.7B-Base/snapshots/<revision>"
+  qwen3_tts_base:
+    enabled: true
+    model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-Base/snapshots/<revision>"
+    device: "cpu"
 ```
 
 ## 配置本地 config.yaml
@@ -140,10 +152,26 @@ Copy-Item web-app\config.example.yaml web-app\config.yaml
 
 编辑 `web-app/config.yaml`：
 
+服务器不部署本地模型时：
+
 ```yaml
 tts:
-  base_model_path: "D:/models/Qwen3-TTS-12Hz-1.7B-Base"
-  device: "cuda"
+  qwen3_tts_base:
+    enabled: false
+    model_path: ""
+    device: "cpu"
+  default_language: "Chinese"
+  edge_default_voice: "zh-CN-XiaoxiaoNeural"
+```
+
+本机部署并启用 Qwen3-TTS Base 时：
+
+```yaml
+tts:
+  qwen3_tts_base:
+    enabled: true
+    model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-Base"
+    device: "cpu"
   default_language: "Chinese"
   edge_default_voice: "zh-CN-XiaoxiaoNeural"
 
@@ -155,13 +183,25 @@ server:
 
 配置说明：
 
-- `tts.base_model_path`：Base voice clone 模型目录。
-- `tts.device`：有 NVIDIA GPU 时通常填 `cuda`；只用 CPU 时填 `cpu`，但生成会很慢。
+- `tts.qwen3_tts_base.enabled`：是否在当前部署中启用本地 Qwen3-TTS Base。默认应为 `false`；关闭时后端不会检查模型路径、Python 依赖、PyTorch 或 CUDA，也不会尝试加载模型。
+- `tts.qwen3_tts_base.model_path`：兼容的 Qwen3-TTS Base 模型目录，支持 0.6B Base 和 1.7B Base。仅在 `enabled: true` 时检查。
+- `tts.qwen3_tts_base.device`：本地模型运行设备，支持 `cpu`、`cuda`、`cuda:0`、`cuda:1` 等。CPU 可以运行但通常较慢。
 - `tts.default_language`：默认语言。
 - `tts.edge_default_voice`：Edge-TTS 默认在线音色。
 - `server.output_dir`：生成的音频、视频输出目录，相对路径会解析到 `web-app/output`。
 
-Base 模式在页面里会让你上传：
+本地 Qwen3-TTS Base 的状态判断分为两层：
+
+1. `enabled: false` 时直接返回 `disabled`，跳过所有本地环境检测，适合不部署本地模型的云服务器。
+2. `enabled: true` 时执行轻量验证：检查模型目录、`config.json`、Base 架构、权重文件、`qwen-tts`/`soundfile`/`torch` 依赖，以及配置的 CPU/CUDA 设备。
+
+轻量验证不会加载完整模型权重。完整模型加载仍在第一次执行音色克隆时发生，避免打开页面或查询状态就占用大量内存或显存。验证结果会在当前后端进程中缓存。修改 `config.yaml`、模型文件、Python 依赖或设备环境后，需要重启后端以重新加载配置并执行检查。
+
+CPU 模式使用 `float32` 加载；CUDA 模式使用 `bfloat16`。不支持 BF16 的旧显卡应配置为 `cpu`。如果状态原因包含 `libiomp5md.dll` 或 `OpenMP 运行库冲突`，说明当前 Python 环境同时加载了多份 Intel OpenMP DLL，需要修复 Conda/PyTorch 安装后再重启服务，不建议用 `KMP_DUPLICATE_LIB_OK` 绕过。
+
+旧版扁平配置 `tts.base_model_path` 和 `tts.device` 不再使用。升级已有部署时，需要把它们迁移到 `tts.qwen3_tts_base.model_path` 和 `tts.qwen3_tts_base.device`，并显式设置 `tts.qwen3_tts_base.enabled: true`；未迁移时本地模型保持关闭。
+
+音色克隆模式在页面里会让你上传：
 
 - 参考音频 `ref_audio`
 - 参考文本 `ref_text`
@@ -262,16 +302,40 @@ pip install -r requirements.txt
 Invoke-RestMethod http://127.0.0.1:18888/api/health
 ```
 
+TTS Studio 接口需要登录会话。PowerShell 中可以先登录并保留 Cookie：
+
+```powershell
+$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
+Invoke-RestMethod `
+  -Uri http://127.0.0.1:18888/api/auth/login `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"username":"admin","password":"your-password"}' `
+  -WebSession $session
+```
+
 检查 Edge-TTS 音色接口：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/edge-tts/voices
+Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/edge-tts/voices -WebSession $session
 ```
+
+检查所有 TTS provider 状态：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/providers -WebSession $session
+```
+
+本地模型可能返回：
+
+- `disabled`：配置中主动关闭，未进行任何本地检测。
+- `unavailable`：已启用，但模型目录、模型文件、依赖或设备检查失败；`reason` 会给出原因。
+- `available`：轻量检查通过，可以进入首次生成时的完整模型加载。
 
 检查语言接口：
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/languages
+Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/languages -WebSession $session
 ```
 
 检查 PyTorch 是否能看到 NVIDIA GPU：
@@ -295,10 +359,10 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_
 
 ## 预设音色库
 
-Base 模式支持本地预设音色：
+音色克隆模式支持复用本地共享音色档案：
 
-- 切到 `Base 语音克隆`
-- 选 `预设音色` 就能直接复用已有声音档案
-- 选 `新音色` 后，上传参考音频和参考文本，点击保存即可加入本地库
+- 切到 `音色克隆 / Qwen3-TTS Base · 本地`
+- 从共享克隆音色库选择已有声音档案
+- 新增音色时上传参考音频和参考文本，保存后即可复用
 
 预设数据默认保存在 `web-app/data/voice_profiles/`。

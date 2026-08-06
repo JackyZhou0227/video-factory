@@ -134,11 +134,26 @@ def _probe_duration(path: Path) -> float:
 
 
 class EdgeTtsProvider:
+    provider_id = "edge_tts"
     model_name = EDGE_TTS_MODEL
     capabilities = frozenset({"preset_voice", "speed", "volume"})
 
     def __init__(self, *, default_voice: str = "zh-CN-XiaoxiaoNeural"):
         self.default_voice = default_voice
+
+    def status(self, *, refresh: bool = False) -> dict:
+        return {
+            "id": self.provider_id,
+            "model_name": self.model_name,
+            "display_name": "预设音色",
+            "runtime": "cloud",
+            "enabled": True,
+            "available": True,
+            "status": "available",
+            "reason": None,
+            "validation": "deferred_network",
+            "checks": {"configuration": "passed", "network": "deferred"},
+        }
 
     def list_voices(self) -> list[dict]:
         return [{**voice, "model_name": self.model_name} for voice in _load_edge_voice_catalog()]
