@@ -129,6 +129,7 @@ tts:
     enabled: true
     model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-Base"
     device: "cpu"
+    concurrent_limit: 1
 ```
 
 或者填写 Hugging Face cache 里的 snapshot 路径：
@@ -139,6 +140,7 @@ tts:
     enabled: true
     model_path: "D:/models/hf_home/hub/models--Qwen--Qwen3-TTS-12Hz-0.6B-Base/snapshots/<revision>"
     device: "cpu"
+    concurrent_limit: 1
 ```
 
 ## 配置本地 config.yaml
@@ -160,6 +162,7 @@ tts:
     enabled: false
     model_path: ""
     device: "cpu"
+    concurrent_limit: 1
   default_language: "Chinese"
   edge_default_voice: "zh-CN-XiaoxiaoNeural"
 ```
@@ -172,6 +175,7 @@ tts:
     enabled: true
     model_path: "D:/models/Qwen3-TTS-12Hz-0.6B-Base"
     device: "cpu"
+    concurrent_limit: 1
   default_language: "Chinese"
   edge_default_voice: "zh-CN-XiaoxiaoNeural"
 
@@ -186,6 +190,7 @@ server:
 - `tts.qwen3_tts_base.enabled`：是否在当前部署中启用本地 Qwen3-TTS Base。默认应为 `false`；关闭时后端不会检查模型路径、Python 依赖、PyTorch 或 CUDA，也不会尝试加载模型。
 - `tts.qwen3_tts_base.model_path`：兼容的 Qwen3-TTS Base 模型目录，支持 0.6B Base 和 1.7B Base。仅在 `enabled: true` 时检查。
 - `tts.qwen3_tts_base.device`：本地模型运行设备，支持 `cpu`、`cuda`、`cuda:0`、`cuda:1` 等。CPU 可以运行但通常较慢。
+- `tts.qwen3_tts_base.concurrent_limit`：本地 Qwen3-TTS 的同时推理上限，默认建议 `1`；显存和负载充足时可小范围调到 `2`。
 - `tts.default_language`：默认语言。
 - `tts.edge_default_voice`：Edge-TTS 默认在线音色。
 - `server.output_dir`：生成的音频、视频输出目录，相对路径会解析到 `web-app/output`。

@@ -66,6 +66,7 @@ def create_tts_service(config: dict | None = None) -> TTSService:
             enabled=qwen3_tts_base_config.get("enabled") is True,
             model_path=qwen3_tts_base_config.get("model_path") or "",
             device=qwen3_tts_base_config.get("device") or "cpu",
+            concurrent_limit=qwen3_tts_base_config.get("concurrent_limit", 1),
         ),
     )
     return service

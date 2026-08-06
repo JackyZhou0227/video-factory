@@ -26,21 +26,25 @@ def list_languages() -> list[dict]:
     return SUPPORTED_LANGUAGES
 
 
+def _load_model_sync(model_path: str, device: str):
+    import torch
+    from qwen_tts import Qwen3TTSModel
+
+    dtype = torch.float32 if device == "cpu" else torch.bfloat16
+    return Qwen3TTSModel.from_pretrained(
+        model_path,
+        device_map=device,
+        dtype=dtype,
+    )
+
+
 async def _load_model(model_path: str, device: str):
     """Lazy-load the Qwen3-TTS Base model, cached by path and device."""
     cache_key = (str(Path(model_path).resolve()), device)
     async with _model_lock:
         if cache_key in _model_cache:
             return _model_cache[cache_key]
-        import torch
-        from qwen_tts import Qwen3TTSModel
-
-        dtype = torch.float32 if device == "cpu" else torch.bfloat16
-        model = Qwen3TTSModel.from_pretrained(
-            model_path,
-            device_map=device,
-            dtype=dtype,
-        )
+        model = await asyncio.to_thread(_load_model_sync, model_path, device)
         _model_cache[cache_key] = model
         return model
 

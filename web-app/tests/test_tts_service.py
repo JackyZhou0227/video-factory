@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import sys
 import tempfile
 import unittest
@@ -69,6 +70,68 @@ class TTSServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls[0]["model_path"], str(model_path.resolve()))
         self.assertEqual(calls[0]["ref_audio"], reference)
         self.assertEqual(calls[0]["ref_text"], "reference text")
+
+    def test_qwen_provider_reads_concurrent_limit_from_config(self):
+        service = create_tts_service(
+            {
+                "tts": {
+                    "qwen3_tts_base": {
+                        "enabled": False,
+                        "concurrent_limit": 3,
+                    }
+                }
+            }
+        )
+
+        provider = service.get_provider(QWEN3_TTS_BASE_MODEL)
+
+        self.assertEqual(provider.concurrent_limit, 3)
+
+    async def test_qwen_provider_limits_inference_concurrency(self):
+        active = 0
+        peak = 0
+        release = asyncio.Event()
+
+        async def synthesize(**_kwargs):
+            nonlocal active, peak
+            active += 1
+            peak = max(peak, active)
+            await release.wait()
+            active -= 1
+
+        fake_module = SimpleNamespace(synthesize=synthesize)
+        service = create_tts_service(
+            {
+                "tts": {
+                    "qwen3_tts_base": {
+                        "enabled": False,
+                        "concurrent_limit": 2,
+                    }
+                }
+            }
+        )
+        provider = service.get_provider(QWEN3_TTS_BASE_MODEL)
+        request = TTSRequest(
+            text="text",
+            reference_audio=Path("reference.wav"),
+            reference_text="reference text",
+        )
+
+        with patch.object(provider, "status", return_value={"available": True}), patch.object(
+            qwen3_tts, "_legacy_qwen_module", return_value=fake_module
+        ), patch.object(qwen3_tts, "_probe_duration", return_value=0.0):
+            tasks = [
+                asyncio.create_task(provider.synthesize(request, Path(f"output-{index}.wav")))
+                for index in range(3)
+            ]
+            try:
+                await asyncio.sleep(0)
+                await asyncio.sleep(0.05)
+                self.assertEqual(active, 2)
+                self.assertEqual(peak, 2)
+            finally:
+                release.set()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
     def test_disabled_qwen_provider_skips_all_local_checks(self):
         service = create_tts_service(

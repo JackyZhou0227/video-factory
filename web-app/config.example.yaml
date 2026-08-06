@@ -1,29 +1,30 @@
 runninghub:
-  # Use https://www.runninghub.cn for China accounts. Override with
-  # RUNNINGHUB_BASE_URL or this value if your account belongs to another region.
+  # 中国账号请使用 https://www.runninghub.cn。
+  # 如果账号属于其他地区，可通过 RUNNINGHUB_BASE_URL 或此处覆盖。
   base_url: "https://www.runninghub.cn"
-  # System API key used only to read fixed workflow definitions when a customer
-  # key cannot access them directly. Customer uploads/tasks still use customer keys.
+  # 系统密钥仅用于读取固定工作流定义，供客户密钥无法直接访问时使用。
+  # 客户上传和任务调用仍然使用客户自己的密钥。
   api_key: ""
   concurrent_limit: 1
   instance_type: plus
 
 tts:
   qwen3_tts_base:
-    # Keep false on servers that do not deploy the local voice-clone model.
+    # 不部署本地音色克隆模型的服务器请保持关闭。
     enabled: false
-    # Compatible Qwen3-TTS Base directory, such as 0.6B-Base or 1.7B-Base.
+    # 兼容的 Qwen3-TTS Base 模型目录，例如 0.6B-Base 或 1.7B-Base。
     model_path: ""
-    # Supported values: cpu, cuda, cuda:0, cuda:1, ...
+    # 支持的值：cpu、cuda、cuda:0、cuda:1 等。
     device: "cpu"
+    # 本地 Qwen3-TTS 同时推理的最大并发数（1-8），建议先保持 1。
+    concurrent_limit: 1
   default_language: "Chinese"
-  # Default provider for the template-production module.
+  # 模板量产模块的默认提供方。
   default_provider: "Edge-TTS"
   edge_default_voice: "zh-CN-XiaoxiaoNeural"
 
 llm:
-  # Defaults seeded for the local default user. Each login user can override
-  # these values from the Settings page.
+  # 这些默认值会写入本地默认用户；每个登录用户都可以在设置页单独覆盖。
   base_url: "https://api.openai.com/v1"
   api_key: ""
   model: ""

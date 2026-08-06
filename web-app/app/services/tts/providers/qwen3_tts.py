@@ -28,6 +28,14 @@ def _is_supported_device(device: str) -> bool:
     return device.startswith("cuda:") and device.removeprefix("cuda:").isdigit()
 
 
+def _normalize_concurrent_limit(value: object) -> int:
+    try:
+        limit = int(value)
+    except (TypeError, ValueError):
+        return 1
+    return min(max(limit, 1), 8)
+
+
 _RUNTIME_CHECK_SCRIPT = """
 import sys
 
@@ -118,13 +126,32 @@ class Qwen3TtsBaseProvider:
     model_name = QWEN3_TTS_BASE_MODEL
     capabilities = frozenset({"voice_clone", "reference_audio", "reference_text", "language"})
 
-    def __init__(self, *, model_path: str, enabled: bool = False, device: str = "cpu"):
+    def __init__(
+        self,
+        *,
+        model_path: str,
+        enabled: bool = False,
+        device: str = "cpu",
+        concurrent_limit: int = 1,
+    ):
         self.enabled = enabled
         self.model_path = str(model_path or "")
         self.device = str(device or "cpu").strip().lower()
+        self.concurrent_limit = _normalize_concurrent_limit(concurrent_limit)
         self._status_cache: dict | None = None
         self._status_lock = threading.Lock()
         self._resolved_model_path: Path | None = None
+        self._inference_semaphores: dict[object, asyncio.Semaphore] = {}
+        self._semaphore_lock = threading.Lock()
+
+    def _inference_semaphore(self) -> asyncio.Semaphore:
+        loop = asyncio.get_running_loop()
+        with self._semaphore_lock:
+            semaphore = self._inference_semaphores.get(loop)
+            if semaphore is None:
+                semaphore = asyncio.Semaphore(self.concurrent_limit)
+                self._inference_semaphores[loop] = semaphore
+            return semaphore
 
     def _status(self, status: str, reason: str | None, checks: dict[str, str]) -> dict:
         return {
@@ -137,6 +164,7 @@ class Qwen3TtsBaseProvider:
             "status": status,
             "reason": reason,
             "validation": "skipped" if status == "disabled" else "lightweight",
+            "concurrent_limit": self.concurrent_limit,
             "checks": checks,
         }
 
@@ -221,17 +249,18 @@ class Qwen3TtsBaseProvider:
         if not request.reference_text or not request.reference_text.strip():
             raise TTSServiceError("Qwen3-TTS Base 需要参考文本")
 
-        module = _legacy_qwen_module()
+        module = await asyncio.to_thread(_legacy_qwen_module)
         try:
-            await module.synthesize(
-                text=request.text.strip(),
-                output_path=output_path,
-                model_path=str(self._resolved_model_path),
-                device=self.device,
-                language=request.language,
-                ref_audio=request.reference_audio,
-                ref_text=request.reference_text,
-            )
+            async with self._inference_semaphore():
+                await module.synthesize(
+                    text=request.text.strip(),
+                    output_path=output_path,
+                    model_path=str(self._resolved_model_path),
+                    device=self.device,
+                    language=request.language,
+                    ref_audio=request.reference_audio,
+                    ref_text=request.reference_text,
+                )
         except Exception as exc:
             raise TTSServiceError(f"{self.model_name} 生成失败：{exc}") from exc
         duration = await asyncio.to_thread(_probe_duration, output_path)
