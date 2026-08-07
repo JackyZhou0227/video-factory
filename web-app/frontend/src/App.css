@@ -2452,7 +2452,8 @@ a {
   padding: 8px 12px;
 }
 
-.tts-studio-mode-control .segment:disabled {
+.tts-studio-mode-control .segment:disabled,
+.tts-studio-mode-control .segment[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.68;
 }
@@ -2478,6 +2479,16 @@ a {
   font-weight: 560;
   line-height: 1.35;
 }
+
+.tts-studio-mode-description {
+  min-height: 19px;
+  margin: 10px 2px 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 520;
+  line-height: 1.55;
+}
+
 
 .tts-studio-mode-control .segment.is-active .tts-studio-mode-detail {
   color: var(--accent-dark);

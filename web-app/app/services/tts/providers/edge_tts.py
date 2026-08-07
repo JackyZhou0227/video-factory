@@ -151,8 +151,8 @@ class EdgeTtsProvider:
             "available": True,
             "status": "available",
             "reason": None,
-            "validation": "deferred_network",
-            "checks": {"configuration": "passed", "network": "deferred"},
+            "validation": "static",
+            "checks": {"configuration": "passed", "network": "skipped"},
         }
 
     def list_voices(self) -> list[dict]:

@@ -29,6 +29,36 @@ class TTSServiceTests(unittest.IsolatedAsyncioTestCase):
             [EDGE_TTS_MODEL, QWEN3_TTS_BASE_MODEL],
         )
 
+    def test_edge_provider_status_is_static_without_network_detection(self):
+        service = create_tts_service({"tts": {}})
+
+        status = service.provider_status(EDGE_TTS_MODEL)
+
+        self.assertEqual(status["status"], "available")
+        self.assertEqual(status["validation"], "static")
+        self.assertEqual(status["checks"]["network"], "skipped")
+
+    def test_startup_prewarm_skips_static_edge_provider(self):
+        service = create_tts_service({
+            "tts": {
+                "qwen3_tts_base": {
+                    "enabled": True,
+                    "model_path": "",
+                    "device": "cpu",
+                }
+            }
+        })
+        edge_provider = service.get_provider(EDGE_TTS_MODEL)
+        qwen_provider = service.get_provider(QWEN3_TTS_BASE_MODEL)
+
+        with patch.object(edge_provider, "status", wraps=edge_provider.status) as edge_status, patch.object(
+            qwen_provider, "status", wraps=qwen_provider.status
+        ) as qwen_status:
+            service.prewarm_provider_statuses()
+
+        edge_status.assert_not_called()
+        qwen_status.assert_called_once_with(refresh=True)
+
     async def test_qwen_base_provider_maps_to_voice_clone_mode(self):
         calls = []
 

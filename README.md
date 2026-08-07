@@ -198,9 +198,9 @@ server:
 本地 Qwen3-TTS Base 的状态判断分为两层：
 
 1. `enabled: false` 时直接返回 `disabled`，跳过所有本地环境检测，适合不部署本地模型的云服务器。
-2. `enabled: true` 时执行轻量验证：检查模型目录、`config.json`、Base 架构、权重文件、`qwen-tts`/`soundfile`/`torch` 依赖，以及配置的 CPU/CUDA 设备。
+2. `enabled: true` 时在后端启动阶段执行轻量验证：检查模型目录、`config.json`、Base 架构、权重文件、`qwen-tts`/`soundfile`/`torch` 依赖，以及配置的 CPU/CUDA 设备。
 
-轻量验证不会加载完整模型权重。完整模型加载仍在第一次执行音色克隆时发生，避免打开页面或查询状态就占用大量内存或显存。验证结果会在当前后端进程中缓存。修改 `config.yaml`、模型文件、Python 依赖或设备环境后，需要重启后端以重新加载配置并执行检查。
+轻量验证不会加载完整模型权重。完整模型加载仍在第一次执行音色克隆时发生，避免启动服务或查询状态就占用大量内存或显存。验证结果会在当前后端进程中缓存，TTS 页面首次打开时直接读取缓存状态，不再触发本地模型检测。修改 `config.yaml`、模型文件、Python 依赖或设备环境后，需要重启后端以重新加载配置并执行检查。Edge-TTS 是云端预设音色，状态固定为静态可用；只有实际生成时才会触发网络调用。
 
 CPU 模式使用 `float32` 加载；CUDA 模式使用 `bfloat16`。不支持 BF16 的旧显卡应配置为 `cpu`。如果状态原因包含 `libiomp5md.dll` 或 `OpenMP 运行库冲突`，说明当前 Python 环境同时加载了多份 Intel OpenMP DLL，需要修复 Conda/PyTorch 安装后再重启服务，不建议用 `KMP_DUPLICATE_LIB_OK` 绕过。
 
@@ -331,11 +331,12 @@ Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/edge-tts/voices -WebSess
 Invoke-RestMethod http://127.0.0.1:18888/api/tts-studio/providers -WebSession $session
 ```
 
-本地模型可能返回：
+Provider 状态含义：
 
-- `disabled`：配置中主动关闭，未进行任何本地检测。
-- `unavailable`：已启用，但模型目录、模型文件、依赖或设备检查失败；`reason` 会给出原因。
-- `available`：轻量检查通过，可以进入首次生成时的完整模型加载。
+- `edge_tts` 固定返回 `available`，`validation: static`，不会在状态接口中探测网络。
+- `qwen3_tts_base` 返回 `disabled`：配置中主动关闭，未进行任何本地检测。
+- `qwen3_tts_base` 返回 `unavailable`：已启用，但模型目录、模型文件、依赖或设备检查失败；`reason` 会给出原因。
+- `qwen3_tts_base` 返回 `available`：启动期轻量检查通过，可以进入首次生成时的完整模型加载。
 
 检查语言接口：
 

@@ -3,8 +3,20 @@ import Icon from "./Icon";
 import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
 
 const TTS_MODE_OPTIONS = [
-  { value: "base", providerId: "qwen3_tts_base", label: "音色克隆", detail: "Qwen3-TTS Base · 本地" },
-  { value: "edge-tts", providerId: "edge_tts", label: "预设音色", detail: "Edge-TTS · 云端" },
+  {
+    value: "base",
+    providerId: "qwen3_tts_base",
+    label: "音色克隆",
+    detail: "Qwen3-TTS Base · 本地",
+    description: "本地运行，支持参考音频克隆音色；效果更自然，但依赖模型、PyTorch 和机器性能。",
+  },
+  {
+    value: "edge-tts",
+    providerId: "edge_tts",
+    label: "预设音色",
+    detail: "Edge-TTS · 云端",
+    description: "轻量、快速、免费，使用在线预设音色；无需本地算力，但声音质感偏电子音。",
+  },
 ];
 
 const DEFAULT_LANGUAGES = [
@@ -21,6 +33,19 @@ const DEFAULT_LANGUAGES = [
 ];
 
 const DEFAULT_EDGE_LANGUAGE = "zh-CN";
+
+const EDGE_TTS_STATIC_STATUS = {
+  id: "edge_tts",
+  model_name: "Edge-TTS",
+  display_name: "预设音色",
+  runtime: "cloud",
+  enabled: true,
+  available: true,
+  status: "available",
+  reason: null,
+  validation: "static",
+  checks: { configuration: "passed", network: "skipped" },
+};
 
 function formatFileSize(size) {
   if (!size) return "";
@@ -46,7 +71,7 @@ export default function TTSStudio({ active = false }) {
   const refAudioInputRef = useRef(null);
   const [text, setText] = useState("");
   const [ttsMode, setTtsMode] = useState("edge-tts");
-  const [providerStatuses, setProviderStatuses] = useState([]);
+  const [providerStatuses, setProviderStatuses] = useState([EDGE_TTS_STATIC_STATUS]);
   const [providerStatusesLoading, setProviderStatusesLoading] = useState(true);
   const [providerStatusError, setProviderStatusError] = useState("");
   const [edgeVoices, setEdgeVoices] = useState([]);
@@ -153,11 +178,13 @@ export default function TTSStudio({ active = false }) {
       })
       .then((list) => {
         if (cancelled) return;
-        setProviderStatuses(Array.isArray(list) ? list : []);
+        const remoteStatuses = Array.isArray(list) ? list : [];
+        const hasEdgeStatus = remoteStatuses.some((provider) => provider.id === EDGE_TTS_STATIC_STATUS.id);
+        setProviderStatuses(hasEdgeStatus ? remoteStatuses : [EDGE_TTS_STATIC_STATUS, ...remoteStatuses]);
       })
       .catch((err) => {
         if (cancelled) return;
-        setProviderStatuses([]);
+        setProviderStatuses([EDGE_TTS_STATIC_STATUS]);
         setProviderStatusError(err.message || "无法加载 TTS 服务状态");
       })
       .finally(() => {
@@ -618,8 +645,8 @@ export default function TTSStudio({ active = false }) {
                 <span className="field-label">合成方式</span>
                 <div className="segmented-control tts-studio-mode-control" role="tablist" aria-label="合成方式">
                   {TTS_MODE_OPTIONS.map((option) => {
-                    const providerStatus = providerStatusById.get(option.providerId);
-                    const isChecking = providerStatusesLoading && !providerStatus;
+                    const providerStatus = providerStatusById.get(option.providerId) ?? (option.value === "edge-tts" ? EDGE_TTS_STATIC_STATUS : null);
+                    const isChecking = option.value === "base" && providerStatusesLoading && !providerStatus;
                     const isDisabled = option.value === "base" && !providerStatus?.available;
                     const statusLabel = isChecking
                       ? "检测中"
@@ -630,22 +657,26 @@ export default function TTSStudio({ active = false }) {
                           : providerStatus?.status === "unavailable"
                             ? "不可用"
                             : "待确认";
+                    const statusTitle = option.value === "base" && qwenProviderReason ? qwenProviderReason : undefined;
                     return (
                       <button
                         className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
-                        disabled={isDisabled}
                         key={option.value}
                         type="button"
                         role="tab"
+                        aria-disabled={isDisabled}
                         aria-selected={ttsMode === option.value}
+                        tabIndex={isDisabled ? -1 : undefined}
+                        title={statusTitle}
                         onClick={() => {
+                          if (isDisabled) return;
                           setTtsMode(option.value);
                           markPreviewStale();
                         }}
                       >
                         <span className="tts-studio-mode-heading">
                           <span className="tts-studio-mode-label">{option.label}</span>
-                          <span className={`tts-studio-provider-status ${providerStatus?.status || "checking"}`}>
+                          <span className={`tts-studio-provider-status ${providerStatus?.status || "checking"}`} title={statusTitle}>
                             {statusLabel}
                           </span>
                         </span>
@@ -654,11 +685,9 @@ export default function TTSStudio({ active = false }) {
                     );
                   })}
                 </div>
-                {qwenProviderReason && (
-                  <p className="tts-studio-provider-note" role="status">
-                    {qwenProviderReason}
-                  </p>
-                )}
+                <p className="tts-studio-mode-description">
+                  {TTS_MODE_OPTIONS.find((option) => option.value === ttsMode)?.description}
+                </p>
               </div>
 
               {ttsMode === "base" ? (

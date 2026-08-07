@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -12,6 +15,18 @@ from app.api.template_production import router as template_production_router
 from app.api.tts_studio import router as tts_studio_router
 from app.core.config import ROOT, app_config, resolve_output_dir
 from app.services import auth_store, settings_store
+from app.services.tts import tts_service
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_application: FastAPI):
+    try:
+        await tts_service.prewarm_provider_statuses_async()
+    except Exception:
+        logger.exception("Failed to prewarm TTS provider statuses")
+    yield
 
 
 def create_app() -> FastAPI:
@@ -24,6 +39,7 @@ def create_app() -> FastAPI:
         title="Video Factory",
         description="AI 驱动的数字人口播视频 Web 应用",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     application.add_middleware(

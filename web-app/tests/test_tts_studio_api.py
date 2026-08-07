@@ -109,8 +109,8 @@ class TTSStudioApiTests(unittest.TestCase):
                 "available": True,
                 "status": "available",
                 "reason": None,
-                "validation": "deferred_network",
-                "checks": {"configuration": "passed", "network": "deferred"},
+                "validation": "static",
+                "checks": {"configuration": "passed", "network": "skipped"},
             }
         ]
         with patch.object(tts_studio.tts_service, "provider_statuses", return_value=provider_statuses) as statuses:

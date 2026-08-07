@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Callable
 from pathlib import Path
 
@@ -42,6 +43,15 @@ class TTSService:
 
     def provider_statuses(self, *, refresh: bool = False) -> list[dict]:
         return [self.provider_status(model_name, refresh=refresh) for model_name in self.model_names()]
+
+    def prewarm_provider_statuses(self) -> None:
+        for model_name in self.model_names():
+            if model_name == EDGE_TTS_MODEL:
+                continue
+            self.provider_status(model_name, refresh=True)
+
+    async def prewarm_provider_statuses_async(self) -> None:
+        await asyncio.to_thread(self.prewarm_provider_statuses)
 
     async def synthesize(self, model_name: str, request: TTSRequest, output_path: Path) -> TTSResult:
         return await self.get_provider(model_name).synthesize(request, output_path)
