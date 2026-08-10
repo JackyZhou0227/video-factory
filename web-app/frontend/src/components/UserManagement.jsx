@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
 import { listUsers, resetUserPassword, updateUserRole } from "../lib/auth";
+import { PAGE_NAMES } from "../lib/pageNames";
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -143,7 +144,7 @@ export default function UserManagement({ currentUser }) {
     <section className="workspace-panel admin-panel" aria-labelledby="admin-title">
       <div className="panel-heading settings-heading">
         <div>
-          <span className="section-kicker">Admin</span>
+          <span className="section-kicker">{PAGE_NAMES.userManagement}</span>
           <h2 id="admin-title">用户管理</h2>
         </div>
         <span className="status-pill completed">

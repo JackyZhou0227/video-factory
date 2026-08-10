@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 
 from app.api.auth import require_current_user
 from app.core.config import app_config, resolve_output_dir
-from app.services import tts_qwen, voice_profiles
+from app.services import task_store, tts_qwen, voice_profiles
 from app.services.tts import (
     EDGE_TTS_MODEL,
     QWEN3_TTS_BASE_MODEL,
@@ -59,6 +59,67 @@ def _public_output_url(path: Path) -> str:
     except ValueError:
         raise HTTPException(status_code=422, detail="Audio file is outside output directory") from None
     return f"/output/{relative_path.as_posix()}"
+
+
+def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
+    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
+
+
+def _new_voice_task(user: dict, suffix: str, extra_info: dict) -> tuple[str, str, Path, Path]:
+    task_id = uuid.uuid4().hex
+    record = task_store.create_task(
+        user=user,
+        task_type=task_store.TASK_TYPE_VOICE,
+        generation_type="voice",
+        requested_count=1,
+        task_id=task_id,
+        output_root=_output_root(),
+        message="语音任务已创建",
+        extra_info=extra_info,
+    )
+    task_dir = Path(record["storage_path"])
+    artifact_id = uuid.uuid4().hex
+    return task_id, artifact_id, task_dir, task_dir / f"preview_original{suffix}"
+
+
+def _complete_voice_task(
+    task_id: str,
+    artifact_id: str,
+    audio_path: Path,
+    *,
+    name: str | None = None,
+) -> None:
+    task_store.add_artifact(
+        task_id,
+        artifact_id=artifact_id,
+        path=audio_path,
+        name=name or audio_path.name,
+        kind="audio",
+        mime_type="audio/mpeg" if audio_path.suffix.lower() == ".mp3" else "audio/wav",
+        is_primary=True,
+    )
+    task_store.update_task(
+        task_id,
+        status="completed",
+        progress=100,
+        message="语音生成完成",
+        success_count=1,
+        failed_count=0,
+        finished=True,
+    )
+
+
+def _fail_voice_task(task_id: str, exc: Exception) -> None:
+    task_store.update_task(
+        task_id,
+        status="failed",
+        progress=0,
+        message="语音生成失败",
+        error=str(exc),
+        success_count=0,
+        failed_count=1,
+        finished=True,
+    )
 
 
 def _resolve_user_output_file(public_url: str, user_id: str) -> Path:
@@ -250,17 +311,51 @@ async def delete_voice_profile(voice_profile_id: str):
 
 @router.post("/preview/speech-rate")
 async def update_preview_speech_rate(
-    audio_url: str = Form(...),
+    audio_url: str = Form(""),
     speech_rate: float = Form(1.0),
+    task_id: Optional[str] = Form(None),
+    artifact_id: Optional[str] = Form(None),
     user: dict = Depends(require_current_user),
 ):
     user_id = _user_id(user)
-    audio_path = _resolve_user_output_file(audio_url, user_id)
+    task = None
+    if task_id and artifact_id:
+        try:
+            task = task_store.get_task(task_id, user_id)
+            _, audio_path = task_store.resolve_artifact_path(task, artifact_id)
+        except (task_store.TaskNotFoundError, task_store.ArtifactNotFoundError):
+            raise HTTPException(status_code=404, detail="Audio task artifact not found") from None
+    else:
+        if not audio_url:
+            raise HTTPException(status_code=422, detail="audio_url or task artifact is required")
+        audio_path = _resolve_user_output_file(audio_url, user_id)
     output_audio_path = _create_speech_rate_variant(audio_path, speech_rate)
-    adjusted_audio_url = _public_output_url(output_audio_path) if output_audio_path != audio_path else None
+    original_audio_url = audio_url
+    adjusted_audio_url = None
+    adjusted_artifact_id = None
+    if task is not None:
+        original_audio_url = _artifact_url(task_id, artifact_id)
+        if output_audio_path != audio_path:
+            adjusted_artifact_id = uuid.uuid4().hex
+            task_store.add_artifact(
+                task_id,
+                user_id=user_id,
+                artifact_id=adjusted_artifact_id,
+                path=output_audio_path,
+                name=output_audio_path.name,
+                kind="audio",
+                mime_type="audio/mpeg" if output_audio_path.suffix.lower() == ".mp3" else "audio/wav",
+                counts_toward_result=False,
+            )
+            adjusted_audio_url = _artifact_url(task_id, adjusted_artifact_id)
+    elif output_audio_path != audio_path:
+        adjusted_audio_url = _public_output_url(output_audio_path)
     return {
-        "audio_url": _public_output_url(output_audio_path),
-        "original_audio_url": _public_output_url(audio_path),
+        "task_id": task_id,
+        "artifact_id": artifact_id,
+        "adjusted_artifact_id": adjusted_artifact_id,
+        "audio_url": adjusted_audio_url or original_audio_url,
+        "original_audio_url": original_audio_url,
         "processed_audio_url": adjusted_audio_url,
         "adjusted_audio_url": adjusted_audio_url,
         "speech_rate": _normalize_speech_rate(speech_rate),
@@ -286,7 +381,23 @@ async def preview_edge_tts(
     normalized_language = language.strip() or voice_language
     if voice_language and normalized_language != voice_language:
         raise HTTPException(status_code=422, detail="language does not match the selected Edge-TTS voice")
-    audio_id, _, audio_path = _new_preview_audio_path(_user_id(user), suffix=".mp3")
+    task_id, artifact_id, _, audio_path = _new_voice_task(
+        user,
+        ".mp3",
+        {
+            "tts_mode": "edge-tts",
+            "voice_id": normalized_voice_id,
+            "language": normalized_language,
+            "speech_rate": NORMAL_SPEECH_RATE,
+        },
+    )
+    task_store.update_task(
+        task_id,
+        status="running",
+        progress=10,
+        message="正在生成语音",
+        started=True,
+    )
     try:
         await tts_service.synthesize(
             EDGE_TTS_MODEL,
@@ -299,14 +410,23 @@ async def preview_edge_tts(
             audio_path,
         )
     except TTSServiceError as exc:
+        _fail_voice_task(task_id, exc)
         _raise_tts_error(exc)
+    except Exception as exc:
+        _fail_voice_task(task_id, exc)
+        raise
 
     if not audio_path.is_file():
+        _fail_voice_task(task_id, RuntimeError("TTS did not produce an audio file"))
         raise HTTPException(status_code=500, detail="TTS did not produce an audio file")
+    _complete_voice_task(task_id, artifact_id, audio_path)
+    audio_url = _artifact_url(task_id, artifact_id)
     return {
-        "audio_id": audio_id,
-        "audio_url": _public_output_url(audio_path),
-        "original_audio_url": _public_output_url(audio_path),
+        "audio_id": task_id,
+        "task_id": task_id,
+        "artifact_id": artifact_id,
+        "audio_url": audio_url,
+        "original_audio_url": audio_url,
         "processed_audio_url": None,
         "adjusted_audio_url": None,
         "tts_mode": "edge-tts",
@@ -336,17 +456,37 @@ async def preview_voice_clone_tts(
 
     user_id = _user_id(user)
     _normalize_speech_rate(speech_rate)
-    audio_id, audio_dir, audio_path = _new_preview_audio_path(user_id)
     if voice_profile_id:
         voice = voice_profiles.get_voice_profile(voice_profile_id)
         if voice is None:
             raise HTTPException(status_code=404, detail="Voice profile not found")
         reference_audio = voice_profiles.get_voice_audio_path(voice_profile_id)
         reference_text = voice.get("ref_text")
-    else:
-        reference_audio = audio_dir / f"reference{_safe_audio_suffix(ref_audio.filename)}"
-        reference_audio.write_bytes(await ref_audio.read())
-        reference_text = ref_text.strip() if ref_text else None
+    task_id, artifact_id, audio_dir, audio_path = _new_voice_task(
+        user,
+        ".wav",
+        {
+            "tts_mode": "base",
+            "voice_profile_id": voice_profile_id,
+            "language": language.strip() or "Chinese",
+            "speech_rate": NORMAL_SPEECH_RATE,
+        },
+    )
+    if not voice_profile_id:
+        try:
+            reference_audio = audio_dir / f"reference{_safe_audio_suffix(ref_audio.filename)}"
+            reference_audio.write_bytes(await ref_audio.read())
+            reference_text = ref_text.strip() if ref_text else None
+        except Exception as exc:
+            _fail_voice_task(task_id, exc)
+            raise HTTPException(status_code=500, detail="保存参考音频失败") from exc
+    task_store.update_task(
+        task_id,
+        status="running",
+        progress=10,
+        message="正在生成语音",
+        started=True,
+    )
 
     try:
         await tts_service.synthesize(
@@ -361,14 +501,23 @@ async def preview_voice_clone_tts(
             audio_path,
         )
     except TTSServiceError as exc:
+        _fail_voice_task(task_id, exc)
         _raise_tts_error(exc)
+    except Exception as exc:
+        _fail_voice_task(task_id, exc)
+        raise
 
     if not audio_path.is_file():
+        _fail_voice_task(task_id, RuntimeError("TTS did not produce an audio file"))
         raise HTTPException(status_code=500, detail="TTS did not produce an audio file")
+    _complete_voice_task(task_id, artifact_id, audio_path)
+    audio_url = _artifact_url(task_id, artifact_id)
     return {
-        "audio_id": audio_id,
-        "audio_url": _public_output_url(audio_path),
-        "original_audio_url": _public_output_url(audio_path),
+        "audio_id": task_id,
+        "task_id": task_id,
+        "artifact_id": artifact_id,
+        "audio_url": audio_url,
+        "original_audio_url": audio_url,
         "processed_audio_url": None,
         "adjusted_audio_url": None,
         "tts_mode": "base",

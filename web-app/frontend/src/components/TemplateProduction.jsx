@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
-import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
+import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
+import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { PAGE_NAMES } from "../lib/pageNames";
 
-const FINAL_STATUSES = new Set(["completed", "failed"]);
+const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
 const MAX_SUBTITLE_REPLACEMENTS = 30;
 const SUBTITLE_PREVIEW_TEXT = "这是一段用于查看字幕样式的预览内容";
 const DEFAULT_SUBTITLE_STYLE = {
@@ -125,6 +127,7 @@ function statusLabel(status) {
     pending: "等待处理",
     running: "生成中",
     completed: "已完成",
+    partial_failed: "部分失败",
     failed: "失败",
   }[status] || "准备中";
 }
@@ -992,7 +995,7 @@ export default function TemplateProduction({ currentUser }) {
     <section className="workspace-panel template-production-panel" aria-labelledby="template-production-title">
       <div className="panel-heading">
         <div>
-          <span className="section-kicker">Template Production</span>
+          <span className="section-kicker">{PAGE_NAMES.templateProduction}</span>
           <h2 id="template-production-title">模板量产</h2>
         </div>
         <div className="template-heading-actions">
@@ -1025,7 +1028,15 @@ export default function TemplateProduction({ currentUser }) {
           </button>
           <span className={`status-pill ${task?.status || (canSubmit ? "ready" : "pending")}`}>
             <Icon
-              name={templatesLoading || submitting ? "loading" : task?.status === "completed" ? "check" : "template"}
+              name={
+                templatesLoading || submitting
+                  ? "loading"
+                  : task?.status === "completed"
+                    ? "check"
+                    : task?.status === "partial_failed"
+                      ? "alert"
+                      : "template"
+              }
               size={14}
             />
             {templatesLoading
@@ -1578,10 +1589,11 @@ export default function TemplateProduction({ currentUser }) {
             </div>
             {selectedBgmTrack ? (
               <div className="bgm-preview">
-                <audio
-                  controls
+                <ProtectedMedia
+                  path={selectedBgmTrack.preview_url}
+                  kind="audio"
+                  backendBaseUrl={backendBaseUrl}
                   preload="metadata"
-                  src={resolveBackendAssetUrl(selectedBgmTrack.preview_url, backendBaseUrl)}
                 />
                 <span className="bgm-preview-meta">
                   <Icon name="audio" size={14} />
@@ -1701,9 +1713,14 @@ export default function TemplateProduction({ currentUser }) {
               <p>{task.message}</p>
             </div>
             {task.zip_url ? (
-              <a className="secondary-action" href={resolveBackendAssetUrl(task.zip_url, backendBaseUrl)} download>
+              <ProtectedDownloadButton
+                className="secondary-action"
+                path={task.zip_url}
+                filename="template_videos.zip"
+                backendBaseUrl={backendBaseUrl}
+              >
                 <Icon name="download" size={16} />下载全部
-              </a>
+              </ProtectedDownloadButton>
             ) : null}
           </div>
           <div className="template-progress-track" aria-label={`生成进度 ${task.progress || 0}%`}>
@@ -1714,7 +1731,11 @@ export default function TemplateProduction({ currentUser }) {
               <article className={`template-result-item ${item.status}`} key={item.id || item.index}>
                 <div className="template-result-media">
                   {item.video_url ? (
-                    <video controls preload="metadata" src={resolveBackendAssetUrl(item.video_url, backendBaseUrl)} />
+                    <ProtectedMedia
+                      path={item.video_url}
+                      kind="video"
+                      backendBaseUrl={backendBaseUrl}
+                    />
                   ) : (
                     <div className="template-result-placeholder"><Icon name={item.status === "failed" ? "alert" : "loading"} size={22} /></div>
                   )}
@@ -1724,9 +1745,13 @@ export default function TemplateProduction({ currentUser }) {
                   <p>{item.script}</p>
                   {item.error ? <small className="result-error">{item.error}</small> : null}
                   {item.video_url ? (
-                    <a href={resolveBackendAssetUrl(item.video_url, backendBaseUrl)} download>
+                    <ProtectedDownloadButton
+                      path={item.video_url}
+                      filename={`template_video_${String(item.index).padStart(3, "0")}.mp4`}
+                      backendBaseUrl={backendBaseUrl}
+                    >
                       <Icon name="download" size={14} />下载视频
-                    </a>
+                    </ProtectedDownloadButton>
                   ) : null}
                 </div>
               </article>

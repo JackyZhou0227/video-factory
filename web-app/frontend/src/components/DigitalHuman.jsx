@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
-import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
+import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
+import { apiFetch, useBackendBaseUrl } from "../lib/backend";
 
 const VIDEO_STEP_LABELS = {
   idle: "等待素材",
@@ -8,7 +9,7 @@ const VIDEO_STEP_LABELS = {
   pending: "任务排队中",
   running: "正在生成视频",
   submitted: "任务已提交",
-  completed: "视频已生成",
+  completed: "任务已完成",
   failed: "生成失败",
 };
 
@@ -156,7 +157,9 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
           taskStatus === "submitted"
             ? "已提交 RunningHub"
             : taskStatus === "completed"
-              ? "视频已生成"
+              ? runningHubResult && !videoUrl
+                ? "RunningHub 已接收"
+                : "视频已生成"
               : taskStatus === "failed"
                 ? "需要检查任务"
                 : "RunningHub 队列",
@@ -164,27 +167,31 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
         icon: "cloud",
       },
     ],
-    [audioFile, imageFile, taskStatus]
+    [audioFile, imageFile, runningHubResult, taskStatus, videoUrl]
   );
 
   const detailMessage = useMemo(() => {
     if (taskStatus === "failed") return error || "任务执行失败，请检查素材后重试。";
     if (taskStatus === "submitted") return statusMsg || "RunningHub 任务已提交成功，请到 RunningHub 查看进度和作品。";
-    if (taskStatus === "completed") return "视频已生成，可预览或下载。";
+    if (taskStatus === "completed") {
+      return videoUrl
+        ? "视频已生成，可预览或下载。"
+        : statusMsg || "RunningHub 已接收任务，请到 RunningHub 查看生成进度和作品。";
+    }
     if (isReadableMessage(statusMsg)) return statusMsg;
     if (taskStatus === "pending" || taskStatus === "running") return "正在上传素材并创建 RunningHub 任务。";
     if (inputsReady) return "人物图片和口播音频已就绪，可以提交生成视频。";
     if (imageFile) return "人物图片已就绪，请上传在语音合成页面生成并下载的音频。";
     if (audioFile) return "口播音频已就绪，请补充人物图片后再生成视频。";
     return "请先上传人物图片与口播音频。";
-  }, [audioFile, error, imageFile, inputsReady, statusMsg, taskStatus]);
+  }, [audioFile, error, imageFile, inputsReady, statusMsg, taskStatus, videoUrl]);
 
   const videoPanelStatus = useMemo(() => {
-    if (taskStatus === "completed" && videoUrl) return "completed";
+    if (taskStatus === "completed") return "completed";
     if (["pending", "running", "submitted"].includes(taskStatus)) return taskStatus;
     if (taskStatus === "failed") return "failed";
     return inputsReady ? "ready" : "idle";
-  }, [inputsReady, taskStatus, videoUrl]);
+  }, [inputsReady, taskStatus]);
 
   const handleGenerateVideo = useCallback(async () => {
     if (!canGenerateVideo) return;
@@ -243,7 +250,15 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
           if (data.status === "completed") {
             setTaskStatus("completed");
             setVideoUrl(data.video_url ?? "");
-            setRunningHubResult(null);
+            setRunningHubResult(
+              data.runninghub_task_id
+                ? {
+                    taskId: data.runninghub_task_id,
+                    taskUrl: data.runninghub_task_url || RUNNINGHUB_TASKS_URL,
+                    worksUrl: data.runninghub_works_url || RUNNINGHUB_WORKS_URL,
+                  }
+                : null
+            );
             setProgress(100);
             setGenerating(false);
             pollAbortRef.current = null;
@@ -437,7 +452,7 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
           </div>
 
           <div className={`result-surface ${videoUrl ? "has-video" : ""}`}>
-            {taskStatus === "submitted" ? (
+            {taskStatus === "submitted" || (taskStatus === "completed" && !videoUrl && runningHubResult) ? (
               <div className="submitted-state">
                 <div className="state-orb submitted" aria-hidden="true">
                   <Icon name="check" size={28} />
@@ -463,11 +478,21 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
               </div>
             ) : taskStatus === "completed" && videoUrl ? (
               <>
-                <video className="result-video" src={resolveBackendAssetUrl(videoUrl, backendBaseUrl)} controls />
-                <a className="download-action" href={resolveBackendAssetUrl(videoUrl, backendBaseUrl)} download>
+                <ProtectedMedia
+                  className="result-video"
+                  path={videoUrl}
+                  kind="video"
+                  backendBaseUrl={backendBaseUrl}
+                />
+                <ProtectedDownloadButton
+                  className="download-action"
+                  path={videoUrl}
+                  filename="digital_human.mp4"
+                  backendBaseUrl={backendBaseUrl}
+                >
                   <Icon name="download" size={16} />
                   下载视频
-                </a>
+                </ProtectedDownloadButton>
               </>
             ) : (
               <div className="empty-state">

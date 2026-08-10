@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_current_user
@@ -20,7 +21,7 @@ from app.models.template_definition import (
     TemplateRuntimeValidationError,
     validate_material_manifest,
 )
-from app.services import settings_store, template_production, template_registry
+from app.services import settings_store, task_store, template_production, template_registry
 from app.services.llm import LLMConfig, LLMMessage, LLMServiceError, llm_service
 from app.services.tts import EDGE_TTS_MODEL, TTSRequest, tts_service
 
@@ -211,7 +212,7 @@ def _bgm_track_payload(track: dict[str, Any]) -> dict[str, Any]:
         "name": track["name"],
         "duration": track["duration"],
         "file_size": track["file_size"],
-        "preview_url": f"/output/{track['relative_path']}",
+        "preview_url": f"/api/template-production/bgm/{track['id']}/audio",
         "created_at": track["created_at"],
     }
 
@@ -220,6 +221,23 @@ def _bgm_track_payload(track: dict[str, Any]) -> dict[str, Any]:
 def list_bgm_tracks(user: dict = Depends(require_current_user)):
     tracks = settings_store.list_bgm_tracks(user["id"])
     return {"bgm_tracks": [_bgm_track_payload(track) for track in tracks]}
+
+
+@router.get("/bgm/{bgm_id}/audio")
+def get_bgm_audio(bgm_id: str, user: dict = Depends(require_current_user)):
+    try:
+        track = settings_store.get_bgm_track(user["id"], bgm_id)
+    except settings_store.BgmTrackNotFoundError:
+        raise HTTPException(status_code=404, detail="背景音乐不存在") from None
+    output_root = resolve_output_dir(app_config).resolve()
+    file_path = (output_root / track["relative_path"]).resolve()
+    try:
+        file_path.relative_to(output_root / "bgm" / user["id"])
+    except ValueError:
+        raise HTTPException(status_code=404, detail="背景音乐不存在") from None
+    if not file_path.is_file():
+        raise HTTPException(status_code=404, detail="背景音乐文件不存在")
+    return FileResponse(file_path, media_type="audio/mpeg", content_disposition_type="inline")
 
 
 @router.post("/bgm", status_code=201)
@@ -279,8 +297,12 @@ def delete_bgm_track(
     except settings_store.BgmTrackNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
 
-    output_root = resolve_output_dir(app_config)
-    file_path = output_root / track["relative_path"]
+    output_root = resolve_output_dir(app_config).resolve()
+    file_path = (output_root / track["relative_path"]).resolve()
+    try:
+        file_path.relative_to(output_root / "bgm" / user["id"])
+    except ValueError:
+        raise HTTPException(status_code=404, detail="背景音乐不存在") from None
     file_path.unlink(missing_ok=True)
 
     try:
@@ -294,6 +316,71 @@ def _public_output_url(path: Path) -> str:
     output_root = resolve_output_dir(app_config).resolve()
     relative = path.resolve().relative_to(output_root).as_posix()
     return f"/output/{relative}"
+
+
+def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
+    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
+
+
+def _persist_task_update(task_id: str, **updates: Any) -> None:
+    try:
+        task_store.update_task(task_id, **updates)
+    except task_store.TaskNotFoundError:
+        pass
+
+
+def _persist_artifact(task_id: str, **artifact: Any) -> None:
+    try:
+        task_store.add_artifact(task_id, **artifact)
+    except task_store.TaskNotFoundError:
+        pass
+
+
+def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) -> dict[str, Any]:
+    if cached is not None:
+        payload = {key: value for key, value in cached.items() if not key.startswith("_")}
+        payload.update(
+            status=record["status"],
+            progress=record["progress"],
+            message=record["message"],
+            error=record.get("error"),
+        )
+        return payload
+    extra = record.get("extra_info") or {}
+    items = [
+        {
+            "id": artifact["id"],
+            "index": index,
+            "script": "",
+            "status": artifact.get("status", "pending"),
+            "message": "生成完成" if artifact.get("status") == "completed" else "生成失败",
+            "video_url": _artifact_url(record["id"], artifact["id"])
+            if artifact.get("kind") == "video" and artifact.get("status") == "completed"
+            else None,
+            "error": artifact.get("error"),
+        }
+        for index, artifact in enumerate(
+            (item for item in record.get("artifacts", []) if item.get("kind") == "video"),
+            start=1,
+        )
+    ]
+    archive = next(
+        (artifact for artifact in record.get("artifacts", []) if artifact.get("kind") == "archive"),
+        None,
+    )
+    return {
+        "user_id": record["user_id"],
+        "template_id": extra.get("template_id"),
+        "template_version": extra.get("template_version"),
+        "pipeline_id": extra.get("pipeline_id"),
+        "bgm_name": extra.get("bgm_name"),
+        "status": record["status"],
+        "progress": record["progress"],
+        "message": record["message"],
+        "items": items,
+        "zip_url": _artifact_url(record["id"], archive["id"], "download") if archive else None,
+        "error": record.get("error"),
+    }
 
 
 def _safe_filename(filename: str, fallback: str) -> str:
@@ -464,6 +551,14 @@ async def create_task(
     ]
     manifest = _parse_json_field(material_manifest, "material_manifest", list)
     manifest = _validate_material_manifest(template, manifest, len(materials))
+    manifest_by_index = {int(item["file_index"]): item for item in manifest}
+    for index, upload in enumerate(materials):
+        item = manifest_by_index[index]
+        media_type = item["media_type"]
+        suffix = Path(upload.filename or "").suffix.lower()
+        allowed = IMAGE_EXTENSIONS if media_type == "image" else VIDEO_EXTENSIONS
+        if suffix not in allowed:
+            raise HTTPException(status_code=422, detail=f"不支持的{media_type}格式：{upload.filename}")
 
     # Template production is intentionally portrait-only. Accepting the legacy
     # video_config.ratio field keeps older clients compatible without allowing
@@ -482,38 +577,61 @@ async def create_task(
             raise HTTPException(status_code=422, detail="背景音乐文件不存在，请重新上传")
         bgm_name = bgm_track["name"]
 
-    output_root = resolve_output_dir(app_config)
     task_id = uuid.uuid4().hex
-    task_dir = output_root / "template_production" / task_id
+    task_record = task_store.create_task(
+        user=user,
+        task_type=task_store.TASK_TYPE_TEMPLATE,
+        generation_type="video",
+        requested_count=generate_count,
+        task_id=task_id,
+        output_root=resolve_output_dir(app_config),
+        message="任务已创建，等待处理",
+        extra_info={
+            "template_id": template_id,
+            "template_version": template.template_version,
+            "pipeline_id": template.production.pipeline_id,
+            "bgm_name": bgm_name,
+        },
+    )
+    task_dir = Path(task_record["storage_path"])
     input_dir = task_dir / "input"
     output_dir = task_dir / "output"
     temp_dir = task_dir / "temp"
-    input_dir.mkdir(parents=True, exist_ok=True)
-    output_dir.mkdir(parents=True, exist_ok=True)
-    temp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        input_dir.mkdir(parents=True, exist_ok=True)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        temp_dir.mkdir(parents=True, exist_ok=True)
 
-    manifest_by_index = {int(item["file_index"]): item for item in manifest}
-    saved_materials: list[dict[str, Any]] = []
-    for index, upload in enumerate(materials):
-        item = manifest_by_index[index]
-        media_type = item["media_type"]
-        suffix = Path(upload.filename or "").suffix.lower()
-        allowed = IMAGE_EXTENSIONS if media_type == "image" else VIDEO_EXTENSIONS
-        if suffix not in allowed:
-            raise HTTPException(status_code=422, detail=f"不支持的{media_type}格式：{upload.filename}")
-        material_id = uuid.uuid4().hex
-        safe_name = _safe_filename(upload.filename or f"material_{index}{suffix}", f"material_{index}{suffix}")
-        input_path = input_dir / f"{material_id}{suffix}"
-        input_path.write_bytes(await upload.read())
-        saved_materials.append(
-            {
-                "id": material_id,
-                "name": safe_name,
-                "media_type": media_type,
-                "requirement_id": item["requirement_id"],
-                "input_path": input_path,
-            }
+        saved_materials: list[dict[str, Any]] = []
+        for index, upload in enumerate(materials):
+            item = manifest_by_index[index]
+            media_type = item["media_type"]
+            suffix = Path(upload.filename or "").suffix.lower()
+            material_id = uuid.uuid4().hex
+            safe_name = _safe_filename(upload.filename or f"material_{index}{suffix}", f"material_{index}{suffix}")
+            input_path = input_dir / f"{material_id}{suffix}"
+            input_path.write_bytes(await upload.read())
+            saved_materials.append(
+                {
+                    "id": material_id,
+                    "name": safe_name,
+                    "media_type": media_type,
+                    "requirement_id": item["requirement_id"],
+                    "input_path": input_path,
+                }
+            )
+    except Exception as exc:
+        task_store.update_task(
+            task_id,
+            status="failed",
+            progress=0,
+            message="保存模板量产素材失败",
+            error=str(exc),
+            success_count=0,
+            failed_count=generate_count,
+            finished=True,
         )
+        raise HTTPException(status_code=500, detail="保存模板素材失败") from exc
 
     task_items = [
         {
@@ -562,10 +680,14 @@ async def create_task(
 
 @router.get("/tasks/{task_id}")
 def get_task(task_id: str, user: dict = Depends(require_current_user)):
-    task = _tasks.get(task_id)
-    if task is None or task.get("user_id") != user["id"]:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return {key: value for key, value in task.items() if not key.startswith("_")}
+    try:
+        record = task_store.get_task(task_id, user["id"])
+    except task_store.TaskNotFoundError:
+        task = _tasks.get(task_id)
+        if task is None or task.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="Task not found") from None
+        return {key: value for key, value in task.items() if not key.startswith("_")}
+    return _task_payload(record, _tasks.get(task_id))
 
 
 async def _run_task(
@@ -611,6 +733,13 @@ async def _run_task(
                     progress=max(2, round(index / len(materials) * 10)),
                     message=f"正在处理素材 {index}/{len(materials)}",
                 )
+        _persist_task_update(
+            task_id,
+            status="running",
+            progress=task["progress"],
+            message=task["message"],
+            started=True,
+        )
 
         total = len(task["items"])
         for index, item in enumerate(task["items"], start=1):
@@ -618,6 +747,12 @@ async def _run_task(
             task.update(
                 progress=10 + round((index - 1) / total * 85),
                 message=f"正在生成第 {index}/{total} 条视频",
+            )
+            _persist_task_update(
+                task_id,
+                status="running",
+                progress=task["progress"],
+                message=task["message"],
             )
             audio_path = temp_dir / f"audio_{index:03d}.mp3"
             output_path = output_dir / f"template_video_{index:03d}.mp4"
@@ -666,26 +801,74 @@ async def _run_task(
                 item.update(
                     status="completed",
                     message="生成完成",
-                    video_url=_public_output_url(output_path),
+                    video_url=_artifact_url(task_id, item["id"]),
                     error=None,
+                )
+                _persist_artifact(
+                    task_id,
+                    artifact_id=item["id"],
+                    path=output_path,
+                    name=output_path.name,
+                    kind="video",
+                    mime_type="video/mp4",
+                    is_primary=len(completed_outputs) == 1,
                 )
             except Exception as exc:
                 failed += 1
                 item.update(status="failed", message="生成失败", error=str(exc))
+                _persist_artifact(
+                    task_id,
+                    artifact_id=item["id"],
+                    path=output_path,
+                    name=output_path.name,
+                    kind="video",
+                    mime_type="video/mp4",
+                    status="failed",
+                )
             finally:
                 audio_path.unlink(missing_ok=True)
 
         if completed_outputs:
             zip_path = task_dir / "template_videos.zip"
             await asyncio.to_thread(_create_zip, zip_path, completed_outputs)
-            task["zip_url"] = _public_output_url(zip_path)
+            archive_id = f"{task_id}-archive"
+            task["zip_url"] = _artifact_url(task_id, archive_id, "download")
+            _persist_artifact(
+                task_id,
+                artifact_id=archive_id,
+                path=zip_path,
+                name=zip_path.name,
+                kind="archive",
+                mime_type="application/zip",
+                is_primary=True,
+            )
 
         completed = len(completed_outputs)
-        status = "failed" if completed == 0 else "completed"
+        status = "failed" if completed == 0 else ("partial_failed" if failed else "completed")
         message = f"批量生成完成：成功 {completed} 条，失败 {failed} 条"
         task.update(status=status, progress=100, message=message, error=message if completed == 0 else None)
+        _persist_task_update(
+            task_id,
+            status=status,
+            progress=100,
+            message=message,
+            error=message if completed == 0 else None,
+            success_count=completed,
+            failed_count=failed,
+            finished=True,
+        )
     except Exception as exc:
         task.update(status="failed", progress=0, message="模板量产任务失败", error=str(exc))
+        _persist_task_update(
+            task_id,
+            status="failed",
+            progress=0,
+            message="模板量产任务失败",
+            error=str(exc),
+            success_count=len(completed_outputs),
+            failed_count=max(failed, len(task.get("items", [])) - len(completed_outputs)),
+            finished=True,
+        )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
 

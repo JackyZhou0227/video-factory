@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
+import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
+import { PAGE_NAMES } from "../lib/pageNames";
 
 const TTS_MODE_OPTIONS = [
   {
@@ -439,7 +441,12 @@ export default function TTSStudio({ active = false }) {
     setError("");
     try {
       const formData = new FormData();
-      formData.append("audio_url", preview.original_audio_url);
+      if (preview.task_id && preview.artifact_id) {
+        formData.append("task_id", preview.task_id);
+        formData.append("artifact_id", preview.artifact_id);
+      } else {
+        formData.append("audio_url", preview.original_audio_url);
+      }
       formData.append("speech_rate", String(speechRate));
       const response = await apiFetch(
         "/api/tts-studio/preview/speech-rate",
@@ -468,11 +475,14 @@ export default function TTSStudio({ active = false }) {
     } finally {
       setApplyingSpeechRate(false);
     }
-  }, [backendBaseUrl, preview?.original_audio_url, speechRate]);
+  }, [backendBaseUrl, preview?.artifact_id, preview?.original_audio_url, preview?.task_id, speechRate]);
 
   const originalAudioUrl = preview?.original_audio_url || preview?.audio_url || "";
   const adjustedAudioUrl = preview?.adjusted_audio_url || preview?.processed_audio_url || "";
   const adjustedSpeechRate = adjustedAudioUrl ? Number(preview?.adjusted_speech_rate ?? preview?.speech_rate ?? 1) : null;
+  const audioExtension = preview?.tts_mode === "edge-tts" ? "mp3" : "wav";
+  const originalAudioFilename = `preview_original.${audioExtension}`;
+  const adjustedAudioFilename = `preview_${adjustedSpeechRate?.toFixed(1) || speechRate.toFixed(1)}x.${audioExtension}`;
   const hasPendingRate = Boolean(
     originalAudioUrl &&
       Math.abs(speechRate - 1) > 0.001 &&
@@ -577,7 +587,7 @@ export default function TTSStudio({ active = false }) {
       <section className="workspace-panel tts-studio-panel" aria-labelledby="tts-studio-title">
         <div className="panel-heading">
           <div>
-            <span className="section-kicker">TTS Studio</span>
+            <span className="section-kicker">{PAGE_NAMES.ttsStudio}</span>
             <h2 id="tts-studio-title">独立语音合成</h2>
           </div>
           <span className={`status-pill ${status}`}>
@@ -823,21 +833,25 @@ export default function TTSStudio({ active = false }) {
                           <strong className="tts-studio-audio-result-title">原速音频</strong>
                           <span className="tts-studio-audio-result-rate">1.0x</span>
                         </div>
-                        <a
+                        <ProtectedDownloadButton
                           className={`download-action compact-action ${previewStale ? "is-disabled" : ""}`}
-                          href={resolveBackendAssetUrl(originalAudioUrl, backendBaseUrl)}
-                          download
+                          path={originalAudioUrl}
+                          filename={originalAudioFilename}
+                          backendBaseUrl={backendBaseUrl}
+                          disabled={previewStale}
                           aria-label="下载原速音频"
-                          aria-disabled={previewStale}
-                          onClick={(event) => {
-                            if (previewStale) event.preventDefault();
-                          }}
                         >
                           <Icon name="download" size={15} />
                           下载
-                        </a>
+                        </ProtectedDownloadButton>
                       </div>
-                      <audio className="audio-player" controls src={resolveBackendAssetUrl(originalAudioUrl, backendBaseUrl)} />
+                      <ProtectedMedia
+                        className="audio-player"
+                        path={originalAudioUrl}
+                        kind="audio"
+                        backendBaseUrl={backendBaseUrl}
+                        aria-label="原速音频播放器"
+                      />
                     </article>
 
                     {adjustedAudioUrl ? (
@@ -847,21 +861,25 @@ export default function TTSStudio({ active = false }) {
                             <strong className="tts-studio-audio-result-title">调速音频</strong>
                             <span className="tts-studio-audio-result-rate">{adjustedSpeechRate?.toFixed(1) || "1.0"}x</span>
                           </div>
-                          <a
+                          <ProtectedDownloadButton
                             className={`download-action compact-action ${previewStale ? "is-disabled" : ""}`}
-                            href={resolveBackendAssetUrl(adjustedAudioUrl, backendBaseUrl)}
-                            download
+                            path={adjustedAudioUrl}
+                            filename={adjustedAudioFilename}
+                            backendBaseUrl={backendBaseUrl}
+                            disabled={previewStale}
                             aria-label="下载调速音频"
-                            aria-disabled={previewStale}
-                            onClick={(event) => {
-                              if (previewStale) event.preventDefault();
-                            }}
                           >
                             <Icon name="download" size={15} />
                             下载
-                          </a>
+                          </ProtectedDownloadButton>
                         </div>
-                        <audio className="audio-player" controls src={resolveBackendAssetUrl(adjustedAudioUrl, backendBaseUrl)} />
+                        <ProtectedMedia
+                          className="audio-player"
+                          path={adjustedAudioUrl}
+                          kind="audio"
+                          backendBaseUrl={backendBaseUrl}
+                          aria-label="调速音频播放器"
+                        />
                       </article>
                     ) : (
                       <div className="tts-studio-adjusted-empty">

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Icon from "./Icon";
-import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
+import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
+import { apiFetch, useBackendBaseUrl } from "../lib/backend";
 
 const PREVIEW_SCALE = 0.3;
 const MAX_BATCH_SIZE = 50;
@@ -18,6 +19,7 @@ const STATUS_LABELS = {
   pending: "任务排队中",
   running: "正在处理",
   completed: "处理完成",
+  partial_failed: "部分完成",
   failed: "处理失败",
 };
 
@@ -213,7 +215,7 @@ export default function PosterVideo() {
   const canGenerate = Boolean(videos.length > 0 && blocks.some((block) => block.text.trim()) && !generating);
 
   const videoPanelStatus = useMemo(() => {
-    if (taskStatus === "pending" || taskStatus === "running" || taskStatus === "completed" || taskStatus === "failed") {
+    if (["pending", "running", "completed", "partial_failed", "failed"].includes(taskStatus)) {
       return taskStatus;
     }
     if (videos.length > 0) return "ready";
@@ -235,7 +237,16 @@ export default function PosterVideo() {
     },
     {
       label: "本地批处理",
-      detail: taskStatus === "completed" ? "成品可下载" : taskStatus === "failed" ? "需要检查失败项" : isImageMode ? "本地图片合成" : "FFmpeg 转码",
+      detail:
+        taskStatus === "completed"
+          ? "成品可下载"
+          : taskStatus === "partial_failed"
+            ? "部分成品可下载"
+            : taskStatus === "failed"
+              ? "需要检查失败项"
+              : isImageMode
+                ? "本地图片合成"
+                : "FFmpeg 转码",
       state: ["pending", "running"].includes(taskStatus) ? "running" : taskStatus,
       icon: "wand",
     },
@@ -406,7 +417,7 @@ export default function PosterVideo() {
           setItems(Array.isArray(data.items) ? data.items : []);
           setZipUrl(data.zip_url || "");
 
-          if (data.status === "completed" || data.status === "failed") {
+          if (["completed", "partial_failed", "failed"].includes(data.status)) {
             setGenerating(false);
             if (data.status === "failed") setError(data.error || data.message || "批量处理失败");
             return;
@@ -700,7 +711,7 @@ export default function PosterVideo() {
           <span className={`status-pill ${videoPanelStatus}`}>
             <Icon
               name={
-                videoPanelStatus === "failed"
+                ["failed", "partial_failed"].includes(videoPanelStatus)
                   ? "alert"
                   : videoPanelStatus === "completed"
                     ? "check"
@@ -723,10 +734,15 @@ export default function PosterVideo() {
             <h3>{STATUS_LABELS[videoPanelStatus]}</h3>
             <p>{statusMsg || `上传${mediaLabel}并确认模板后，可以开始本地批量生成。`}</p>
             {zipUrl && (
-              <a className="download-action" href={resolveBackendAssetUrl(zipUrl, backendBaseUrl)} download>
+              <ProtectedDownloadButton
+                className="download-action"
+                path={zipUrl}
+                filename={isImageMode ? "poster_images.zip" : "poster_videos.zip"}
+                backendBaseUrl={backendBaseUrl}
+              >
                 <Icon name="download" size={16} />
                 下载全部 ZIP
-              </a>
+              </ProtectedDownloadButton>
             )}
           </div>
 
@@ -743,15 +759,21 @@ export default function PosterVideo() {
                   </div>
                   {(item.asset_url || item.video_url || item.image_url) && (
                     <div className="poster-result-actions">
-                      {isImageMode ? (
-                        <img src={resolveBackendAssetUrl(item.asset_url || item.image_url, backendBaseUrl)} alt={item.filename} />
-                      ) : (
-                        <video src={resolveBackendAssetUrl(item.asset_url || item.video_url, backendBaseUrl)} controls preload="metadata" />
-                      )}
-                      <a className="secondary-link-action" href={resolveBackendAssetUrl(item.asset_url || item.video_url || item.image_url, backendBaseUrl)} download>
+                      <ProtectedMedia
+                        path={item.asset_url || item.video_url || item.image_url}
+                        kind={isImageMode ? "image" : "video"}
+                        backendBaseUrl={backendBaseUrl}
+                        alt={item.filename}
+                      />
+                      <ProtectedDownloadButton
+                        className="secondary-link-action"
+                        path={item.asset_url || item.video_url || item.image_url}
+                        filename={item.filename}
+                        backendBaseUrl={backendBaseUrl}
+                      >
                         <Icon name="download" size={15} />
                         下载
-                      </a>
+                      </ProtectedDownloadButton>
                     </div>
                   )}
                 </div>

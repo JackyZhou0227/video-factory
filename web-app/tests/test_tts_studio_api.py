@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.api import digital_human, tts_studio
 from app.api.auth import require_current_user
 from app.services.tts import EDGE_TTS_MODEL
+from app.services import settings_store, task_store
 
 
 class TTSStudioApiTests(unittest.TestCase):
@@ -22,6 +23,15 @@ class TTSStudioApiTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_root = Path(self.temp_dir.name) / "output"
         self.output_root.mkdir()
+        self.original_db_path = settings_store._db_path
+        settings_store._db_path = lambda: Path(self.temp_dir.name) / "settings.db"
+        settings_store.init_db()
+        now = settings_store._now_iso()
+        with settings_store._connect() as conn:
+            conn.execute(
+                "INSERT INTO users (id, username, display_name, is_default, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
+                (self.user_id, "user_a", self.user_id, now, now),
+            )
         self.voice_root_patch = patch.object(
             tts_studio.voice_profiles,
             "_root",
@@ -37,6 +47,7 @@ class TTSStudioApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.voice_root_patch.stop()
+        settings_store._db_path = self.original_db_path
         self.temp_dir.cleanup()
 
     def _current_user(self):
@@ -81,10 +92,10 @@ class TTSStudioApiTests(unittest.TestCase):
         self.assertEqual(voices_response.json(), [edge_voice])
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
-        self.assertRegex(
-            payload["audio_url"],
-            rf"^/output/tts-studio/{re.escape(self.user_id)}/[0-9a-f]+/preview_original[.]mp3$",
-        )
+        self.assertRegex(payload["audio_url"], rf"^/api/tasks/[0-9a-f]+/artifacts/[0-9a-f]+/preview$")
+        task = task_store.get_task(payload["task_id"], self.user_id)
+        self.assertEqual(task["task_type"], task_store.TASK_TYPE_VOICE)
+        self.assertTrue((self.output_root / "tasks").joinpath(task["created_at"][0:4], task["created_at"][5:7], task["created_at"][8:10], task_store.TASK_TYPE_VOICE, payload["task_id"], "preview_original.mp3").is_file())
         self.assertEqual(payload["original_audio_url"], payload["audio_url"])
         self.assertIsNone(payload["adjusted_audio_url"])
         self.assertEqual(payload["tts_mode"], "edge-tts")
@@ -143,6 +154,51 @@ class TTSStudioApiTests(unittest.TestCase):
         self.assertEqual(payload["adjusted_audio_url"], "/output/tts-studio/user-a/preview/preview_1_2x.wav")
         self.assertNotEqual(payload["original_audio_url"], payload["adjusted_audio_url"])
         self.assertTrue(original_path.is_file())
+
+    def test_speech_rate_variant_updates_the_original_task(self):
+        edge_voice = {
+            "id": "zh-CN-XiaoxiaoNeural",
+            "name": "晓晓",
+            "gender": "female",
+            "description": "温暖自然",
+        }
+
+        async def write_audio(_model_name, _request, output_path):
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_bytes(b"original audio")
+
+        with patch.object(tts_studio, "resolve_output_dir", return_value=self.output_root), patch.object(
+            tts_studio.tts_service,
+            "list_voices",
+            return_value=[edge_voice],
+        ), patch.object(tts_studio.tts_service, "synthesize", AsyncMock(side_effect=write_audio)):
+            generated = self.client.post(
+                "/api/tts-studio/edge-tts/preview",
+                data={"text": "original", "voice_id": edge_voice["id"]},
+            ).json()
+
+        task_id = generated["task_id"]
+        artifact_id = generated["artifact_id"]
+        task = task_store.get_task(task_id, self.user_id)
+        adjusted_path = Path(task["storage_path"]) / "preview_1_2x.mp3"
+        adjusted_path.write_bytes(b"adjusted audio")
+        with patch.object(tts_studio, "resolve_output_dir", return_value=self.output_root), patch.object(
+            tts_studio,
+            "_create_speech_rate_variant",
+            return_value=adjusted_path,
+        ), patch.object(task_store, "_output_root", return_value=self.output_root.resolve()):
+            response = self.client.post(
+                "/api/tts-studio/preview/speech-rate",
+                data={"task_id": task_id, "artifact_id": artifact_id, "speech_rate": "1.2"},
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        persisted = task_store.get_task(task_id, self.user_id)
+        self.assertEqual(persisted["success_count"], 1)
+        self.assertEqual(persisted["failed_count"], 0)
+        self.assertEqual(len(persisted["artifacts"]), 2)
+        self.assertFalse(persisted["artifacts"][1]["counts_toward_result"])
+
 
     def test_speech_rate_rejects_slowdown_below_normal_speed(self):
         original_path = self.output_root / "tts-studio" / self.user_id / "preview" / "preview_original.wav"

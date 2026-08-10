@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import require_current_user
 from app.core.config import ROOT, app_config
-from app.services import runninghub, settings_store
+from app.services import runninghub, settings_store, task_store
 from app.services.llm import LLMConfig, LLMServiceError, llm_service
 
 router = APIRouter(dependencies=[Depends(require_current_user)])
@@ -51,6 +51,34 @@ def _output_root(cfg: dict) -> Path:
         output_root = ROOT / output_root
     output_root.mkdir(parents=True, exist_ok=True)
     return output_root
+
+
+def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
+    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
+
+
+def _task_payload(task: dict) -> dict:
+    extra = task.get("extra_info") or {}
+    video_artifact = next(
+        (
+            artifact
+            for artifact in task.get("artifacts", [])
+            if artifact.get("kind") == "video" and artifact.get("status") == "completed"
+        ),
+        None,
+    )
+    video_url = _artifact_url(task["id"], video_artifact["id"]) if video_artifact else None
+    return {
+        "user_id": task["user_id"],
+        "status": task["status"],
+        "progress": task["progress"],
+        "message": task["message"],
+        "video_url": video_url,
+        "runninghub_task_id": extra.get("runninghub_task_id"),
+        "runninghub_task_url": extra.get("runninghub_task_url", RUNNINGHUB_TASKS_URL),
+        "runninghub_works_url": extra.get("runninghub_works_url", RUNNINGHUB_WORKS_URL),
+        "error": task.get("error"),
+    }
 
 
 def _resolve_runninghub_inputs(
@@ -142,13 +170,34 @@ async def generate_video(
     output_root = _output_root(cfg)
 
     task_id = uuid.uuid4().hex
-    task_dir = output_root / task_id
-    task_dir.mkdir(parents=True, exist_ok=True)
+    task_record = task_store.create_task(
+        user=user,
+        task_type=task_store.TASK_TYPE_DIGITAL_HUMAN,
+        generation_type="video",
+        requested_count=1,
+        task_id=task_id,
+        output_root=output_root,
+        message="任务已创建，等待提交 RunningHub...",
+    )
+    task_dir = Path(task_record["storage_path"])
 
-    image_path = task_dir / f"character{Path(image.filename).suffix or '.jpg'}"
-    image_path.write_bytes(await image.read())
-    audio_path = task_dir / f"input_audio{Path(audio.filename).suffix or '.wav'}"
-    audio_path.write_bytes(await audio.read())
+    image_path = task_dir / f"character{Path(image.filename or '').suffix or '.jpg'}"
+    audio_path = task_dir / f"input_audio{Path(audio.filename or '').suffix or '.wav'}"
+    try:
+        image_path.write_bytes(await image.read())
+        audio_path.write_bytes(await audio.read())
+    except Exception as exc:
+        task_store.update_task(
+            task_id,
+            status="failed",
+            progress=0,
+            message="保存数字人输入素材失败",
+            error=str(exc),
+            success_count=0,
+            failed_count=1,
+            finished=True,
+        )
+        raise HTTPException(status_code=500, detail="保存输入素材失败") from exc
 
     _tasks[task_id] = {
         "user_id": user["id"],
@@ -179,10 +228,13 @@ async def generate_video(
 
 @router.get("/task/{task_id}")
 def get_task(task_id: str, user: dict = Depends(require_current_user)):
-    task = _tasks.get(task_id)
-    if task is None or task.get("user_id") != user["id"]:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return task
+    try:
+        return _task_payload(task_store.get_task(task_id, user["id"]))
+    except task_store.TaskNotFoundError:
+        task = _tasks.get(task_id)
+        if task is None or task.get("user_id") != user["id"]:
+            raise HTTPException(status_code=404, detail="Task not found") from None
+        return task
 
 
 async def _run_video_generation(
@@ -195,7 +247,16 @@ async def _run_video_generation(
     instance_type: Optional[str],
 ):
     def _update(status: str, progress: int, message: str):
-        _tasks[task_id].update(status=status, progress=progress, message=message)
+        cached_task = _tasks.get(task_id)
+        if cached_task is not None:
+            cached_task.update(status=status, progress=progress, message=message)
+        task_store.update_task(
+            task_id,
+            status=status,
+            progress=progress,
+            message=message,
+            started=status == "running",
+        )
 
     try:
         _update("running", 55, "音频已确认，正在提交 RunningHub 数字人工作流...")
@@ -206,18 +267,55 @@ async def _run_video_generation(
             api_key=api_key,
             instance_type=instance_type,
         )
-        _tasks[task_id].update(
-            status="submitted",
+        record = task_store.get_task(task_id)
+        extra_info = dict(record.get("extra_info") or {})
+        extra_info.update(
+            {
+                "runninghub_task_id": str(runninghub_task_id),
+                "runninghub_workflow_id": workflow_id,
+                "runninghub_instance_type": instance_type,
+                "runninghub_task_url": RUNNINGHUB_TASKS_URL,
+                "runninghub_works_url": RUNNINGHUB_WORKS_URL,
+            }
+        )
+        task_store.update_task(
+            task_id,
+            status="completed",
             progress=100,
             message="RunningHub 任务已提交成功。生成通常需要较长时间，请到 RunningHub 查看进度和作品。",
-            runninghub_task_id=runninghub_task_id,
-            runninghub_task_url=RUNNINGHUB_TASKS_URL,
-            runninghub_works_url=RUNNINGHUB_WORKS_URL,
+            extra_info=extra_info,
+            success_count=1,
+            failed_count=0,
+            finished=True,
         )
+        cached_task = _tasks.get(task_id)
+        if cached_task is not None:
+            cached_task.update(
+                status="completed",
+                progress=100,
+                message="RunningHub 任务已提交成功。生成通常需要较长时间，请到 RunningHub 查看进度和作品。",
+                runninghub_task_id=runninghub_task_id,
+                runninghub_task_url=RUNNINGHUB_TASKS_URL,
+                runninghub_works_url=RUNNINGHUB_WORKS_URL,
+            )
     except Exception as exc:
-        _tasks[task_id].update(
-            status="failed",
-            progress=0,
-            message=f"生成失败：{exc}",
-            error=str(exc),
-        )
+        try:
+            task_store.update_task(
+                task_id,
+                status="failed",
+                progress=0,
+                message=f"生成失败：{exc}",
+                error=str(exc),
+                failed_count=1,
+                finished=True,
+            )
+        except task_store.TaskNotFoundError:
+            pass
+        cached_task = _tasks.get(task_id)
+        if cached_task is not None:
+            cached_task.update(
+                status="failed",
+                progress=0,
+                message=f"生成失败：{exc}",
+                error=str(exc),
+            )

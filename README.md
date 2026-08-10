@@ -245,7 +245,45 @@ python scripts\init_admin.py --username admin --password 12345678 --display-name
 
 登录后在页面“设置”里配置当前用户的 RunningHub API Key、并发限制和机器规格，以及 OpenAI 兼容 LLM 的 Base URL、API Key 和模型名称。
 
-这些设置按用户保存在后端本机 SQLite：`web-app/data/video_factory.db`。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。模板量产首版使用 Edge-TTS，生成任务状态只保存在当前后端进程中，服务重启后任务状态不会恢复。
+这些设置按用户保存在后端本机 SQLite：`web-app/data/video_factory.db`。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。
+
+## 任务中心与产物
+
+每次用户发起的生成请求对应一条 `generation_tasks` 任务记录，不按单个文件拆任务。任务中心默认只显示当前登录用户的任务，支持按任务类型、生成类型、状态和创建日期筛选，并提供产物预览、单文件下载和任务 ZIP 下载；不提供删除按钮。
+
+任务类型固定为：
+
+- `digital_human`：数字人视频，`generation_type=video`，RunningHub 接收成功即标记为 `completed`。
+- `voice_generation`：语音生成，`generation_type=voice`；语音调速结果追加到原任务，不创建新任务。
+- `poster_video`：大字报批量图片或视频，按一次批量请求记录 `requested_count`。
+- `template_production`：模板量产视频；脚本生成和改写属于内部步骤，不单独建任务。
+
+表中保存 `requested_count`、`success_count`、`failed_count`、状态、进度、创建人快照和 UTC ISO-8601 时间。供应商或业务特有信息统一放在 `extra_info_json`，例如数字人的 `runninghub_task_id`、工作流 ID 和外部链接；API Key 等敏感信息不会写入该字段。产物清单放在 `artifacts_json`，服务端路径只保存在后端，接口只返回产物 ID 和接口 URL。
+
+任务文件使用日期优先的目录格式：
+
+```text
+web-app/output/tasks/YYYY/MM/DD/{task_type}/{task_id}/
+```
+
+日期按任务创建时间的 UTC 日期生成。例如：
+
+```text
+web-app/output/tasks/2026/08/07/voice_generation/3c8.../
+web-app/output/tasks/2026/08/07/digital_human/71a.../
+```
+
+这样可以在不查数据库的情况下按日期手动清理早期文件。当前不实现定时删除、删除接口或历史任务回填；如果目录被手动删除，任务记录仍保留，详情会将相应产物标记为 `missing`，下载接口返回 `404`。
+
+主要接口均要求登录会话：
+
+- `GET /api/tasks`：分页查询当前用户任务。
+- `GET /api/tasks/{task_id}`：查询任务详情和安全产物清单。
+- `GET /api/tasks/{task_id}/artifacts/{artifact_id}/preview`：预览音频、图片或视频。
+- `GET /api/tasks/{task_id}/artifacts/{artifact_id}/download`：下载单个产物。
+- `GET /api/tasks/{task_id}/download`：优先下载任务 ZIP；只有一个产物时下载该产物。
+
+接口始终根据当前用户校验任务归属，并对服务端路径执行目录边界检查。旧 `/output/*` 兼容接口也要求登录；背景音乐改用 `/api/template-production/bgm/{bgm_id}/audio`，音色参考音频继续使用音色接口。
 
 ## 模板 JSON
 

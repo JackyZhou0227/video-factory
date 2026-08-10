@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
 import { apiFetch, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
+import { PAGE_NAMES } from "../lib/pageNames";
 import { maskApiKey } from "../lib/runninghubSettings";
 
 const DEFAULT_INSTANCE_TYPE = "plus";
@@ -204,7 +205,7 @@ export default function Settings() {
   return (
     <section className="workspace-panel settings-panel" aria-labelledby="settings-title">
       <div className="panel-heading settings-heading">
-        <div><span className="section-kicker">Services</span><h2 id="settings-title">设置</h2></div>
+        <div><span className="section-kicker">{PAGE_NAMES.settings}</span><h2 id="settings-title">设置</h2></div>
         <span className={`status-pill ${runningHubConfigured && llmReady ? "completed" : "pending"}`}>
           <Icon name={loading ? "loading" : "settings"} size={14} />{loading ? "读取中" : "按用户保存"}
         </span>

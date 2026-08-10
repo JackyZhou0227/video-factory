@@ -404,6 +404,9 @@ def init_db(config: Optional[dict[str, Any]] = None) -> None:
         _ensure_settings_schema(conn)
         _ensure_subtitle_replacements_schema(conn)
         _ensure_bgm_tracks_schema(conn)
+        from app.services import task_store
+
+        task_store.ensure_schema(conn)
         conn.execute(
             """
             CREATE INDEX IF NOT EXISTS idx_settings_user_namespace

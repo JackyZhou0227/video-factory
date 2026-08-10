@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -13,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from app.api import template_production as template_api
 from app.api.auth import require_current_user
-from app.services import settings_store
+from app.services import settings_store, task_store
 from app.services.template_registry import TemplateRegistry
 
 
@@ -288,6 +289,11 @@ class TemplateProductionApiTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200, response.text)
         task_id = response.json()["task_id"]
+        persisted_task = task_store.get_task(task_id, "user-a")
+        self.assertEqual(persisted_task["task_type"], task_store.TASK_TYPE_TEMPLATE)
+        self.assertEqual(persisted_task["generation_type"], "video")
+        self.assertEqual(persisted_task["requested_count"], 2)
+        self.assertEqual(persisted_task["extra_info"]["pipeline_id"], "zhongyi_visit_v1")
         response = self.client.get(f"/api/template-production/tasks/{task_id}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["items"]), 2)
@@ -567,10 +573,11 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(track["name"], "my-song.mp3")
         self.assertEqual(track["duration"], 12.5)
         self.assertEqual(track["file_size"], len(b"audio-bytes"))
-        self.assertTrue(track["preview_url"].startswith("/output/bgm/"))
+        self.assertRegex(track["preview_url"], rf"^/api/template-production/bgm/{re.escape(track['id'])}/audio$")
         track_id = track["id"]
 
-        persisted = self.output_root / track["preview_url"].removeprefix("/output/")
+        stored_track = settings_store.get_bgm_track("user-a", track_id)
+        persisted = self.output_root / stored_track["relative_path"]
         self.assertTrue(persisted.exists())
 
         response = self.client.get("/api/template-production/bgm")
