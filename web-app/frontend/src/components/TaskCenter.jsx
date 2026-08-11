@@ -8,6 +8,7 @@ const TASK_LABELS = {
   digital_human: "数字人",
   voice_generation: "语音生成",
   template_production: "模板量产",
+  smart_editing: "智能剪辑",
   poster_video: "大字报",
 };
 
@@ -281,7 +282,7 @@ export default function TaskCenter({ active = true }) {
           <div>
             <span className="section-kicker">{PAGE_NAMES.taskCenter}</span>
             <h2 id="task-center-title">任务中心</h2>
-            <p>统一查看四类生成任务、进度和可下载产物。</p>
+            <p>统一查看五类生成任务、进度和可下载产物。</p>
           </div>
           <button className="icon-button" type="button" onClick={() => loadTasks(page)} aria-label="刷新任务列表" title="刷新">
             <Icon name="refresh" size={16} />
@@ -289,7 +290,7 @@ export default function TaskCenter({ active = true }) {
         </div>
 
         <form className="task-filter-grid" onSubmit={(event) => { event.preventDefault(); setSelectedId(""); setSelectedTask(null); loadTasks(1); }}>
-          <label className="field"><span className="field-label">任务类型</span><select className="control" name="task_type" value={filters.task_type} onChange={updateFilter}><option value="">全部</option><option value="digital_human">数字人</option><option value="voice_generation">语音生成</option><option value="poster_video">大字报</option><option value="template_production">模板量产</option></select></label>
+          <label className="field"><span className="field-label">任务类型</span><select className="control" name="task_type" value={filters.task_type} onChange={updateFilter}><option value="">全部</option><option value="digital_human">数字人</option><option value="voice_generation">语音生成</option><option value="poster_video">大字报</option><option value="template_production">模板量产</option><option value="smart_editing">智能剪辑</option></select></label>
           <label className="field"><span className="field-label">生成类型</span><select className="control" name="generation_type" value={filters.generation_type} onChange={updateFilter}><option value="">全部</option><option value="voice">语音</option><option value="image">图片</option><option value="video">视频</option></select></label>
           <label className="field"><span className="field-label">状态</span><select className="control" name="status" value={filters.status} onChange={updateFilter}><option value="">全部</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <label className="field"><span className="field-label">开始日期</span><input className="control" type="date" name="created_from" value={filters.created_from} onChange={updateFilter} /></label>

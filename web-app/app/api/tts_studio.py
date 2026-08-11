@@ -454,7 +454,7 @@ async def preview_voice_clone_tts(
     if not voice_profile_id and not (ref_text and ref_text.strip()):
         raise HTTPException(status_code=422, detail="ref_text is required")
 
-    user_id = _user_id(user)
+    _user_id(user)
     _normalize_speech_rate(speech_rate)
     if voice_profile_id:
         voice = voice_profiles.get_voice_profile(voice_profile_id)

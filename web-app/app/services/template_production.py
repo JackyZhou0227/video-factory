@@ -26,6 +26,8 @@ VIDEO_RATIOS = {
     "1:1": (1080, 1080),
     "3:4": (1080, 1440),
 }
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
 ZHONGYI_SLOT_PLAN = (
     ("doctor-scene", 0.12, ("clinic-scene",)),
     ("clinic-scene", 0.13, ("doctor-scene",)),
@@ -341,17 +343,29 @@ def ratio_size(ratio: str) -> tuple[int, int]:
         raise TemplateProductionError(f"不支持的画面比例：{ratio}") from exc
 
 
-def _fit_filter(width: int, height: int, *, fill_mode: str = "contain") -> str:
+def _fit_geometry_filter(width: int, height: int, *, fill_mode: str = "contain") -> str:
     if fill_mode == "cover":
         return (
             f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-            f"crop={width}:{height},setsar=1,fps=30,format=yuv420p"
+            f"crop={width}:{height},setsar=1"
         )
     if fill_mode != "contain":
         raise TemplateProductionError(f"不支持的画面填充方式：{fill_mode}")
     return (
         f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
-        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1,fps=30,format=yuv420p"
+        f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1"
+    )
+
+
+def _fit_filter(width: int, height: int, *, fill_mode: str = "contain") -> str:
+    return f"{_fit_geometry_filter(width, height, fill_mode=fill_mode)},fps=30,format=yuv420p"
+
+
+def _image_motion_filter(width: int, height: int, *, fill_mode: str = "cover") -> str:
+    return (
+        f"{_fit_geometry_filter(width, height, fill_mode=fill_mode)},"
+        f"zoompan=z='min(zoom+0.0008,1.08)':d=1:s={width}x{height}:fps=30,"
+        "format=yuv420p"
     )
 
 
@@ -365,6 +379,7 @@ def prepare_material_segment(
     target_size: tuple[int, int] | None = None,
     fill_mode: str = "contain",
     start_time: float = 0.0,
+    image_motion: bool = False,
 ) -> Path:
     require_ffmpeg()
     width, height = target_size or ratio_size(ratio)
@@ -390,11 +405,16 @@ def prepare_material_segment(
     else:
         raise TemplateProductionError(f"不支持的素材类型：{media_type}")
 
+    video_filter = (
+        _image_motion_filter(width, height, fill_mode=fill_mode)
+        if media_type == "image" and image_motion
+        else _fit_filter(width, height, fill_mode=fill_mode)
+    )
     command.extend(
         [
             "-an",
             "-vf",
-            _fit_filter(width, height, fill_mode=fill_mode),
+            video_filter,
             "-c:v",
             "libx264",
             "-preset",
@@ -460,6 +480,39 @@ def compose_video(
     require_ffmpeg()
     duration = audio_duration or probe_duration(audio_path)
     sequence = build_material_sequence(segments, duration, seed=seed, segment_duration=segment_duration)
+    return compose_prepared_video(
+        sequence,
+        audio_path,
+        output_path,
+        audio_duration=duration,
+        script=script,
+        work_dir=work_dir,
+        ratio=ratio,
+        timings=timings,
+        subtitle_replacements=subtitle_replacements,
+        subtitle_style=subtitle_style,
+        bgm_path=bgm_path,
+    )
+
+
+def compose_prepared_video(
+    sequence: list[Path],
+    audio_path: Path,
+    output_path: Path,
+    *,
+    audio_duration: float | None = None,
+    script: str | None = None,
+    work_dir: Path | None = None,
+    ratio: str = "9:16",
+    timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
+    subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
+    subtitle_style: dict[str, Any] | None = None,
+    bgm_path: Path | None = None,
+) -> Path:
+    require_ffmpeg()
+    if not sequence:
+        raise TemplateProductionError("没有可用于合成的素材")
+    duration = audio_duration or probe_duration(audio_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     concat_path = output_path.with_suffix(".concat.txt")
     ass_path: Path | None = None

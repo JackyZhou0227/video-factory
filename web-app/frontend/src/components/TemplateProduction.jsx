@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import BgmManager from "./BgmManager";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
+import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
 import { PAGE_NAMES } from "../lib/pageNames";
 
 const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
-const MAX_SUBTITLE_REPLACEMENTS = 30;
 const SUBTITLE_PREVIEW_TEXT = "这是一段用于查看字幕样式的预览内容";
 const DEFAULT_SUBTITLE_STYLE = {
   font_family: "Microsoft YaHei",
@@ -137,13 +138,6 @@ function formatFileSize(size) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function formatDuration(seconds) {
-  const total = Math.max(0, Math.round(Number(seconds) || 0));
-  const minutes = Math.floor(total / 60);
-  const secs = total % 60;
-  return `${minutes}:${String(secs).padStart(2, "0")}`;
-}
-
 function MaterialPreview({ file, mediaType, label }) {
   const [previewUrl, setPreviewUrl] = useState("");
 
@@ -235,14 +229,12 @@ export default function TemplateProduction({ currentUser }) {
   const [finalScript, setFinalScript] = useState("");
   const [subtitleStyle, setSubtitleStyle] = useState(cloneDefaultSubtitleStyle);
   const [subtitleStyleDialogOpen, setSubtitleStyleDialogOpen] = useState(false);
-  const [subtitleReplacements, setSubtitleReplacements] = useState([]);
-  const [subtitleReplacementsLoading, setSubtitleReplacementsLoading] = useState(true);
-  const [subtitleReplacementError, setSubtitleReplacementError] = useState("");
-  const [subtitleReplacementNotice, setSubtitleReplacementNotice] = useState("");
-  const [savingSubtitleReplacementIds, setSavingSubtitleReplacementIds] = useState(() => new Set());
-  const [dirtySubtitleReplacementIds, setDirtySubtitleReplacementIds] = useState(() => new Set());
-  const [savedSubtitleReplacementIds, setSavedSubtitleReplacementIds] = useState(() => new Set());
-  const [subtitleReplacementPendingDelete, setSubtitleReplacementPendingDelete] = useState(null);
+  const [subtitleReplacementStatus, setSubtitleReplacementStatus] = useState({
+    issues: [],
+    hasUnsaved: false,
+    loading: true,
+    error: "",
+  });
   const [rewritingCandidateId, setRewritingCandidateId] = useState("");
   const [generateCount, setGenerateCount] = useState(5);
   const [generatingScripts, setGeneratingScripts] = useState(false);
@@ -250,17 +242,9 @@ export default function TemplateProduction({ currentUser }) {
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
-  const [bgmTracks, setBgmTracks] = useState([]);
   const [selectedBgmId, setSelectedBgmId] = useState("");
-  const [bgmLoading, setBgmLoading] = useState(true);
-  const [bgmError, setBgmError] = useState("");
-  const [bgmNotice, setBgmNotice] = useState("");
-  const [uploadingBgm, setUploadingBgm] = useState(false);
-  const [deletingBgmId, setDeletingBgmId] = useState(null);
-  const [pendingBgmDelete, setPendingBgmDelete] = useState(null);
   const pollRef = useRef(null);
   const templateFileInputRef = useRef(null);
-  const bgmFileInputRef = useRef(null);
   const previousTemplateIdRef = useRef("");
 
   const selectedTemplate = useMemo(
@@ -306,131 +290,6 @@ export default function TemplateProduction({ currentUser }) {
     return () => controller.abort();
   }, [currentUser?.id, loadTemplates]);
 
-  const loadSubtitleReplacements = useCallback(async ({ signal } = {}) => {
-    setSubtitleReplacementsLoading(true);
-    setSubtitleReplacementError("");
-    setSubtitleReplacementNotice("");
-    try {
-      const response = await apiFetch(
-        "/api/template-production/subtitle-replacements",
-        signal ? { signal } : undefined,
-        backendBaseUrl
-      );
-      if (!response.ok) throw new Error(await responseError(response, "读取全局敏感词替换失败"));
-      const data = await response.json();
-      setSubtitleReplacements(Array.isArray(data.replacements) ? data.replacements : []);
-      setDirtySubtitleReplacementIds(new Set());
-      setSavedSubtitleReplacementIds(new Set());
-    } catch (err) {
-      if (err?.name !== "AbortError") {
-        setSubtitleReplacementError(err.message || "读取全局敏感词替换失败");
-      }
-    } finally {
-      if (!signal?.aborted) setSubtitleReplacementsLoading(false);
-    }
-  }, [backendBaseUrl]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadSubtitleReplacements({ signal: controller.signal });
-    return () => controller.abort();
-  }, [currentUser?.id, loadSubtitleReplacements]);
-
-  const loadBgmTracks = useCallback(async ({ signal } = {}) => {
-    setBgmLoading(true);
-    setBgmError("");
-    setBgmNotice("");
-    try {
-      const response = await apiFetch(
-        "/api/template-production/bgm",
-        signal ? { signal } : undefined,
-        backendBaseUrl
-      );
-      if (!response.ok) throw new Error(await responseError(response, "读取背景音乐列表失败"));
-      const data = await response.json();
-      const nextTracks = Array.isArray(data.bgm_tracks) ? data.bgm_tracks : [];
-      setBgmTracks(nextTracks);
-      setSelectedBgmId((currentId) => {
-        if (currentId && nextTracks.some((track) => track.id === currentId)) return currentId;
-        return "";
-      });
-    } catch (err) {
-      if (err?.name !== "AbortError") {
-        setBgmError(err.message || "读取背景音乐列表失败");
-      }
-    } finally {
-      if (!signal?.aborted) setBgmLoading(false);
-    }
-  }, [backendBaseUrl]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    loadBgmTracks({ signal: controller.signal });
-    return () => controller.abort();
-  }, [currentUser?.id, loadBgmTracks]);
-
-  const uploadBgm = useCallback(async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-
-    setUploadingBgm(true);
-    setBgmError("");
-    setBgmNotice("");
-    try {
-      const form = new FormData();
-      form.append("file", file, file.name);
-      const response = await apiFetch(
-        "/api/template-production/bgm",
-        { method: "POST", body: form },
-        backendBaseUrl
-      );
-      if (!response.ok) throw new Error(await responseError(response, "上传背景音乐失败"));
-      const data = await response.json();
-      const track = data.bgm_track;
-      setBgmTracks((current) => [...current, track]);
-      setSelectedBgmId(track.id);
-      setBgmNotice(`已上传背景音乐“${track.name}”。`);
-    } catch (err) {
-      setBgmError(err.message || "上传背景音乐失败");
-    } finally {
-      setUploadingBgm(false);
-    }
-  }, [backendBaseUrl]);
-
-  const requestBgmDelete = useCallback((track) => {
-    if (track) setPendingBgmDelete(track);
-  }, []);
-
-  const confirmBgmDelete = useCallback(async () => {
-    if (!pendingBgmDelete) return;
-    const trackId = pendingBgmDelete.id;
-    setDeletingBgmId(trackId);
-    setBgmError("");
-    setBgmNotice("");
-    try {
-      const response = await apiFetch(
-        `/api/template-production/bgm/${encodeURIComponent(trackId)}`,
-        { method: "DELETE" },
-        backendBaseUrl
-      );
-      if (!response.ok) throw new Error(await responseError(response, "删除背景音乐失败"));
-      setBgmTracks((current) => current.filter((track) => track.id !== trackId));
-      setSelectedBgmId((current) => (current === trackId ? "" : current));
-      setBgmNotice("背景音乐已删除。");
-      setPendingBgmDelete(null);
-    } catch (err) {
-      setBgmError(err.message || "删除背景音乐失败");
-    } finally {
-      setDeletingBgmId(null);
-    }
-  }, [backendBaseUrl, pendingBgmDelete]);
-
-  const selectedBgmTrack = useMemo(
-    () => bgmTracks.find((track) => track.id === selectedBgmId) || null,
-    [bgmTracks, selectedBgmId]
-  );
-
   const materialIssues = useMemo(() => {
     return (selectedTemplate?.material_requirements || []).flatMap((requirement) => {
       const count = materials[requirement.key]?.length || 0;
@@ -459,25 +318,13 @@ export default function TemplateProduction({ currentUser }) {
     });
   }, [selectedTemplate, variables]);
   const variablesReady = Boolean(selectedTemplate) && contentIssues.length === 0;
-  const subtitleReplacementIssues = useMemo(() => {
-    if (!selectedTemplate?.runtime_capabilities?.subtitle_replacements) return [];
-    const issues = [];
-    const seenSources = new Set();
-    subtitleReplacements.forEach((item, index) => {
-      const source = item.source.trim();
-      const replacement = item.replacement.trim();
-      if (!source || !replacement) {
-        issues.push(`第 ${index + 1} 条字幕替换需要填写原词和替换词`);
-      } else if (source === replacement) {
-        issues.push(`第 ${index + 1} 条字幕替换的原词和替换词不能相同`);
-      } else if (seenSources.has(source)) {
-        issues.push(`字幕原词“${source}”重复添加`);
-      }
-      if (source) seenSources.add(source);
-    });
-    return issues;
-  }, [selectedTemplate, subtitleReplacements]);
-  const hasUnsavedSubtitleReplacements = dirtySubtitleReplacementIds.size > 0;
+  const subtitleReplacementIssues = selectedTemplate?.runtime_capabilities?.subtitle_replacements
+    ? subtitleReplacementStatus.issues
+    : [];
+  const hasUnsavedSubtitleReplacements = Boolean(
+    selectedTemplate?.runtime_capabilities?.subtitle_replacements
+    && subtitleReplacementStatus.hasUnsaved
+  );
   const canSubmit = variablesReady
     && materialIssues.length === 0
     && subtitleReplacementIssues.length === 0
@@ -663,139 +510,6 @@ export default function TemplateProduction({ currentUser }) {
       [requirementId]: (current[requirementId] || []).filter((item) => item.id !== itemId),
     }));
   }, []);
-
-  const addSubtitleReplacement = useCallback(() => {
-    const id = makeId();
-    setSubtitleReplacements((current) => {
-      if (current.length >= MAX_SUBTITLE_REPLACEMENTS) return current;
-      return [...current, { id, source: "", replacement: "" }];
-    });
-    setError("");
-    setNotice("");
-    setSubtitleReplacementNotice("");
-  }, []);
-
-  const updateSubtitleReplacement = useCallback((id, field, value) => {
-    setSubtitleReplacements((current) => current.map((item) => (
-      item.id === id ? { ...item, [field]: value } : item
-    )));
-    setDirtySubtitleReplacementIds((current) => new Set(current).add(id));
-    setSavedSubtitleReplacementIds((current) => {
-      const next = new Set(current);
-      next.delete(id);
-      return next;
-    });
-    setSubtitleReplacementNotice("");
-    setError("");
-    setNotice("");
-  }, []);
-
-  const saveSubtitleReplacement = useCallback(async (id) => {
-    const item = subtitleReplacements.find((replacement) => replacement.id === id);
-    if (!item) return;
-    const source = item.source.trim();
-    const replacement = item.replacement.trim();
-    if (!source || !replacement || source === replacement) return;
-
-    setSavingSubtitleReplacementIds((current) => new Set(current).add(id));
-    setSubtitleReplacementError("");
-    try {
-      const isDraft = typeof id === "string";
-      const response = await apiFetch(
-        isDraft
-          ? "/api/template-production/subtitle-replacements"
-          : `/api/template-production/subtitle-replacements/${id}`,
-        {
-          method: isDraft ? "POST" : "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ source, replacement }),
-        },
-        backendBaseUrl
-      );
-      if (!response.ok) throw new Error(await responseError(response, "保存全局敏感词替换失败"));
-      const data = await response.json();
-      setSubtitleReplacements((current) => current.map((currentItem) => (
-        currentItem.id === id ? data.replacement : currentItem
-      )));
-      setDirtySubtitleReplacementIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      setSavedSubtitleReplacementIds((current) => new Set(current).add(data.replacement.id));
-      setSubtitleReplacementNotice("全局敏感词替换已保存。");
-    } catch (err) {
-      setSubtitleReplacementError(err.message || "保存全局敏感词替换失败");
-    } finally {
-      setSavingSubtitleReplacementIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-    }
-  }, [backendBaseUrl, subtitleReplacements]);
-
-  const removeSubtitleReplacement = useCallback(async (id) => {
-    if (typeof id === "string") {
-      setSubtitleReplacements((current) => current.filter((item) => item.id !== id));
-      setDirtySubtitleReplacementIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      setSavedSubtitleReplacementIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      setSubtitleReplacementNotice("全局敏感词替换已删除。");
-      return true;
-    }
-
-    setSavingSubtitleReplacementIds((current) => new Set(current).add(id));
-    setSubtitleReplacementError("");
-    try {
-      const response = await apiFetch(
-        `/api/template-production/subtitle-replacements/${id}`,
-        { method: "DELETE" },
-        backendBaseUrl
-      );
-      if (!response.ok) throw new Error(await responseError(response, "删除全局敏感词替换失败"));
-      setSubtitleReplacements((current) => current.filter((item) => item.id !== id));
-      setDirtySubtitleReplacementIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      setSavedSubtitleReplacementIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-      setSubtitleReplacementNotice("全局敏感词替换已删除。");
-      return true;
-    } catch (err) {
-      setSubtitleReplacementError(err.message || "删除全局敏感词替换失败");
-      return false;
-    } finally {
-      setSavingSubtitleReplacementIds((current) => {
-        const next = new Set(current);
-        next.delete(id);
-        return next;
-      });
-    }
-  }, [backendBaseUrl]);
-
-  const requestSubtitleReplacementDelete = useCallback((id) => {
-    const item = subtitleReplacements.find((replacement) => replacement.id === id);
-    if (item) setSubtitleReplacementPendingDelete(item);
-  }, [subtitleReplacements]);
-
-  const confirmSubtitleReplacementDelete = useCallback(async () => {
-    if (!subtitleReplacementPendingDelete) return;
-    const deleted = await removeSubtitleReplacement(subtitleReplacementPendingDelete.id);
-    if (deleted) setSubtitleReplacementPendingDelete(null);
-  }, [removeSubtitleReplacement, subtitleReplacementPendingDelete]);
 
   const generateAiScripts = useCallback(async () => {
     setError("");
@@ -1426,191 +1140,20 @@ export default function TemplateProduction({ currentUser }) {
               </div>
             ) : null}
             {selectedTemplate.runtime_capabilities?.subtitle_replacements ? (
-              <div className="subtitle-replacement-editor">
-                <div className="subtitle-replacement-heading">
-                  <div>
-                    <strong>全局敏感词替换</strong>
-                    <small>所有用户和模板共用，只修改成片字幕，配音仍使用最终文案原文</small>
-                  </div>
-                  {subtitleReplacements.length ? (
-                    <button
-                      className="secondary-action subtitle-replacement-add"
-                      type="button"
-                      onClick={addSubtitleReplacement}
-                      disabled={subtitleReplacements.length >= MAX_SUBTITLE_REPLACEMENTS}
-                    >
-                      <Icon name="plus" size={14} />添加
-                    </button>
-                  ) : null}
-                </div>
-                {subtitleReplacements.length ? (
-                  <div className="subtitle-replacement-list">
-                    {subtitleReplacements.map((item, index) => {
-                      const isSaving = savingSubtitleReplacementIds.has(item.id);
-                      const isDirty = dirtySubtitleReplacementIds.has(item.id);
-                      const isSaved = savedSubtitleReplacementIds.has(item.id);
-                      const source = item.source.trim();
-                      const replacement = item.replacement.trim();
-                      const duplicateSource = subtitleReplacements.some((other) => (
-                        other.id !== item.id && other.source.trim() === source
-                      ));
-                      const canSave = isDirty && Boolean(source) && Boolean(replacement)
-                        && source !== replacement && !duplicateSource;
-                      return (
-                      <div className="subtitle-replacement-card" key={item.id}>
-                        <label className="field subtitle-replacement-source">
-                          <span className="field-label">需要替换的词</span>
-                          <input
-                            className="control"
-                            value={item.source}
-                            maxLength={80}
-                            placeholder="例如：医生"
-                            aria-label={`第 ${index + 1} 条需要替换的词`}
-                            onChange={(event) => updateSubtitleReplacement(item.id, "source", event.target.value)}
-                            disabled={isSaving}
-                          />
-                        </label>
-                        <span className="subtitle-replacement-arrow" aria-hidden="true">
-                          <Icon name="arrowRight" size={16} />
-                        </span>
-                        <label className="field subtitle-replacement-target">
-                          <span className="field-label">字幕替换成</span>
-                          <input
-                            className="control"
-                            value={item.replacement}
-                            maxLength={80}
-                            placeholder="例如：yi生"
-                            aria-label={`第 ${index + 1} 条字幕替换词`}
-                            onChange={(event) => updateSubtitleReplacement(item.id, "replacement", event.target.value)}
-                            disabled={isSaving}
-                          />
-                        </label>
-                        <button
-                          className="primary-action subtitle-replacement-save"
-                          type="button"
-                          title="保存此条全局敏感词替换"
-                          onClick={() => saveSubtitleReplacement(item.id)}
-                          disabled={!canSave || isSaving}
-                        >
-                          <Icon name={isSaving ? "loading" : isSaved ? "check" : "save"} size={14} />
-                          {isSaving ? "保存中" : isSaved ? "已保存" : "保存"}
-                        </button>
-                        <button
-                          className="subtitle-replacement-remove"
-                          type="button"
-                          title={`删除第 ${index + 1} 条字幕替换`}
-                          aria-label={`删除第 ${index + 1} 条字幕替换`}
-                          onClick={() => requestSubtitleReplacementDelete(item.id)}
-                          disabled={isSaving}
-                        >
-                          <Icon name="trash" size={15} />
-                        </button>
-                      </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <button className="subtitle-replacement-add-card" type="button" onClick={addSubtitleReplacement}>
-                    <Icon name="plus" size={18} />
-                    <span><strong>添加替换规则</strong><small>原词用于配音，替换词仅显示在字幕中</small></span>
-                  </button>
-                )}
-                {subtitleReplacementIssues.length ? (
-                  <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{subtitleReplacementIssues[0]}</div>
-                ) : null}
-                {subtitleReplacementsLoading ? (
-                  <div className="subtitle-replacement-issue"><Icon name="loading" size={14} />正在加载全局规则</div>
-                ) : null}
-                {subtitleReplacementError ? (
-                  <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{subtitleReplacementError}</div>
-                ) : null}
-                {subtitleReplacementNotice ? (
-                  <div className="subtitle-replacement-notice"><Icon name="check" size={14} />{subtitleReplacementNotice}</div>
-                ) : null}
-              </div>
+              <SubtitleReplacementManager
+                currentUserId={currentUser?.id}
+                onStatusChange={setSubtitleReplacementStatus}
+              />
             ) : null}
           </section>
 
-          <section className="template-work-section" aria-labelledby="template-bgm-title">
-            <div className="template-section-heading with-actions">
-              <span><Icon name="music" size={17} /></span>
-              <div><strong id="template-bgm-title">背景音乐</strong><small>为所有成片添加 BGM，可上传保存后反复使用</small></div>
-              <input
-                ref={bgmFileInputRef}
-                hidden
-                type="file"
-                accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac"
-                onChange={uploadBgm}
-              />
-              <button
-                className="secondary-action compact-action"
-                type="button"
-                onClick={() => bgmFileInputRef.current?.click()}
-                disabled={submitting || uploadingBgm}
-                title="上传背景音乐"
-              >
-                <Icon name={uploadingBgm ? "loading" : "upload"} size={15} />
-                {uploadingBgm ? "上传中" : "上传"}
-              </button>
-            </div>
-            <div className="bgm-control-row">
-              <label className="field bgm-select-field">
-                <span className="field-label">选择背景音乐</span>
-                <select
-                  className="control"
-                  value={selectedBgmId}
-                  onChange={(event) => {
-                    setSelectedBgmId(event.target.value);
-                    setBgmNotice("");
-                    setBgmError("");
-                  }}
-                  disabled={submitting || uploadingBgm || bgmLoading}
-                >
-                  <option value="">不使用背景音乐</option>
-                  {bgmTracks.map((track) => (
-                    <option key={track.id} value={track.id}>
-                      {track.name}（{formatDuration(track.duration)}）
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selectedBgmTrack ? (
-                <button
-                  className="bgm-delete-button"
-                  type="button"
-                  title={`删除背景音乐“${selectedBgmTrack.name}”`}
-                  aria-label={`删除背景音乐“${selectedBgmTrack.name}”`}
-                  onClick={() => requestBgmDelete(selectedBgmTrack)}
-                  disabled={submitting || uploadingBgm || deletingBgmId === selectedBgmTrack.id}
-                >
-                  <Icon name={deletingBgmId === selectedBgmTrack.id ? "loading" : "trash"} size={15} />
-                </button>
-              ) : null}
-            </div>
-            {selectedBgmTrack ? (
-              <div className="bgm-preview">
-                <ProtectedMedia
-                  path={selectedBgmTrack.preview_url}
-                  kind="audio"
-                  backendBaseUrl={backendBaseUrl}
-                  preload="metadata"
-                />
-                <span className="bgm-preview-meta">
-                  <Icon name="audio" size={14} />
-                  {formatFileSize(selectedBgmTrack.file_size)} · {formatDuration(selectedBgmTrack.duration)}
-                </span>
-              </div>
-            ) : null}
-            {bgmLoading ? (
-              <div className="bgm-status-line"><Icon name="loading" size={14} />正在加载背景音乐</div>
-            ) : null}
-            {bgmError ? (
-              <div className="bgm-status-line is-error"><Icon name="alert" size={14} />{bgmError}</div>
-            ) : null}
-            {bgmNotice ? (
-              <div className="bgm-status-line is-success"><Icon name="check" size={14} />{bgmNotice}</div>
-            ) : null}
-          </section>
+          <BgmManager
+            currentUserId={currentUser?.id}
+            selectedBgmId={selectedBgmId}
+            onSelectionChange={setSelectedBgmId}
+            disabled={submitting}
+            idPrefix="template"
+          />
 
           {error ? <div className="form-alert failed">{error}</div> : null}
           {notice ? <div className="form-alert completed">{notice}</div> : null}
@@ -1636,73 +1179,6 @@ export default function TemplateProduction({ currentUser }) {
           </div>
         </div>
       </div> : null}
-
-      {subtitleReplacementPendingDelete ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="modal-panel"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="subtitle-replacement-delete-title"
-          >
-            <div className="modal-heading">
-              <div>
-                <span className="section-kicker">Global Rule</span>
-                <h3 id="subtitle-replacement-delete-title">确认删除敏感词替换？</h3>
-              </div>
-            </div>
-            <div className="modal-body">
-              <p>“{subtitleReplacementPendingDelete.source}”将不再替换为“{subtitleReplacementPendingDelete.replacement}”。</p>
-              <small>此变更会影响所有用户后续创建的视频任务，已创建的任务不受影响。</small>
-            </div>
-            <div className="delete-confirm-actions">
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => setSubtitleReplacementPendingDelete(null)}
-              >取消</button>
-              <button
-                className="danger-action"
-                type="button"
-                onClick={confirmSubtitleReplacementDelete}
-              ><Icon name="trash" size={15} />确认删除</button>
-            </div>
-          </section>
-        </div>
-      ) : null}
-
-      {pendingBgmDelete ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="modal-panel"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="bgm-delete-title"
-          >
-            <div className="modal-heading">
-              <div>
-                <span className="section-kicker">BGM</span>
-                <h3 id="bgm-delete-title">确认删除背景音乐？</h3>
-              </div>
-            </div>
-            <div className="modal-body">
-              <p>“{pendingBgmDelete.name}”将被永久删除，无法恢复。</p>
-            </div>
-            <div className="delete-confirm-actions">
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => setPendingBgmDelete(null)}
-              >取消</button>
-              <button
-                className="danger-action"
-                type="button"
-                onClick={confirmBgmDelete}
-              ><Icon name="trash" size={15} />确认删除</button>
-            </div>
-          </section>
-        </div>
-      ) : null}
 
       {task ? (
         <section className="template-results" aria-labelledby="template-results-title">

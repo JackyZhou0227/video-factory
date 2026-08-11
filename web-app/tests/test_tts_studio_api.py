@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -92,7 +91,7 @@ class TTSStudioApiTests(unittest.TestCase):
         self.assertEqual(voices_response.json(), [edge_voice])
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
-        self.assertRegex(payload["audio_url"], rf"^/api/tasks/[0-9a-f]+/artifacts/[0-9a-f]+/preview$")
+        self.assertRegex(payload["audio_url"], r"^/api/tasks/[0-9a-f]+/artifacts/[0-9a-f]+/preview$")
         task = task_store.get_task(payload["task_id"], self.user_id)
         self.assertEqual(task["task_type"], task_store.TASK_TYPE_VOICE)
         self.assertTrue((self.output_root / "tasks").joinpath(task["created_at"][0:4], task["created_at"][5:7], task["created_at"][8:10], task_store.TASK_TYPE_VOICE, payload["task_id"], "preview_original.mp3").is_file())

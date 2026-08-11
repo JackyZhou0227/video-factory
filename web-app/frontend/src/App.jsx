@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
 import PosterVideo from "./components/PosterVideo";
+import SmartEditing from "./components/SmartEditing";
 import TemplateProduction from "./components/TemplateProduction";
 import TTSStudio from "./components/TTSStudio";
 import TaskCenter from "./components/TaskCenter";
@@ -34,6 +35,12 @@ const NAV_ITEMS = [
     label: "模板量产",
     description: "AI 文案与批量成片",
     icon: "template",
+  },
+  {
+    id: "smart-editing",
+    label: "智能剪辑",
+    description: "关键词素材自动拼接",
+    icon: "smartEdit",
   },
   {
     id: "task-center",
@@ -84,6 +91,13 @@ const PAGE_META = {
     description: "按固定业务模板组织素材与文案，使用 Edge-TTS 和 FFmpeg 批量生成短视频。",
     badge: "本地批量生成",
     badgeIcon: "template",
+  },
+  "smart-editing": {
+    eyebrow: PAGE_NAMES.smartEditing,
+    title: "智能剪辑",
+    description: "粘贴文案和 Agent 生成的有序关键词，为每个关键词上传素材后自动轮询拼接成片。",
+    badge: "智能素材编排",
+    badgeIcon: "smartEdit",
   },
   "task-center": {
     eyebrow: PAGE_NAMES.taskCenter,
@@ -388,6 +402,9 @@ export default function App() {
           </div>
           <div className={`app-main page-panel ${activePage === "template-production" ? "is-active" : ""}`}>
             <TemplateProduction currentUser={currentUser} />
+          </div>
+          <div className={`app-main page-panel ${activePage === "smart-editing" ? "is-active" : ""}`}>
+            <SmartEditing currentUser={currentUser} />
           </div>
           <div className={`app-main page-panel ${activePage === "task-center" ? "is-active" : ""}`}>
             <TaskCenter active={activePage === "task-center"} />

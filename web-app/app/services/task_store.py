@@ -16,12 +16,14 @@ TASK_TYPE_DIGITAL_HUMAN = "digital_human"
 TASK_TYPE_VOICE = "voice_generation"
 TASK_TYPE_TEMPLATE = "template_production"
 TASK_TYPE_POSTER = "poster_video"
+TASK_TYPE_SMART_EDITING = "smart_editing"
 
 TASK_TYPES = {
     TASK_TYPE_DIGITAL_HUMAN,
     TASK_TYPE_VOICE,
     TASK_TYPE_TEMPLATE,
     TASK_TYPE_POSTER,
+    TASK_TYPE_SMART_EDITING,
 }
 GENERATION_TYPES = {"voice", "image", "video"}
 TASK_STATUSES = {
