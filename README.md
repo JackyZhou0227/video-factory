@@ -15,7 +15,31 @@ web-app/
   app/                    FastAPI 后端包
   data/                   SQLite 和本机运行数据，已被 .gitignore 忽略
   frontend/               React + Vite 前端
+    skills/               可随前端打包下载的项目级 Skills 源码
 ```
+
+## 项目 Skills
+
+项目级 Skills 的唯一源码位于 `web-app/frontend/skills/`。这些 Skill 作为前端源码随 Git 管理，不会默认安装或复制到个人的 Agent Skills 目录。
+
+当前包含：
+
+- `web-app/frontend/skills/generate-smart-edit-copy/`：通过简短提问明确短视频需求，根据输入文案生成可直接复制的最终口播文案和有序素材关键词，并与“智能剪辑”页面配套使用。
+
+每个 Skill 使用目录内的 `skill.json` 维护独立 SemVer 版本。修改 Skill 时直接编辑该目录并提升版本号，不需要移动文件或手动制作压缩包。`npm run dev` 和 `npm run build` 会先运行 `web-app/frontend/scripts/package_skills.py`，把最新版生成到 `public/skills/`；Vite 构建后会继续复制到 `dist/skills/`，供智能剪辑页面展示版本并下载。生成的 ZIP 属于构建产物，不提交 Git。
+
+### Skill 版本展示约定
+
+部分 Agent 的技能管理页面只展示 `SKILL.md` frontmatter 中的 `name` 和 `description`，不会读取项目自定义的 `skill.json`。为了让用户在安装后的技能卡片上直接看到版本，`description` 应以 `版本 vX.Y.Z｜` 开头；`skill.json` 继续作为前端下载文件名和项目版本管理的正式数据源。
+
+发布新版本时必须同步修改两处版本号：
+
+- `SKILL.md` 的 `description`，例如 `版本 v1.1.0｜……`；
+- `skill.json` 的 `version`，例如 `"version": "1.1.0"`。
+
+不要把版本号放进 `name`。名称应保持稳定并使用中文业务名称，避免版本升级后技能名称随之变化。Skill 内容和前端页面也应保持 Agent 品牌中立，以便同一个下载包用于不同的 Agent 产品。
+
+下载的 ZIP 内保留完整 Skill 目录，并包含 `skill.json`。用户可以根据下载文件名或该文件中的版本号，与自己当前使用的 Skill 手动比较后决定是否更新；解压后可将完整目录放入所使用 Agent 的 Skills 目录。
 
 ## 部署前准备
 
@@ -80,6 +104,8 @@ cd D:\project\video-factory\web-app\frontend
 npm install
 npm run build
 ```
+
+构建命令会同时打包项目 Skills，因此开发机还需要能够通过 `python` 命令运行当前后端 Python 环境。
 
 ## 下载 Hugging Face 模型
 

@@ -5146,6 +5146,82 @@ a {
   white-space: nowrap;
 }
 
+.smart-skill-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+  padding: 18px 20px;
+  border: 1px solid #ded2e8;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #fbf8fd 0%, #f5eff8 100%);
+}
+
+.smart-skill-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: #eadff0;
+  color: #72528a;
+}
+
+.smart-skill-content {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.smart-skill-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.smart-skill-heading strong {
+  color: var(--text);
+  font-size: 14px;
+}
+
+.smart-skill-version {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #fff;
+  color: #72528a;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.smart-skill-content p,
+.smart-skill-content small {
+  margin: 0;
+}
+
+.smart-skill-content p {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.smart-skill-content small {
+  color: #806f89;
+  font-size: 11px;
+}
+
+.smart-skill-content code {
+  font-size: inherit;
+}
+
+.smart-skill-download {
+  width: auto;
+  margin-top: 0;
+  padding: 0 16px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
 .smart-editing-grid {
   min-width: 0;
   display: grid;
@@ -5513,6 +5589,16 @@ a {
 
   .smart-default-badge {
     white-space: normal;
+  }
+
+  .smart-skill-card {
+    grid-template-columns: auto minmax(0, 1fr);
+    padding: 16px;
+  }
+
+  .smart-skill-download {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   .smart-pacing-grid,

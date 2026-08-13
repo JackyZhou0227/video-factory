@@ -5,6 +5,7 @@ import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
 import { PAGE_NAMES } from "../lib/pageNames";
+import smartEditingSkill from "../../skills/generate-smart-edit-copy/skill.json";
 
 const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
 const MAX_KEYWORDS = 20;
@@ -17,6 +18,8 @@ const PACING_OPTIONS = [
   { value: "standard", label: "标准节奏", description: "每镜头 2.5-4.0 秒" },
   { value: "slow", label: "舒缓节奏", description: "每镜头 4.0-6.0 秒" },
 ];
+const SMART_EDITING_SKILL_FILENAME = `${smartEditingSkill.id}-${smartEditingSkill.version}.zip`;
+const SMART_EDITING_SKILL_DOWNLOAD_URL = `${import.meta.env.BASE_URL}skills/${smartEditingSkill.id}/${SMART_EDITING_SKILL_FILENAME}`;
 
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -405,6 +408,25 @@ export default function SmartEditing({ currentUser }) {
         </div>
         <span className="smart-default-badge"><Icon name="lock" size={14} />9:16 · 云健男声 · BGM 可选</span>
       </div>
+
+      <section className="smart-skill-card" aria-labelledby="smart-skill-title">
+        <span className="smart-skill-icon" aria-hidden="true"><Icon name="wand" size={21} /></span>
+        <div className="smart-skill-content">
+          <div className="smart-skill-heading">
+            <strong id="smart-skill-title">智能剪辑文案与关键词</strong>
+            <span className="smart-skill-version">最新版 v{smartEditingSkill.version}</span>
+          </div>
+          <p>配套 Skill：{smartEditingSkill.summary}。</p>
+          <small>请与您当前使用的下载文件名或 <code>skill.json</code> 手动对比版本。</small>
+        </div>
+        <a
+          className="download-action compact-action smart-skill-download"
+          href={SMART_EDITING_SKILL_DOWNLOAD_URL}
+          download={SMART_EDITING_SKILL_FILENAME}
+        >
+          <Icon name="download" size={15} />下载 Skill v{smartEditingSkill.version}
+        </a>
+      </section>
 
       <div className="smart-editing-grid">
         <div className="smart-editing-column">

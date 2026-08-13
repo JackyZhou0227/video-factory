@@ -1,0 +1,7 @@
+{
+  "id": "generate-smart-edit-copy",
+  "display_name": "智能剪辑文案与关键词",
+  "version": "1.0.0",
+  "released_at": "2026-08-13",
+  "summary": "根据输入内容生成可直接复制的短视频口播文案和有序素材关键词"
+}

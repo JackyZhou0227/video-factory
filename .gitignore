@@ -23,6 +23,7 @@ workflow/
 # Frontend dependencies and build output
 web-app/frontend/node_modules/
 web-app/frontend/dist/
+web-app/frontend/public/skills/
 
 # Local OS/editor files
 .DS_Store

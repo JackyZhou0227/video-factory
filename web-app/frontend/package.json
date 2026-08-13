@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
+    "predev": "python scripts/package_skills.py",
     "dev": "vite",
+    "prebuild": "python scripts/package_skills.py",
     "build": "vite build",
     "preview": "vite preview"
   },
