@@ -10,7 +10,11 @@ from typing import Optional
 
 from fastapi import HTTPException, UploadFile
 
+from app.core import uploads
+
 _voice_lock = asyncio.Lock()
+
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
 
 
 def _root() -> Path:
@@ -108,26 +112,45 @@ async def create_voice_profile(
     voice_dir = _voice_dir(voice_id)
     voice_dir.mkdir(parents=True, exist_ok=True)
 
-    suffix = Path(ref_audio.filename or "").suffix or ".wav"
+    suffix = uploads.validate_upload(
+        ref_audio,
+        allowed_extensions=AUDIO_EXTENSIONS,
+        allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+        max_size=uploads.MAX_AUDIO_FILE_SIZE,
+        default_suffix=".wav",
+        label="参考音频",
+    )
     audio_path = voice_dir / f"reference{suffix}"
-    audio_path.write_bytes(await ref_audio.read())
+    try:
+        await uploads.save_upload(
+            ref_audio,
+            audio_path,
+            allowed_extensions=AUDIO_EXTENSIONS,
+            allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+            max_size=uploads.MAX_AUDIO_FILE_SIZE,
+            default_suffix=".wav",
+            label="参考音频",
+        )
 
-    voice = {
-        "id": voice_id,
-        "name": name.strip(),
-        "language": language.strip() or "Chinese",
-        "ref_text": ref_text.strip(),
-        "audio_filename": audio_path.name,
-        "created_at": _now_iso(),
-        "updated_at": _now_iso(),
-    }
+        voice = {
+            "id": voice_id,
+            "name": name.strip(),
+            "language": language.strip() or "Chinese",
+            "ref_text": ref_text.strip(),
+            "audio_filename": audio_path.name,
+            "created_at": _now_iso(),
+            "updated_at": _now_iso(),
+        }
 
-    async with _voice_lock:
-        data = _load_index()
-        voices = [item for item in data.get("voices", []) if item.get("id") != voice_id]
-        voices.append(voice)
-        data["voices"] = voices
-        _write_index(data)
+        async with _voice_lock:
+            data = _load_index()
+            voices = [item for item in data.get("voices", []) if item.get("id") != voice_id]
+            voices.append(voice)
+            data["voices"] = voices
+            _write_index(data)
+    except Exception:
+        shutil.rmtree(voice_dir, ignore_errors=True)
+        raise
 
     return _with_audio_url(voice)
 
@@ -144,7 +167,16 @@ async def update_voice_profile(
     if not ref_text.strip():
         raise HTTPException(status_code=422, detail="ref_text is required")
 
-    audio_bytes = await ref_audio.read() if ref_audio is not None else None
+    suffix = None
+    if ref_audio is not None:
+        suffix = uploads.validate_upload(
+            ref_audio,
+            allowed_extensions=AUDIO_EXTENSIONS,
+            allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+            max_size=uploads.MAX_AUDIO_FILE_SIZE,
+            default_suffix=".wav",
+            label="参考音频",
+        )
 
     async with _voice_lock:
         data = _load_index()
@@ -157,11 +189,18 @@ async def update_voice_profile(
         voice_dir = _voice_dir(voice_id)
         voice_dir.mkdir(parents=True, exist_ok=True)
 
-        if audio_bytes is not None:
-            suffix = Path(ref_audio.filename or "").suffix or ".wav"
+        if suffix is not None:
             audio_path = voice_dir / f"reference{suffix}"
             old_audio_path = _voice_audio_path(voice)
-            audio_path.write_bytes(audio_bytes)
+            await uploads.save_upload(
+                ref_audio,
+                audio_path,
+                allowed_extensions=AUDIO_EXTENSIONS,
+                allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+                max_size=uploads.MAX_AUDIO_FILE_SIZE,
+                default_suffix=".wav",
+                label="参考音频",
+            )
             if old_audio_path != audio_path and old_audio_path.exists():
                 old_audio_path.unlink()
             voice["audio_filename"] = audio_path.name

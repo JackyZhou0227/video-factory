@@ -12,6 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.api.auth import require_current_user
+from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.services import settings_store, smart_editing, task_store, template_production
 from app.services.tts import EDGE_TTS_MODEL, TTSRequest, tts_service
@@ -21,7 +22,7 @@ router = APIRouter(prefix="/smart-editing", tags=["smart-editing"])
 MIN_SCRIPT_LENGTH = 10
 MAX_SCRIPT_LENGTH = 5000
 MAX_GENERATE_COUNT = 10
-MAX_MATERIAL_FILE_SIZE = 500 * 1024 * 1024
+MAX_MATERIAL_FILE_SIZE = uploads.MAX_VIDEO_FILE_SIZE
 SMART_EDITING_TTS_VOICE_ID = "zh-CN-YunjianNeural"
 SMART_EDITING_TTS_SPEED = 1.0
 SMART_EDITING_TTS_VOLUME = 100
@@ -187,26 +188,25 @@ def _normalize_manifest(
     return sorted(normalized, key=lambda item: item["file_index"])
 
 
-def _validate_uploads(uploads: list[UploadFile], manifest: list[dict[str, Any]]) -> None:
+def _validate_uploads(upload_items: list[UploadFile], manifest: list[dict[str, Any]]) -> None:
     manifest_by_index = {item["file_index"]: item for item in manifest}
-    for index, upload in enumerate(uploads):
+    for index, upload in enumerate(upload_items):
         item = manifest_by_index[index]
-        suffix = Path(upload.filename or "").suffix.lower()
         allowed = (
             template_production.IMAGE_EXTENSIONS
             if item["media_type"] == "image"
             else template_production.VIDEO_EXTENSIONS
         )
-        if suffix not in allowed:
-            raise HTTPException(
-                status_code=422,
-                detail=f"不支持的{item['media_type']}格式：{upload.filename or '无文件名'}",
-            )
-        if upload.size is not None and upload.size > MAX_MATERIAL_FILE_SIZE:
-            raise HTTPException(
-                status_code=422,
-                detail=f"素材文件不能超过 {MAX_MATERIAL_FILE_SIZE // (1024 * 1024)} MB",
-            )
+        allowed_mime_types = uploads.IMAGE_MIME_TYPES if item["media_type"] == "image" else uploads.VIDEO_MIME_TYPES
+        max_size = uploads.MAX_IMAGE_FILE_SIZE if item["media_type"] == "image" else uploads.MAX_VIDEO_FILE_SIZE
+        uploads.validate_upload(
+            upload,
+            allowed_extensions=allowed,
+            allowed_mime_types=allowed_mime_types,
+            max_size=max_size,
+            filename=upload.filename or item["name"],
+            label=item["media_type"],
+        )
 
 
 def _task_child_dir(task_dir: Path, name: str) -> Path:
@@ -244,25 +244,25 @@ def _resolve_bgm_track(
     return bgm_path, track["name"]
 
 
-async def _save_upload(upload: UploadFile, destination: Path) -> int:
-    total = 0
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        with destination.open("wb") as output:
-            while True:
-                chunk = await upload.read(1024 * 1024)
-                if not chunk:
-                    break
-                total += len(chunk)
-                if total > MAX_MATERIAL_FILE_SIZE:
-                    raise ValueError(
-                        f"素材文件不能超过 {MAX_MATERIAL_FILE_SIZE // (1024 * 1024)} MB"
-                    )
-                output.write(chunk)
-    except Exception:
-        destination.unlink(missing_ok=True)
-        raise
-    return total
+async def _save_upload(
+    upload: UploadFile,
+    destination: Path,
+    *,
+    media_type: str,
+    filename: str | None = None,
+) -> int:
+    allowed = template_production.IMAGE_EXTENSIONS if media_type == "image" else template_production.VIDEO_EXTENSIONS
+    allowed_mime_types = uploads.IMAGE_MIME_TYPES if media_type == "image" else uploads.VIDEO_MIME_TYPES
+    max_size = uploads.MAX_IMAGE_FILE_SIZE if media_type == "image" else uploads.MAX_VIDEO_FILE_SIZE
+    return await uploads.save_upload(
+        upload,
+        destination,
+        allowed_extensions=allowed,
+        allowed_mime_types=allowed_mime_types,
+        max_size=max_size,
+        filename=filename,
+        label=media_type,
+    )
 
 
 @router.post("/tasks")
@@ -365,7 +365,12 @@ async def create_task(
             material_id = uuid.uuid4().hex
             input_path = (input_dir / f"{material_id}{suffix}").resolve()
             input_path.relative_to(input_dir.resolve())
-            await _save_upload(upload, input_path)
+            await _save_upload(
+                upload,
+                input_path,
+                media_type=item["media_type"],
+                filename=upload.filename or item["name"],
+            )
             saved_materials.append(
                 {
                     "id": material_id,
@@ -390,6 +395,12 @@ async def create_task(
             failed_count=generate_count,
             finished=True,
         )
+        for item in saved_materials:
+            Path(item["input_path"]).unlink(missing_ok=True)
+        if bgm_path is not None:
+            bgm_path.unlink(missing_ok=True)
+        if isinstance(exc, HTTPException):
+            raise
         raise HTTPException(status_code=422, detail=str(exc) or "保存智能剪辑素材失败") from exc
 
     task_items = [

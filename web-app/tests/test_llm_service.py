@@ -37,6 +37,30 @@ class OpenAICompatibleProviderTests(unittest.IsolatedAsyncioTestCase):
                 [LLMMessage(role="user", content="hello")],
             )
 
+    async def test_private_ip_target_is_rejected(self):
+        provider = OpenAICompatibleProvider(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+        with self.assertRaisesRegex(LLMServiceError, "不允许访问回环、私网"):
+            await provider.generate(
+                LLMConfig(base_url="http://127.0.0.1:8080/v1", api_key="", model="demo"),
+                [LLMMessage(role="user", content="hello")],
+            )
+
+    async def test_private_hostname_is_rejected(self):
+        provider = OpenAICompatibleProvider(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+        with self.assertRaisesRegex(LLMServiceError, "不允许使用本机或局域网"):
+            await provider.generate(
+                LLMConfig(base_url="http://localhost:8080/v1", api_key="", model="demo"),
+                [LLMMessage(role="user", content="hello")],
+            )
+
+    async def test_url_credentials_are_rejected(self):
+        provider = OpenAICompatibleProvider(transport=httpx.MockTransport(lambda request: httpx.Response(200)))
+        with self.assertRaisesRegex(LLMServiceError, "不允许包含用户名或密码"):
+            await provider.generate(
+                LLMConfig(base_url="https://user:password@example.com/v1", api_key="", model="demo"),
+                [LLMMessage(role="user", content="hello")],
+            )
+
     async def test_http_error_does_not_include_api_key(self):
         async def handler(request: httpx.Request) -> httpx.Response:
             return httpx.Response(401, json={"error": {"message": "invalid credential: top-secret"}})

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from app.api.auth import require_current_user
+from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.services import task_store, tts_qwen, voice_profiles
 from app.services.tts import (
@@ -29,6 +30,7 @@ NORMAL_SPEECH_RATE = 1.0
 MAX_SPEECH_RATE = 1.5
 _USER_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 _AUDIO_SUFFIX_PATTERN = re.compile(r"^\.[A-Za-z0-9]{1,10}$")
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
 
 
 def _user_id(user: dict) -> str:
@@ -456,6 +458,16 @@ async def preview_voice_clone_tts(
 
     _user_id(user)
     _normalize_speech_rate(speech_rate)
+    reference_suffix = None
+    if not voice_profile_id:
+        reference_suffix = uploads.validate_upload(
+            ref_audio,
+            allowed_extensions=AUDIO_EXTENSIONS,
+            allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+            max_size=uploads.MAX_AUDIO_FILE_SIZE,
+            default_suffix=".wav",
+            label="参考音频",
+        )
     if voice_profile_id:
         voice = voice_profiles.get_voice_profile(voice_profile_id)
         if voice is None:
@@ -474,9 +486,20 @@ async def preview_voice_clone_tts(
     )
     if not voice_profile_id:
         try:
-            reference_audio = audio_dir / f"reference{_safe_audio_suffix(ref_audio.filename)}"
-            reference_audio.write_bytes(await ref_audio.read())
+            reference_audio = audio_dir / f"reference{reference_suffix}"
+            await uploads.save_upload(
+                ref_audio,
+                reference_audio,
+                allowed_extensions=AUDIO_EXTENSIONS,
+                allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+                max_size=uploads.MAX_AUDIO_FILE_SIZE,
+                default_suffix=".wav",
+                label="参考音频",
+            )
             reference_text = ref_text.strip() if ref_text else None
+        except HTTPException as exc:
+            _fail_voice_task(task_id, exc)
+            raise
         except Exception as exc:
             _fail_voice_task(task_id, exc)
             raise HTTPException(status_code=500, detail="保存参考音频失败") from exc

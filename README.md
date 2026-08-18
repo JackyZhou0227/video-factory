@@ -254,7 +254,7 @@ cd D:\project\video-factory\web-app
 
 ```text
 用户名：admin
-密码：12345678
+密码：脚本会生成并打印一次性随机密码
 ```
 
 `init_default_admin.bat` 只会在没有任何账号时创建初始管理员；用户表已有账号时，脚本不会覆盖已有数据。
@@ -262,7 +262,7 @@ cd D:\project\video-factory\web-app
 如果需要自定义用户名或密码，可以直接调用底层脚本：
 
 ```powershell
-python scripts\init_admin.py --username admin --password 12345678 --display-name admin
+python scripts\init_admin.py --username admin --display-name admin
 ```
 
 如果不传 `--password`，底层脚本会自动生成一个随机密码并打印出来。

@@ -14,6 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api.auth import require_current_user
+from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.models.template_definition import (
     MAX_TOTAL_MATERIAL_COUNT,
@@ -38,6 +39,7 @@ VIDEO_EXTENSIONS = template_production.VIDEO_EXTENSIONS
 IMAGE_EXTENSIONS = template_production.IMAGE_EXTENSIONS
 BGM_EXTENSIONS = {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
 MAX_BGM_FILE_SIZE = 20 * 1024 * 1024
+MAX_TEMPLATE_FILE_SIZE = uploads.MAX_JSON_FILE_SIZE
 PIPELINE_CAPABILITIES = {
     "generic_concat_v1": {},
     "zhongyi_visit_v1": {},
@@ -118,12 +120,20 @@ def get_template(template_id: str, user: dict = Depends(require_current_user)):
 
 @router.post("/templates/import", status_code=201)
 async def import_template(file: UploadFile = File(...), user: dict = Depends(require_current_user)):
-    payload = await file.read(template_registry.MAX_TEMPLATE_JSON_BYTES + 1)
-    if len(payload) > template_registry.MAX_TEMPLATE_JSON_BYTES:
-        raise HTTPException(
-            status_code=422,
-            detail=f"模板 JSON 不能超过 {template_registry.MAX_TEMPLATE_JSON_BYTES // 1024} KiB",
+    import tempfile
+
+    with tempfile.TemporaryDirectory(prefix="video-factory-template-") as temp_dir:
+        temp_path = Path(temp_dir) / "template.json"
+        await uploads.save_upload(
+            file,
+            temp_path,
+            allowed_extensions={".json"},
+            allowed_mime_types=uploads.JSON_MIME_TYPES,
+            max_size=min(template_registry.MAX_TEMPLATE_JSON_BYTES, MAX_TEMPLATE_FILE_SIZE),
+            default_suffix=".json",
+            label="模板 JSON",
         )
+        payload = temp_path.read_bytes()
     try:
         definition = template_registry.import_template_json(user["id"], payload)
     except template_registry.TemplateConflictError as exc:
@@ -245,30 +255,39 @@ async def upload_bgm_track(
     file: UploadFile = File(...),
     user: dict = Depends(require_current_user),
 ):
-    payload = await file.read(MAX_BGM_FILE_SIZE + 1)
-    if len(payload) > MAX_BGM_FILE_SIZE:
-        raise HTTPException(
-            status_code=422,
-            detail=f"背景音乐文件不能超过 {MAX_BGM_FILE_SIZE // (1024 * 1024)} MB",
-        )
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in BGM_EXTENSIONS:
-        raise HTTPException(
-            status_code=422,
-            detail=f"不支持的背景音乐格式：{suffix or '无扩展名'}",
-        )
+    suffix = uploads.validate_upload(
+        file,
+        allowed_extensions=BGM_EXTENSIONS,
+        allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+        max_size=MAX_BGM_FILE_SIZE,
+        default_suffix=".mp3",
+        label="背景音乐",
+    )
 
     bgm_id = uuid.uuid4().hex
     output_root = resolve_output_dir(app_config)
     bgm_dir = output_root / "bgm" / user["id"]
     bgm_dir.mkdir(parents=True, exist_ok=True)
     file_path = bgm_dir / f"{bgm_id}{suffix}"
-    file_path.write_bytes(payload)
-
     try:
+        file_size = await uploads.save_upload(
+            file,
+            file_path,
+            allowed_extensions=BGM_EXTENSIONS,
+            allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+            max_size=MAX_BGM_FILE_SIZE,
+            default_suffix=".mp3",
+            label="背景音乐",
+        )
         duration = await asyncio.to_thread(template_production.probe_duration, file_path)
     except template_production.TemplateProductionError:
         duration = 0.0
+    except HTTPException:
+        file_path.unlink(missing_ok=True)
+        raise
+    except Exception:
+        file_path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="保存背景音乐失败") from None
 
     relative_path = f"bgm/{user['id']}/{bgm_id}{suffix}"
     safe_name = _safe_filename(file.filename or f"bgm{suffix}", f"bgm{suffix}")
@@ -279,11 +298,14 @@ async def upload_bgm_track(
             name=safe_name,
             relative_path=relative_path,
             duration=duration,
-            file_size=len(payload),
+            file_size=file_size,
         )
     except ValueError as exc:
         file_path.unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    except Exception:
+        file_path.unlink(missing_ok=True)
+        raise
     return {"bgm_track": _bgm_track_payload(track)}
 
 
@@ -555,10 +577,17 @@ async def create_task(
     for index, upload in enumerate(materials):
         item = manifest_by_index[index]
         media_type = item["media_type"]
-        suffix = Path(upload.filename or "").suffix.lower()
         allowed = IMAGE_EXTENSIONS if media_type == "image" else VIDEO_EXTENSIONS
-        if suffix not in allowed:
-            raise HTTPException(status_code=422, detail=f"不支持的{media_type}格式：{upload.filename}")
+        allowed_mime_types = uploads.IMAGE_MIME_TYPES if media_type == "image" else uploads.VIDEO_MIME_TYPES
+        max_size = uploads.MAX_IMAGE_FILE_SIZE if media_type == "image" else uploads.MAX_VIDEO_FILE_SIZE
+        suffix = uploads.validate_upload(
+            upload,
+            allowed_extensions=allowed,
+            allowed_mime_types=allowed_mime_types,
+            max_size=max_size,
+            filename=upload.filename or item.get("name"),
+            label=media_type,
+        )
 
     # Template production is intentionally portrait-only. Accepting the legacy
     # video_config.ratio field keeps older clients compatible without allowing
@@ -597,20 +626,38 @@ async def create_task(
     input_dir = task_dir / "input"
     output_dir = task_dir / "output"
     temp_dir = task_dir / "temp"
+    saved_materials: list[dict[str, Any]] = []
     try:
         input_dir.mkdir(parents=True, exist_ok=True)
         output_dir.mkdir(parents=True, exist_ok=True)
         temp_dir.mkdir(parents=True, exist_ok=True)
 
-        saved_materials: list[dict[str, Any]] = []
         for index, upload in enumerate(materials):
             item = manifest_by_index[index]
             media_type = item["media_type"]
-            suffix = Path(upload.filename or "").suffix.lower()
+            allowed = IMAGE_EXTENSIONS if media_type == "image" else VIDEO_EXTENSIONS
+            allowed_mime_types = uploads.IMAGE_MIME_TYPES if media_type == "image" else uploads.VIDEO_MIME_TYPES
+            max_size = uploads.MAX_IMAGE_FILE_SIZE if media_type == "image" else uploads.MAX_VIDEO_FILE_SIZE
+            suffix = uploads.validate_upload(
+                upload,
+                allowed_extensions=allowed,
+                allowed_mime_types=allowed_mime_types,
+                max_size=max_size,
+                filename=upload.filename or item.get("name"),
+                label=media_type,
+            )
             material_id = uuid.uuid4().hex
             safe_name = _safe_filename(upload.filename or f"material_{index}{suffix}", f"material_{index}{suffix}")
             input_path = input_dir / f"{material_id}{suffix}"
-            input_path.write_bytes(await upload.read())
+            await uploads.save_upload(
+                upload,
+                input_path,
+                allowed_extensions=allowed,
+                allowed_mime_types=allowed_mime_types,
+                max_size=max_size,
+                filename=upload.filename or item.get("name"),
+                label=media_type,
+            )
             saved_materials.append(
                 {
                     "id": material_id,
@@ -620,6 +667,20 @@ async def create_task(
                     "input_path": input_path,
                 }
             )
+    except HTTPException as exc:
+        task_store.update_task(
+            task_id,
+            status="failed",
+            progress=0,
+            message="保存模板量产素材失败",
+            error=str(exc.detail),
+            success_count=0,
+            failed_count=generate_count,
+            finished=True,
+        )
+        for item in saved_materials:
+            Path(item["input_path"]).unlink(missing_ok=True)
+        raise
     except Exception as exc:
         task_store.update_task(
             task_id,
@@ -631,6 +692,8 @@ async def create_task(
             failed_count=generate_count,
             finished=True,
         )
+        for item in saved_materials:
+            Path(item["input_path"]).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="保存模板素材失败") from exc
 
     task_items = [

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import require_current_user
 from app.core.config import ROOT, app_config
+from app.core import uploads
 from app.services import runninghub, settings_store, task_store
 from app.services.llm import LLMConfig, LLMServiceError, llm_service
 
@@ -17,6 +18,8 @@ router = APIRouter(dependencies=[Depends(require_current_user)])
 
 RUNNINGHUB_TASKS_URL = "https://www.runninghub.cn/bill-task"
 RUNNINGHUB_WORKS_URL = "https://www.runninghub.cn/user-center"
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
+AUDIO_EXTENSIONS = {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
 
 # In-memory task store: task_id -> task state dict
 _tasks: dict[str, dict] = {}
@@ -168,6 +171,22 @@ async def generate_video(
         instance_type=runninghub_instance_type,
     )
     output_root = _output_root(cfg)
+    image_suffix = uploads.validate_upload(
+        image,
+        allowed_extensions=IMAGE_EXTENSIONS,
+        allowed_mime_types=uploads.IMAGE_MIME_TYPES,
+        max_size=uploads.MAX_IMAGE_FILE_SIZE,
+        default_suffix=".jpg",
+        label="图片",
+    )
+    audio_suffix = uploads.validate_upload(
+        audio,
+        allowed_extensions=AUDIO_EXTENSIONS,
+        allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+        max_size=uploads.MAX_AUDIO_FILE_SIZE,
+        default_suffix=".wav",
+        label="音频",
+    )
 
     task_id = uuid.uuid4().hex
     task_record = task_store.create_task(
@@ -181,11 +200,41 @@ async def generate_video(
     )
     task_dir = Path(task_record["storage_path"])
 
-    image_path = task_dir / f"character{Path(image.filename or '').suffix or '.jpg'}"
-    audio_path = task_dir / f"input_audio{Path(audio.filename or '').suffix or '.wav'}"
+    image_path = task_dir / f"character{image_suffix}"
+    audio_path = task_dir / f"input_audio{audio_suffix}"
     try:
-        image_path.write_bytes(await image.read())
-        audio_path.write_bytes(await audio.read())
+        await uploads.save_upload(
+            image,
+            image_path,
+            allowed_extensions=IMAGE_EXTENSIONS,
+            allowed_mime_types=uploads.IMAGE_MIME_TYPES,
+            max_size=uploads.MAX_IMAGE_FILE_SIZE,
+            default_suffix=".jpg",
+            label="图片",
+        )
+        await uploads.save_upload(
+            audio,
+            audio_path,
+            allowed_extensions=AUDIO_EXTENSIONS,
+            allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+            max_size=uploads.MAX_AUDIO_FILE_SIZE,
+            default_suffix=".wav",
+            label="音频",
+        )
+    except HTTPException as exc:
+        task_store.update_task(
+            task_id,
+            status="failed",
+            progress=0,
+            message="保存数字人输入素材失败",
+            error=str(exc.detail),
+            success_count=0,
+            failed_count=1,
+            finished=True,
+        )
+        image_path.unlink(missing_ok=True)
+        audio_path.unlink(missing_ok=True)
+        raise
     except Exception as exc:
         task_store.update_task(
             task_id,
@@ -197,6 +246,8 @@ async def generate_video(
             failed_count=1,
             finished=True,
         )
+        image_path.unlink(missing_ok=True)
+        audio_path.unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="保存输入素材失败") from exc
 
     _tasks[task_id] = {

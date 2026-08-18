@@ -9,11 +9,10 @@ echo Video Factory - Initial Admin
 echo ==============================================
 echo.
 echo Username: admin
-echo Password: 12345678
-echo.
+echo Password: generated randomly and printed by the script.
 
 pushd "%APP_DIR%"
-python scripts\init_admin.py --username admin --password 12345678 --display-name admin
+python scripts\init_admin.py --username admin --display-name admin
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 

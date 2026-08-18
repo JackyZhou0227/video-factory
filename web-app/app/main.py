@@ -4,7 +4,6 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
@@ -17,6 +16,7 @@ from app.api.template_production import router as template_production_router
 from app.api.tasks import router as tasks_router
 from app.api.tts_studio import router as tts_studio_router
 from app.core.config import ROOT, app_config
+from app.core.security import install_security_middleware
 from app.services import auth_store, settings_store, task_store
 from app.services.tts import tts_service
 
@@ -44,16 +44,7 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    application.add_middleware(
-        CORSMiddleware,
-        allow_origins=[
-            "http://127.0.0.1:5173",
-            "http://localhost:5173",
-        ],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
+    install_security_middleware(application, app_config)
 
     application.include_router(auth_router, prefix="/api")
     application.include_router(admin_router, prefix="/api")

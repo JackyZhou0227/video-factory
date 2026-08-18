@@ -30,6 +30,49 @@ llm:
   model: ""
 
 server:
-  host: "0.0.0.0"
+  # Production default: only expose the local machine. Put the public HTTPS
+  # tunnel/reverse proxy in front of this process.
+  host: "127.0.0.1"
   port: 18888
+  environment: "production" # production | development
+  reload: false # only honored in development
   output_dir: "output"
+
+security:
+  # Hostnames accepted in the HTTP Host header. Do not use "*" in production.
+  # Add your public Peanut Shell hostname when the tunnel is enabled.
+  allowed_hosts:
+    - "127.0.0.1"
+    - "localhost"
+    # - "your-public-host.example.com"
+
+  # Same-origin production deployments need no CORS entries. For a separate
+  # Vite dev server, use the local origins below or set your own allow-list.
+  cors_allowed_origins: []
+  # - "http://127.0.0.1:5173"
+  # - "http://localhost:5173"
+
+  # Reject oversized uploads before the business routes process them.
+  # 512 MiB preserves the existing largest upload use case; lower this if
+  # your deployment does not need large video uploads.
+  max_request_body_bytes: 536870912
+
+  # Double-submit CSRF protection for browser cookie sessions.
+  # GET, HEAD, OPTIONS and /api/health remain exempt when enabled.
+  csrf_enabled: true
+  csrf_cookie_name: "vf_csrf"
+  csrf_header_name: "X-CSRF-Token"
+  csrf_cookie_secure: true
+  csrf_cookie_samesite: "lax"
+  csrf_exempt_paths:
+    - "/api/health"
+
+  # LLM outbound requests reject loopback/private/link-local targets by default.
+  # Set VF_LLM_ALLOW_PRIVATE_HOSTS=true only for a deliberately configured
+  # internal LLM service. Optional comma-separated exact host allow-list:
+  # VF_LLM_ALLOWED_HOSTS=api.openai.com,model.example.com
+
+  # Enable only when the public entry point is HTTPS and HSTS is desired.
+  hsts_enabled: false
+  # Keep empty until the bundled frontend has been verified against the policy.
+  content_security_policy: ""

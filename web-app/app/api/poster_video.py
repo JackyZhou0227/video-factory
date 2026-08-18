@@ -9,6 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
 from app.api.auth import require_current_user
+from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.services import poster_video, task_store
 
@@ -132,10 +133,17 @@ async def generate_poster_videos(
 
     allowed_extensions = VIDEO_EXTENSIONS if media_type == "video" else IMAGE_EXTENSIONS
     default_suffix = ".mp4" if media_type == "video" else ".jpg"
+    allowed_mime_types = uploads.VIDEO_MIME_TYPES if media_type == "video" else uploads.IMAGE_MIME_TYPES
+    max_size = uploads.MAX_VIDEO_FILE_SIZE if media_type == "video" else uploads.MAX_IMAGE_FILE_SIZE
     for asset in assets:
-        suffix = Path(asset.filename or "").suffix.lower() or default_suffix
-        if suffix not in allowed_extensions:
-            raise HTTPException(status_code=422, detail=f"Unsupported {media_type} format: {asset.filename}")
+        uploads.validate_upload(
+            asset,
+            allowed_extensions=allowed_extensions,
+            allowed_mime_types=allowed_mime_types,
+            max_size=max_size,
+            default_suffix=default_suffix,
+            label=media_type,
+        )
 
     task_id = uuid.uuid4().hex
     task_record = task_store.create_task(
@@ -164,7 +172,15 @@ async def generate_poster_videos(
             file_id = uuid.uuid4().hex
             safe_name = _safe_filename(asset.filename or f"{media_type}_{index}{suffix}", f"{media_type}_{index}{suffix}")
             input_path = input_dir / f"{file_id}{suffix}"
-            input_path.write_bytes(await asset.read())
+            await uploads.save_upload(
+                asset,
+                input_path,
+                allowed_extensions=allowed_extensions,
+                allowed_mime_types=allowed_mime_types,
+                max_size=max_size,
+                default_suffix=default_suffix,
+                label=media_type,
+            )
 
             output_name = f"{Path(safe_name).stem}_{file_id[:8]}_{output_label}{output_suffix}"
             output_path = output_dir / output_name
@@ -190,7 +206,23 @@ async def generate_poster_videos(
             failed_count=len(assets),
             finished=True,
         )
+        for saved_file in locals().get("saved_files", []):
+            Path(saved_file["input_path"]).unlink(missing_ok=True)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except HTTPException as exc:
+        task_store.update_task(
+            task_id,
+            status="failed",
+            progress=0,
+            message="保存大字报任务素材失败",
+            error=str(exc.detail),
+            success_count=0,
+            failed_count=len(assets),
+            finished=True,
+        )
+        for saved_file in locals().get("saved_files", []):
+            Path(saved_file["input_path"]).unlink(missing_ok=True)
+        raise
     except Exception as exc:
         task_store.update_task(
             task_id,
@@ -202,6 +234,8 @@ async def generate_poster_videos(
             failed_count=len(assets),
             finished=True,
         )
+        for saved_file in locals().get("saved_files", []):
+            Path(saved_file["input_path"]).unlink(missing_ok=True)
         raise HTTPException(status_code=500, detail="保存任务素材失败") from exc
 
     _tasks[task_id] = _new_task(user_id=user["id"], task_dir=task_dir, files=saved_files, media_type=media_type)

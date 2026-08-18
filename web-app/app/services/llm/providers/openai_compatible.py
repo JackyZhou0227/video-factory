@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import ipaddress
+import os
+import socket
 import ssl
 from typing import Sequence
 from urllib.parse import urlparse
@@ -29,6 +32,47 @@ class OpenAICompatibleProvider:
         if value.endswith("/chat/completions"):
             return value
         return f"{value}/chat/completions"
+
+    @staticmethod
+    def _private_hosts_allowed() -> bool:
+        value = os.getenv("VF_LLM_ALLOW_PRIVATE_HOSTS", "")
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+
+    @staticmethod
+    def _allowed_hosts() -> set[str]:
+        value = os.getenv("VF_LLM_ALLOWED_HOSTS", "")
+        return {item.strip().lower().rstrip(".") for item in value.split(",") if item.strip()}
+
+    @classmethod
+    def _validate_outbound_target(cls, endpoint: str, *, resolve_dns: bool) -> None:
+        parsed = urlparse(endpoint)
+        hostname = (parsed.hostname or "").strip().lower().rstrip(".")
+        if not hostname:
+            raise LLMServiceError("LLM base_url 缺少主机名")
+        if parsed.username or parsed.password:
+            raise LLMServiceError("LLM base_url 不允许包含用户名或密码")
+
+        allowed_hosts = cls._allowed_hosts()
+        if allowed_hosts and hostname not in allowed_hosts:
+            raise LLMServiceError("LLM 服务地址不在允许的主机白名单中")
+        if cls._private_hosts_allowed() or hostname in allowed_hosts:
+            return
+
+        try:
+            addresses = {ipaddress.ip_address(hostname)}
+        except ValueError:
+            if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(".local"):
+                raise LLMServiceError("LLM 服务地址不允许使用本机或局域网主机名") from None
+            if not resolve_dns:
+                return
+            try:
+                infos = socket.getaddrinfo(hostname, parsed.port or (443 if parsed.scheme == "https" else 80), type=socket.SOCK_STREAM)
+            except socket.gaierror as exc:
+                raise LLMServiceError("无法解析 LLM 服务域名，请检查 Base URL 或 DNS") from exc
+            addresses = {ipaddress.ip_address(info[4][0]) for info in infos}
+
+        if any(address.is_private or address.is_loopback or address.is_link_local or address.is_reserved or address.is_multicast or address.is_unspecified for address in addresses):
+            raise LLMServiceError("LLM 服务地址不允许访问回环、私网、链路本地或保留网络")
 
     @staticmethod
     def _target_label(endpoint: str) -> str:
@@ -85,6 +129,7 @@ class OpenAICompatibleProvider:
             "max_tokens": max(1, min(8192, int(max_tokens))),
         }
         endpoint = self._endpoint(config.base_url)
+        self._validate_outbound_target(endpoint, resolve_dns=self._transport is None)
         target = self._target_label(endpoint)
 
         try:

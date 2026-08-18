@@ -60,14 +60,44 @@ export function buildApiUrl(path, baseUrl = getBackendBaseUrl()) {
   return buildBackendUrl(path, normalizedBaseUrl);
 }
 
+function getCookieValue(name) {
+  if (!isBrowser()) return "";
+  const prefix = `${encodeURIComponent(name)}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : "";
+}
+
+function withCsrfHeader(options) {
+  const requestOptions = { ...(options || {}) };
+  const method = String(requestOptions.method || "GET").toUpperCase();
+  if (!["POST", "PUT", "PATCH", "DELETE"].includes(method)) return requestOptions;
+
+  const csrfToken = getCookieValue("vf_csrf");
+  if (!csrfToken) return requestOptions;
+
+  return {
+    ...requestOptions,
+    headers: {
+      ...(requestOptions.headers || {}),
+      "X-CSRF-Token": csrfToken,
+    },
+  };
+}
+
 export async function apiFetch(path, options, baseUrl = getBackendBaseUrl()) {
   let requestUrl = "";
 
   try {
     requestUrl = buildApiUrl(path, baseUrl);
+    const requestOptions = withCsrfHeader(options);
+    const isAuthRequest = String(path || "").startsWith("/api/auth/");
     return await fetch(requestUrl, {
+      ...requestOptions,
       credentials: "include",
-      ...(options || {}),
+      cache: isAuthRequest ? "no-store" : requestOptions.cache,
     });
   } catch (err) {
     if (err?.name === "AbortError" || !requestUrl) throw err;

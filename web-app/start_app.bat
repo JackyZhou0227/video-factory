@@ -3,14 +3,17 @@ setlocal
 chcp 65001 >nul 2>&1
 
 set "APP_DIR=%~dp0"
-set "APP_PORT=18888"
+if not defined APP_HOST set "APP_HOST=127.0.0.1"
+if not defined APP_PORT set "APP_PORT=18888"
+set "VIDEO_FACTORY_ENV=production"
+set "VIDEO_FACTORY_RELOAD=0"
 set "FRONTEND_DIST=%APP_DIR%frontend\dist"
 
 echo ==============================================
 echo Video Factory - App
 echo ==============================================
 echo.
-echo Frontend + API: http://127.0.0.1:%APP_PORT%
+echo Frontend + API: http://%APP_HOST%:%APP_PORT%
 echo.
 
 if not exist "%FRONTEND_DIST%\index.html" (
@@ -42,7 +45,7 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%APP_PORT% .*LISTENIN
 )
 
 pushd "%APP_DIR%"
-python -m uvicorn main:app --host 0.0.0.0 --port %APP_PORT%
+python -m uvicorn main:app --host %APP_HOST% --port %APP_PORT%
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 

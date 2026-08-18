@@ -2,7 +2,12 @@ import { apiFetch } from "./backend";
 
 async function readApiError(response, fallback) {
   const data = await response.json().catch(() => ({}));
-  return data.detail || fallback || `HTTP ${response.status}`;
+  const message = data.detail || fallback || `HTTP ${response.status}`;
+  const retryAfter = Number.parseInt(response.headers.get("Retry-After") || "", 10);
+  if (response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0) {
+    return `${message}（约 ${retryAfter} 秒后可重试）`;
+  }
+  return message;
 }
 
 export async function getCurrentUser() {
