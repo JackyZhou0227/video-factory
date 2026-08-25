@@ -9,7 +9,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from sqlalchemy import func, select, update
+from sqlalchemy.orm import Session as OrmSession
+
 from app.core.config import app_config, resolve_output_dir
+from app.db.models import GenerationTask, User
 from app.services import settings_store
 
 TASK_TYPE_DIGITAL_HUMAN = "digital_human"
@@ -249,8 +253,14 @@ def task_directory(
     return path
 
 
-def _row_to_record(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
-    record = dict(row)
+def _row_to_record(row: sqlite3.Row | dict[str, Any] | GenerationTask) -> dict[str, Any]:
+    if isinstance(row, (sqlite3.Row, dict)):
+        record = dict(row)
+    else:
+        record = {
+            column: getattr(row, column)
+            for column in TASK_COLUMNS.split(", ")
+        }
     record["extra_info"] = _json_loads(record.pop("extra_info_json", "{}"), {})
     record["artifacts"] = _json_loads(record.pop("artifacts_json", "[]"), [])
     return record
@@ -260,18 +270,19 @@ def _ensure_db() -> None:
     settings_store.init_db()
 
 
-def _task_owner_snapshot(conn: sqlite3.Connection, user: dict[str, Any]) -> tuple[str, str]:
+def _orm_session() -> OrmSession:
+    return settings_store._orm_session()
+
+
+def _task_owner_snapshot(session: OrmSession, user: dict[str, Any]) -> tuple[str, str]:
     user_id = str(user.get("id") or "").strip()
     if not user_id:
         raise ValueError("user id is required")
-    row = conn.execute(
-        "SELECT username, display_name FROM users WHERE id = ?",
-        (user_id,),
-    ).fetchone()
-    if row is None:
+    owner = session.scalar(select(User).where(User.id == user_id))
+    if owner is None:
         raise ValueError("task owner does not exist")
-    username = str(row["username"] or user_id)
-    return username, str(row["display_name"] or username)
+    username = str(owner.username or user_id)
+    return username, str(owner.display_name or username)
 
 
 def _artifact_counts(artifacts: Iterable[dict[str, Any]]) -> tuple[int, int]:
@@ -343,8 +354,8 @@ def create_task(
     created_at = _normalize_timestamp(created_at or _now_iso())
     normalized_extra_info = _normalize_extra_info(extra_info)
     _ensure_db()
-    with settings_store._connect() as conn:
-        username, display_name = _task_owner_snapshot(conn, user)
+    with _orm_session() as session:
+        username, display_name = _task_owner_snapshot(session, user)
 
     storage_path = storage_path or task_directory(
         task_type,
@@ -361,56 +372,48 @@ def create_task(
     now = _now_iso()
     initial_artifacts = _normalize_artifacts(artifacts or [], storage_path=storage_path)
     success_count, failed_count = _artifact_counts(initial_artifacts)
-    placeholders = ", ".join("?" for _ in range(20))
-    with settings_store._connect() as conn:
-        conn.execute(
-            f"INSERT INTO generation_tasks ({TASK_COLUMNS}) VALUES ({placeholders})",
-            (
-                task_id,
-                str(user["id"]),
-                username,
-                display_name,
-                task_type,
-                generation_type,
-                requested_count,
-                success_count,
-                failed_count,
-                status,
-                0,
-                message,
-                None,
-                str(storage_path),
-                _json_dumps(normalized_extra_info),
-                _json_dumps(initial_artifacts),
-                created_at,
-                None,
-                now if status in TERMINAL_STATUSES else None,
-                now,
-            ),
+    with _orm_session() as session:
+        task = GenerationTask(
+            id=task_id,
+            user_id=str(user["id"]),
+            creator_username=username,
+            creator_display_name=display_name,
+            task_type=task_type,
+            generation_type=generation_type,
+            requested_count=requested_count,
+            success_count=success_count,
+            failed_count=failed_count,
+            status=status,
+            progress=0,
+            message=message,
+            error=None,
+            storage_path=str(storage_path),
+            extra_info_json=_json_dumps(normalized_extra_info),
+            artifacts_json=_json_dumps(initial_artifacts),
+            created_at=created_at,
+            started_at=None,
+            finished_at=now if status in TERMINAL_STATUSES else None,
+            updated_at=now,
         )
-        row = conn.execute(
-            f"SELECT {TASK_COLUMNS} FROM generation_tasks WHERE id = ?",
-            (task_id,),
-        ).fetchone()
-    return _row_to_record(row)
+        session.add(task)
+        session.flush()
+    return _row_to_record(task)
 
 
-def _fetch_row(conn: sqlite3.Connection, task_id: str, user_id: Optional[str] = None) -> sqlite3.Row | None:
-    query = f"SELECT {TASK_COLUMNS} FROM generation_tasks WHERE id = ?"
-    params: list[Any] = [task_id]
+def _fetch_row(session: OrmSession, task_id: str, user_id: Optional[str] = None) -> GenerationTask | None:
+    query = select(GenerationTask).where(GenerationTask.id == task_id)
     if user_id is not None:
-        query += " AND user_id = ?"
-        params.append(user_id)
-    return conn.execute(query, params).fetchone()
+        query = query.where(GenerationTask.user_id == user_id)
+    return session.scalar(query)
 
 
 def get_task(task_id: str, user_id: Optional[str] = None) -> dict[str, Any]:
     _ensure_db()
-    with settings_store._connect() as conn:
-        row = _fetch_row(conn, task_id, user_id)
-    if row is None:
+    with _orm_session() as session:
+        task = _fetch_row(session, task_id, user_id)
+    if task is None:
         raise TaskNotFoundError("Task not found")
-    return _row_to_record(row)
+    return _row_to_record(task)
 
 
 def update_task(
@@ -453,52 +456,34 @@ def update_task(
 
     _ensure_db()
     now = _now_iso()
-    assignments: list[str] = []
-    values: list[Any] = []
-    if status is not None:
-        assignments.append("status = ?")
-        values.append(status)
-    if progress is not None:
-        assignments.append("progress = ?")
-        values.append(int(progress))
-    if message is not None:
-        assignments.append("message = ?")
-        values.append(str(message))
-    if error is not None:
-        assignments.append("error = ?")
-        values.append(str(error))
-    if normalized_extra_info is not None:
-        assignments.append("extra_info_json = ?")
-        values.append(_json_dumps(normalized_extra_info))
-    if normalized_artifacts is not None:
-        assignments.append("artifacts_json = ?")
-        values.append(_json_dumps(normalized_artifacts))
-    if success_count is not None:
-        assignments.append("success_count = ?")
-        values.append(int(success_count))
-    if failed_count is not None:
-        assignments.append("failed_count = ?")
-        values.append(int(failed_count))
-    if started or status == "running":
-        assignments.append("started_at = COALESCE(started_at, ?)")
-        values.append(now)
-    is_finished = finished if finished is not None else status in TERMINAL_STATUSES
-    if is_finished:
-        assignments.append("finished_at = COALESCE(finished_at, ?)")
-        values.append(now)
-    assignments.append("updated_at = ?")
-    values.append(now)
-    values.append(task_id)
-    query = f"UPDATE generation_tasks SET {', '.join(assignments)} WHERE id = ?"
-    if user_id is not None:
-        query += " AND user_id = ?"
-        values.append(user_id)
-    with settings_store._connect() as conn:
-        cursor = conn.execute(query, values)
-        if cursor.rowcount == 0:
+    with _orm_session() as session:
+        task = _fetch_row(session, task_id, user_id)
+        if task is None:
             raise TaskNotFoundError("Task not found")
-        row = _fetch_row(conn, task_id, user_id)
-    return _row_to_record(row)
+        if status is not None:
+            task.status = status
+        if progress is not None:
+            task.progress = int(progress)
+        if message is not None:
+            task.message = str(message)
+        if error is not None:
+            task.error = str(error)
+        if normalized_extra_info is not None:
+            task.extra_info_json = _json_dumps(normalized_extra_info)
+        if normalized_artifacts is not None:
+            task.artifacts_json = _json_dumps(normalized_artifacts)
+        if success_count is not None:
+            task.success_count = int(success_count)
+        if failed_count is not None:
+            task.failed_count = int(failed_count)
+        if (started or status == "running") and task.started_at is None:
+            task.started_at = now
+        is_finished = finished if finished is not None else status in TERMINAL_STATUSES
+        if is_finished and task.finished_at is None:
+            task.finished_at = now
+        task.updated_at = now
+        session.flush()
+    return _row_to_record(task)
 
 
 def add_artifact(
@@ -588,27 +573,31 @@ def list_tasks(
     if status is not None and status not in TASK_STATUSES:
         raise ValueError("Unsupported task status")
     _ensure_db()
-    clauses = ["user_id = ?"]
-    params: list[Any] = [user_id]
-    for column, value, operator in (
-        ("task_type", task_type, "="),
-        ("generation_type", generation_type, "="),
-        ("status", status, "="),
-        ("created_at", created_from, ">="),
-        ("created_at", created_to, "<="),
+    filters = [GenerationTask.user_id == user_id]
+    for column, value in (
+        (GenerationTask.task_type, task_type),
+        (GenerationTask.generation_type, generation_type),
+        (GenerationTask.status, status),
     ):
         if value is not None:
-            clauses.append(f"{column} {operator} ?")
-            params.append(value)
-    where = " AND ".join(clauses)
+            filters.append(column == value)
+    if created_from is not None:
+        filters.append(GenerationTask.created_at >= created_from)
+    if created_to is not None:
+        filters.append(GenerationTask.created_at <= created_to)
     offset = (page - 1) * page_size
-    with settings_store._connect() as conn:
-        total = conn.execute(f"SELECT COUNT(*) FROM generation_tasks WHERE {where}", params).fetchone()[0]
-        rows = conn.execute(
-            f"SELECT {TASK_COLUMNS} FROM generation_tasks WHERE {where} ORDER BY created_at DESC LIMIT ? OFFSET ?",
-            [*params, page_size, offset],
-        ).fetchall()
-    return [_row_to_record(row) for row in rows], int(total)
+    with _orm_session() as session:
+        total = session.scalar(
+            select(func.count()).select_from(GenerationTask).where(*filters)
+        ) or 0
+        tasks = session.scalars(
+            select(GenerationTask)
+            .where(*filters)
+            .order_by(GenerationTask.created_at.desc())
+            .limit(page_size)
+            .offset(offset)
+        ).all()
+    return [_row_to_record(task) for task in tasks], int(total)
 
 
 def resolve_artifact_path(task: dict[str, Any], artifact_id: str) -> tuple[dict[str, Any], Path]:
@@ -651,14 +640,13 @@ def resolve_output_file_for_user(relative_path: str, user_id: str) -> Path:
         raise ArtifactNotFoundError("Output file not found")
     if parts and parts[0] == "tasks":
         _ensure_db()
-        with settings_store._connect() as conn:
-            rows = conn.execute(
-                "SELECT storage_path FROM generation_tasks WHERE user_id = ?",
-                (user_id,),
-            ).fetchall()
-        for row in rows:
+        with _orm_session() as session:
+            storage_paths = session.scalars(
+                select(GenerationTask.storage_path).where(GenerationTask.user_id == user_id)
+            ).all()
+        for storage_path in storage_paths:
             try:
-                candidate.relative_to(Path(row["storage_path"]).resolve())
+                candidate.relative_to(Path(storage_path).resolve())
                 return candidate
             except ValueError:
                 continue
@@ -692,17 +680,19 @@ def select_task_download(task: dict[str, Any]) -> dict[str, Any] | None:
 def mark_incomplete_tasks_failed() -> None:
     _ensure_db()
     now = _now_iso()
-    with settings_store._connect() as conn:
-        conn.execute(
-            """
-            UPDATE generation_tasks
-            SET status = 'failed',
-                error = COALESCE(error, '后端重启时任务未完成'),
-                message = '后端重启时任务未完成',
-                failed_count = MAX(failed_count, requested_count - success_count),
-                finished_at = COALESCE(finished_at, ?),
-                updated_at = ?
-            WHERE status IN ('pending', 'running')
-            """,
-            (now, now),
+    with _orm_session() as session:
+        session.execute(
+            update(GenerationTask)
+            .where(GenerationTask.status.in_(("pending", "running")))
+            .values(
+                status="failed",
+                error=func.coalesce(GenerationTask.error, "后端重启时任务未完成"),
+                message="后端重启时任务未完成",
+                failed_count=func.max(
+                    GenerationTask.failed_count,
+                    GenerationTask.requested_count - GenerationTask.success_count,
+                ),
+                finished_at=func.coalesce(GenerationTask.finished_at, now),
+                updated_at=now,
+            )
         )

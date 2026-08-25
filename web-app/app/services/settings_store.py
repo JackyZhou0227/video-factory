@@ -1,10 +1,21 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterator, Optional
+
+from sqlalchemy import func, select
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError as SqlAlchemyIntegrityError
+from sqlalchemy.orm import Session as OrmSession
+
+from app.core.config import app_config
+from app.db.engine import get_database_url, sqlite_url_for_path
+from app.db.models import BgmTrack, Setting, SubtitleReplacement, User
+from app.db.session import get_session_factory, session_scope as orm_session_scope
 
 DEFAULT_USER_ID = "local-default"
 DEFAULT_USERNAME = "local"
@@ -19,7 +30,6 @@ MAX_SUBTITLE_REPLACEMENTS = 30
 MAX_SUBTITLE_REPLACEMENT_LENGTH = 80
 MAX_BGM_TRACKS_PER_USER = 20
 BGM_TRACK_COLUMNS = "id, user_id, name, relative_path, duration, file_size, created_at, updated_at"
-
 
 class SubtitleReplacementNotFoundError(LookupError):
     pass
@@ -62,6 +72,89 @@ def _connect() -> Iterator[sqlite3.Connection]:
         raise
     finally:
         conn.close()
+
+
+def _orm_database_url() -> str:
+    if os.getenv("DATABASE_URL", "").strip():
+        return get_database_url()
+    configured_url = str((app_config.get("database") or {}).get("url") or "").strip()
+    if configured_url:
+        return configured_url
+    return sqlite_url_for_path(_db_path())
+
+
+@contextmanager
+def _orm_session() -> Iterator[OrmSession]:
+    with orm_session_scope(get_session_factory(_orm_database_url())) as session:
+        yield session
+
+
+def _public_user_record(user: User) -> dict[str, Any]:
+    return {
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.display_name,
+        "role": user.role,
+        "is_default": user.is_default,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
+    }
+
+def _subtitle_replacement_record(replacement: SubtitleReplacement) -> dict[str, Any]:
+    return {
+        "id": replacement.id,
+        "source": replacement.source,
+        "replacement": replacement.replacement,
+        "created_at": replacement.created_at,
+        "updated_at": replacement.updated_at,
+    }
+
+
+def _bgm_track_record(track: BgmTrack) -> dict[str, Any]:
+    return {
+        column: getattr(track, column)
+        for column in BGM_TRACK_COLUMNS.split(", ")
+    }
+
+
+def _orm_upsert_setting(
+    session: OrmSession,
+    *,
+    user_id: str,
+    namespace: str,
+    setting_name: str,
+    value: Any,
+    value_type: str = "string",
+    is_secret: bool = False,
+) -> None:
+    setting = session.scalar(
+        select(Setting).where(
+            Setting.user_id == user_id,
+            Setting.namespace == namespace,
+            Setting.setting_name == setting_name,
+        )
+    )
+    now = _now_iso()
+    normalized_value = str(value or "")
+    if setting is None:
+        session.add(
+            Setting(
+                user_id=user_id,
+                namespace=namespace,
+                setting_name=setting_name,
+                value=normalized_value,
+                value_type=value_type,
+                is_secret=1 if is_secret else 0,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        return
+
+    setting.value = normalized_value
+    setting.value_type = value_type
+    setting.is_secret = 1 if is_secret else 0
+    setting.updated_at = now
 
 
 def _normalize_concurrent_limit(value: Any) -> int:
@@ -399,6 +492,9 @@ def _ensure_bgm_tracks_schema(conn: sqlite3.Connection) -> None:
 
 
 def init_db(config: Optional[dict[str, Any]] = None) -> None:
+    database_url = _orm_database_url()
+    if not make_url(database_url).drivername.startswith("sqlite"):
+        return
     with _connect() as conn:
         _ensure_users_schema(conn)
         _ensure_settings_schema(conn)
@@ -422,31 +518,20 @@ def init_db(config: Optional[dict[str, Any]] = None) -> None:
 
 def get_default_user() -> dict[str, Any]:
     init_db()
-
-    with _connect() as conn:
-        row = conn.execute(
-            f"SELECT {USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
-            (DEFAULT_USER_ID,),
-        ).fetchone()
-
-    return dict(row)
-
+    with _orm_session() as session:
+        user = session.get(User, DEFAULT_USER_ID)
+    return _public_user_record(user)
 
 def _get_namespace_settings(user_id: str, namespace: str) -> dict[str, str]:
     init_db()
-
-    with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT setting_name, value
-            FROM settings
-            WHERE user_id = ? AND namespace = ?
-            """,
-            (user_id, namespace),
-        ).fetchall()
-
-    return {row["setting_name"]: row["value"] for row in rows}
-
+    with _orm_session() as session:
+        rows = session.scalars(
+            select(Setting).where(
+                Setting.user_id == user_id,
+                Setting.namespace == namespace,
+            )
+        ).all()
+    return {row.setting_name: row.value for row in rows}
 
 def get_runninghub_settings(user_id: str = DEFAULT_USER_ID) -> dict[str, Any]:
     values = _get_namespace_settings(user_id, RUNNINGHUB_NAMESPACE)
@@ -475,25 +560,25 @@ def update_runninghub_settings(
         }
     )
 
-    with _connect() as conn:
-        _upsert_setting(
-            conn,
+    with _orm_session() as session:
+        _orm_upsert_setting(
+            session,
             user_id=user_id,
             namespace=RUNNINGHUB_NAMESPACE,
             setting_name="api_key",
             value=next_settings["api_key"],
             is_secret=True,
         )
-        _upsert_setting(
-            conn,
+        _orm_upsert_setting(
+            session,
             user_id=user_id,
             namespace=RUNNINGHUB_NAMESPACE,
             setting_name="concurrent_limit",
             value=next_settings["concurrent_limit"],
             value_type="integer",
         )
-        _upsert_setting(
-            conn,
+        _orm_upsert_setting(
+            session,
             user_id=user_id,
             namespace=RUNNINGHUB_NAMESPACE,
             setting_name="instance_type",
@@ -501,7 +586,6 @@ def update_runninghub_settings(
         )
 
     return next_settings
-
 
 def public_runninghub_settings(
     settings: Optional[dict[str, Any]] = None,
@@ -553,24 +637,24 @@ def update_llm_settings(
         }
     )
 
-    with _connect() as conn:
-        _upsert_setting(
-            conn,
+    with _orm_session() as session:
+        _orm_upsert_setting(
+            session,
             user_id=user_id,
             namespace=LLM_NAMESPACE,
             setting_name="base_url",
             value=next_settings["base_url"],
         )
-        _upsert_setting(
-            conn,
+        _orm_upsert_setting(
+            session,
             user_id=user_id,
             namespace=LLM_NAMESPACE,
             setting_name="api_key",
             value=next_settings["api_key"],
             is_secret=True,
         )
-        _upsert_setting(
-            conn,
+        _orm_upsert_setting(
+            session,
             user_id=user_id,
             namespace=LLM_NAMESPACE,
             setting_name="model",
@@ -578,7 +662,6 @@ def update_llm_settings(
         )
 
     return next_settings
-
 
 def public_llm_settings(
     settings: Optional[dict[str, Any]] = None,
@@ -617,46 +700,33 @@ def normalize_subtitle_replacement(source: Any, replacement: Any) -> tuple[str, 
 
 def list_subtitle_replacements() -> list[dict[str, Any]]:
     init_db()
-    with _connect() as conn:
-        rows = conn.execute(
-            """
-            SELECT id, source, replacement, created_at, updated_at
-            FROM subtitle_replacements
-            ORDER BY id ASC
-            """
-        ).fetchall()
-    return [dict(row) for row in rows]
-
+    with _orm_session() as session:
+        rows = session.scalars(
+            select(SubtitleReplacement).order_by(SubtitleReplacement.id.asc())
+        ).all()
+    return [_subtitle_replacement_record(row) for row in rows]
 
 def create_subtitle_replacement(*, source: Any, replacement: Any) -> dict[str, Any]:
     normalized_source, normalized_replacement = normalize_subtitle_replacement(source, replacement)
     init_db()
     now = _now_iso()
     try:
-        with _connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM subtitle_replacements").fetchone()[0]
+        with _orm_session() as session:
+            count = session.scalar(select(func.count()).select_from(SubtitleReplacement)) or 0
             if count >= MAX_SUBTITLE_REPLACEMENTS:
                 raise ValueError(f"字幕替换规则最多添加 {MAX_SUBTITLE_REPLACEMENTS} 条")
-            cursor = conn.execute(
-                """
-                INSERT INTO subtitle_replacements (source, replacement, created_at, updated_at)
-                VALUES (?, ?, ?, ?)
-                """,
-                (normalized_source, normalized_replacement, now, now),
+            row = SubtitleReplacement(
+                source=normalized_source,
+                replacement=normalized_replacement,
+                created_at=now,
+                updated_at=now,
             )
-            row = conn.execute(
-                """
-                SELECT id, source, replacement, created_at, updated_at
-                FROM subtitle_replacements
-                WHERE id = ?
-                """,
-                (cursor.lastrowid,),
-            ).fetchone()
-    except sqlite3.IntegrityError as exc:
+            session.add(row)
+            session.flush()
+            record = _subtitle_replacement_record(row)
+    except (SqlAlchemyIntegrityError, sqlite3.IntegrityError) as exc:
         raise SubtitleReplacementConflictError(f"字幕原词“{normalized_source}”已存在") from exc
-    return dict(row)
-
-
+    return record
 def update_subtitle_replacement(
     replacement_id: int,
     *,
@@ -668,68 +738,55 @@ def update_subtitle_replacement(
     normalized_source, normalized_replacement = normalize_subtitle_replacement(source, replacement)
     init_db()
     try:
-        with _connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE subtitle_replacements
-                SET source = ?, replacement = ?, updated_at = ?
-                WHERE id = ?
-                """,
-                (normalized_source, normalized_replacement, _now_iso(), replacement_id),
-            )
-            if cursor.rowcount == 0:
+        with _orm_session() as session:
+            row = session.get(SubtitleReplacement, replacement_id)
+            if row is None:
                 raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
-            row = conn.execute(
-                """
-                SELECT id, source, replacement, created_at, updated_at
-                FROM subtitle_replacements
-                WHERE id = ?
-                """,
-                (replacement_id,),
-            ).fetchone()
-    except sqlite3.IntegrityError as exc:
+            row.source = normalized_source
+            row.replacement = normalized_replacement
+            row.updated_at = _now_iso()
+            session.flush()
+            record = _subtitle_replacement_record(row)
+    except (SqlAlchemyIntegrityError, sqlite3.IntegrityError) as exc:
         raise SubtitleReplacementConflictError(f"字幕原词“{normalized_source}”已存在") from exc
-    return dict(row)
-
+    return record
 
 def delete_subtitle_replacement(replacement_id: int) -> None:
     if replacement_id < 1:
         raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
     init_db()
-    with _connect() as conn:
-        cursor = conn.execute(
-            "DELETE FROM subtitle_replacements WHERE id = ?",
-            (replacement_id,),
-        )
-        if cursor.rowcount == 0:
+    with _orm_session() as session:
+        row = session.get(SubtitleReplacement, replacement_id)
+        if row is None:
             raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
+        session.delete(row)
 
-
-def _fetch_bgm_track(conn: sqlite3.Connection, bgm_id: str, user_id: str) -> Optional[sqlite3.Row]:
-    return conn.execute(
-        f"SELECT {BGM_TRACK_COLUMNS} FROM bgm_tracks WHERE id = ? AND user_id = ?",
-        (bgm_id, user_id),
-    ).fetchone()
-
+def _fetch_bgm_track(session: OrmSession, bgm_id: str, user_id: str) -> Optional[BgmTrack]:
+    return session.scalar(
+        select(BgmTrack).where(
+            BgmTrack.id == bgm_id,
+            BgmTrack.user_id == user_id,
+        )
+    )
 
 def list_bgm_tracks(user_id: str) -> list[dict[str, Any]]:
     init_db()
-    with _connect() as conn:
-        rows = conn.execute(
-            f"SELECT {BGM_TRACK_COLUMNS} FROM bgm_tracks WHERE user_id = ? ORDER BY created_at ASC",
-            (user_id,),
-        ).fetchall()
-    return [dict(row) for row in rows]
-
+    with _orm_session() as session:
+        rows = session.scalars(
+            select(BgmTrack)
+            .where(BgmTrack.user_id == user_id)
+            .order_by(BgmTrack.created_at.asc())
+        ).all()
+    return [_bgm_track_record(row) for row in rows]
 
 def get_bgm_track(user_id: str, bgm_id: str) -> dict[str, Any]:
     init_db()
-    with _connect() as conn:
-        row = _fetch_bgm_track(conn, bgm_id, user_id)
-    if row is None:
-        raise BgmTrackNotFoundError("背景音乐不存在")
-    return dict(row)
-
+    with _orm_session() as session:
+        row = _fetch_bgm_track(session, bgm_id, user_id)
+        if row is None:
+            raise BgmTrackNotFoundError("背景音乐不存在")
+        record = _bgm_track_record(row)
+    return record
 
 def create_bgm_track(
     *,
@@ -748,35 +805,33 @@ def create_bgm_track(
         raise ValueError("背景音乐文件路径不能为空")
     init_db()
     now = _now_iso()
-    with _connect() as conn:
-        count = conn.execute(
-            "SELECT COUNT(*) FROM bgm_tracks WHERE user_id = ?",
-            (user_id,),
-        ).fetchone()[0]
+    with _orm_session() as session:
+        count = session.scalar(
+            select(func.count()).select_from(BgmTrack).where(BgmTrack.user_id == user_id)
+        ) or 0
         if count >= MAX_BGM_TRACKS_PER_USER:
             raise ValueError(f"每个用户最多保存 {MAX_BGM_TRACKS_PER_USER} 个背景音乐")
-        conn.execute(
-            """
-            INSERT INTO bgm_tracks (id, user_id, name, relative_path, duration, file_size, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (bgm_id, user_id, normalized_name, normalized_path, float(duration), int(file_size), now, now),
+        row = BgmTrack(
+            id=bgm_id,
+            user_id=user_id,
+            name=normalized_name,
+            relative_path=normalized_path,
+            duration=float(duration),
+            file_size=int(file_size),
+            created_at=now,
+            updated_at=now,
         )
-        row = conn.execute(
-            f"SELECT {BGM_TRACK_COLUMNS} FROM bgm_tracks WHERE id = ?",
-            (bgm_id,),
-        ).fetchone()
-    return dict(row)
-
+        session.add(row)
+        session.flush()
+        record = _bgm_track_record(row)
+    return record
 
 def delete_bgm_track(user_id: str, bgm_id: str) -> dict[str, Any]:
     init_db()
-    with _connect() as conn:
-        row = _fetch_bgm_track(conn, bgm_id, user_id)
+    with _orm_session() as session:
+        row = _fetch_bgm_track(session, bgm_id, user_id)
         if row is None:
             raise BgmTrackNotFoundError("背景音乐不存在")
-        conn.execute(
-            "DELETE FROM bgm_tracks WHERE id = ? AND user_id = ?",
-            (bgm_id, user_id),
-        )
-    return dict(row)
+        record = _bgm_track_record(row)
+        session.delete(row)
+    return record

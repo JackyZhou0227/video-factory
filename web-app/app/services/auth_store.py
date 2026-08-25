@@ -11,10 +11,17 @@ import threading
 import time
 import uuid
 from collections import deque
-from datetime import datetime, timedelta, timezone
 from contextlib import AbstractContextManager
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
+from sqlalchemy import delete, func, select, update
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session as OrmSession
+
+from app.db.models import Session as DbSession
+from app.db.models import Setting, User
 from app.services import settings_store
 
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
@@ -187,21 +194,31 @@ def check_registration_rate_limit(client_ip: str, username: str) -> None:
     )
 
 
-def _public_user(row: sqlite3.Row | dict[str, Any]) -> dict[str, Any]:
+def _public_user(row: sqlite3.Row | dict[str, Any] | User) -> dict[str, Any]:
+    def value(name: str) -> Any:
+        if isinstance(row, (sqlite3.Row, dict)):
+            return row[name]
+        return getattr(row, name)
+
+    role = value("role")
     return {
-        "id": row["id"],
-        "username": row["username"],
-        "display_name": row["display_name"],
-        "role": row["role"],
-        "is_admin": row["role"] == ROLE_ADMIN,
-        "is_default": bool(row["is_default"]),
-        "created_at": row["created_at"],
-        "updated_at": row["updated_at"],
+        "id": value("id"),
+        "username": value("username"),
+        "display_name": value("display_name"),
+        "role": role,
+        "is_admin": role == ROLE_ADMIN,
+        "is_default": bool(value("is_default")),
+        "created_at": value("created_at"),
+        "updated_at": value("updated_at"),
     }
 
 
 def _connect() -> AbstractContextManager[sqlite3.Connection]:
     return settings_store._connect()
+
+
+def _orm_session() -> AbstractContextManager[OrmSession]:
+    return settings_store._orm_session()
 
 
 def _password_hash(password: str, salt: bytes, iterations: int = PASSWORD_ITERATIONS) -> bytes:
@@ -237,6 +254,9 @@ def _validate_password(password: str) -> None:
 def init_auth_schema() -> None:
     global _last_session_cleanup_at
 
+    database_url = settings_store._orm_database_url()
+    if not make_url(database_url).drivername.startswith("sqlite"):
+        return
     settings_store.init_db()
     with _connect() as conn:
         conn.execute(
@@ -264,7 +284,8 @@ def init_auth_schema() -> None:
             ON sessions (user_id)
             """
         )
-        _ensure_admin_user(conn)
+        with _orm_session() as session:
+            _ensure_admin_user(session)
         now_monotonic = time.monotonic()
         with _session_cleanup_lock:
             should_cleanup = (
@@ -273,19 +294,21 @@ def init_auth_schema() -> None:
             if should_cleanup:
                 _last_session_cleanup_at = now_monotonic
         if should_cleanup:
-            _delete_expired_sessions(conn)
+            with _orm_session() as session:
+                _delete_expired_sessions(session)
 
 
-def _delete_expired_sessions(conn: sqlite3.Connection) -> None:
+def _delete_expired_sessions(session: OrmSession) -> None:
     now = _now_iso()
     revoked_cutoff = (_now() - timedelta(days=1)).isoformat()
-    conn.execute(
-        """
-        DELETE FROM sessions
-        WHERE expires_at <= ?
-           OR (revoked_at IS NOT NULL AND revoked_at <= ?)
-        """,
-        (now, revoked_cutoff),
+    session.execute(
+        delete(DbSession).where(
+            (DbSession.expires_at <= now)
+            | (
+                DbSession.revoked_at.is_not(None)
+                & (DbSession.revoked_at <= revoked_cutoff)
+            )
+        )
     )
 
 
@@ -296,93 +319,73 @@ def cleanup_sessions(force: bool = False) -> None:
     if force:
         with _session_cleanup_lock:
             _last_session_cleanup_at = 0.0
-    with _connect() as conn:
-        _delete_expired_sessions(conn)
+    with _orm_session() as session:
+        _delete_expired_sessions(session)
     with _session_cleanup_lock:
         _last_session_cleanup_at = time.monotonic()
 
 
-def _password_user_count(conn: sqlite3.Connection) -> int:
-    row = conn.execute(
-        """
-        SELECT COUNT(*) AS total
-        FROM users
-        WHERE password_hash != ''
-        """
-    ).fetchone()
-    return int(row["total"])
-
-
-def _admin_user_count(conn: sqlite3.Connection) -> int:
-    row = conn.execute(
-        """
-        SELECT COUNT(*) AS total
-        FROM users
-        WHERE role = ? AND password_hash != ''
-        """,
-        (ROLE_ADMIN,),
-    ).fetchone()
-    return int(row["total"])
-
-
-def _ensure_admin_user(conn: sqlite3.Connection) -> None:
-    if not allow_first_user_admin():
-        return
-    if _admin_user_count(conn) > 0:
-        return
-
-    row = conn.execute(
-        """
-        SELECT id
-        FROM users
-        WHERE password_hash != ''
-        ORDER BY created_at ASC
-        LIMIT 1
-        """
-    ).fetchone()
-    if row is None:
-        return
-
-    conn.execute(
-        """
-        UPDATE users
-        SET role = ?, updated_at = ?
-        WHERE id = ?
-        """,
-        (ROLE_ADMIN, _now_iso(), row["id"]),
+def _password_user_count(session: OrmSession) -> int:
+    return int(
+        session.scalar(
+            select(func.count()).select_from(User).where(User.password_hash != "")
+        )
+        or 0
     )
 
 
-def _copy_default_settings(conn: sqlite3.Connection, user_id: str) -> None:
-    now = _now_iso()
-    rows = conn.execute(
-        """
-        SELECT namespace, setting_name, value, value_type, is_secret
-        FROM settings
-        WHERE user_id = ?
-        """,
-        (settings_store.DEFAULT_USER_ID,),
-    ).fetchall()
-    for row in rows:
-        conn.execute(
-            """
-            INSERT INTO settings (
-                user_id, namespace, setting_name, value, value_type, is_secret, created_at, updated_at
-            )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(user_id, namespace, setting_name) DO NOTHING
-            """,
-            (
-                user_id,
-                row["namespace"],
-                row["setting_name"],
-                row["value"],
-                row["value_type"],
-                row["is_secret"],
-                now,
-                now,
-            ),
+def _admin_user_count(session: OrmSession) -> int:
+    return int(
+        session.scalar(
+            select(func.count())
+            .select_from(User)
+            .where(User.role == ROLE_ADMIN, User.password_hash != "")
         )
+        or 0
+    )
+
+
+def _ensure_admin_user(session: OrmSession) -> None:
+    if not allow_first_user_admin() or _admin_user_count(session) > 0:
+        return
+
+    user = session.scalar(
+        select(User)
+        .where(User.password_hash != "")
+        .order_by(User.created_at.asc())
+        .limit(1)
+    )
+    if user is not None:
+        user.role = ROLE_ADMIN
+        user.updated_at = _now_iso()
+
+
+def _copy_default_settings(session: OrmSession, user_id: str) -> None:
+    now = _now_iso()
+    rows = session.scalars(
+        select(Setting).where(Setting.user_id == settings_store.DEFAULT_USER_ID)
+    ).all()
+    for row in rows:
+        existing = session.scalar(
+            select(Setting).where(
+                Setting.user_id == user_id,
+                Setting.namespace == row.namespace,
+                Setting.setting_name == row.setting_name,
+            )
+        )
+        if existing is None:
+            session.add(
+                Setting(
+                    user_id=user_id,
+                    namespace=row.namespace,
+                    setting_name=row.setting_name,
+                    value=row.value,
+                    value_type=row.value_type,
+                    is_secret=row.is_secret,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
 
 
 def create_user(username: str, password: str, display_name: Optional[str] = None) -> dict[str, Any]:
@@ -396,46 +399,36 @@ def create_user(username: str, password: str, display_name: Optional[str] = None
     now = _now_iso()
     name = (display_name or normalized_username).strip() or normalized_username
 
-    with _connect() as conn:
-        first_password_user = _password_user_count(conn) == 0
-        role = (
-            ROLE_ADMIN
-            if allow_first_user_admin() and first_password_user and _admin_user_count(conn) == 0
-            else ROLE_USER
-        )
-        try:
-            conn.execute(
-                """
-                INSERT INTO users (
-                    id, username, display_name, password_hash, password_salt,
-                    password_iterations, role, is_default, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-                """,
-                (
-                    user_id,
-                    normalized_username,
-                    name,
-                    _encode(password_hash),
-                    _encode(salt),
-                    PASSWORD_ITERATIONS,
-                    role,
-                    now,
-                    now,
-                ),
+    try:
+        with _orm_session() as session:
+            first_password_user = _password_user_count(session) == 0
+            role = (
+                ROLE_ADMIN
+                if allow_first_user_admin()
+                and first_password_user
+                and _admin_user_count(session) == 0
+                else ROLE_USER
             )
-        except sqlite3.IntegrityError:
-            raise ValueError("用户名已存在") from None
+            user = User(
+                id=user_id,
+                username=normalized_username,
+                display_name=name,
+                password_hash=_encode(password_hash),
+                password_salt=_encode(salt),
+                password_iterations=PASSWORD_ITERATIONS,
+                role=role,
+                is_default=0,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(user)
+            session.flush()
+            if first_password_user:
+                _copy_default_settings(session, user_id)
+    except IntegrityError:
+        raise ValueError("用户名已存在") from None
 
-        if first_password_user:
-            _copy_default_settings(conn, user_id)
-
-        row = conn.execute(
-            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
-
-    return _public_user(row)
+    return _public_user(user)
 
 
 def create_initial_admin(
@@ -454,75 +447,53 @@ def create_initial_admin(
     now = _now_iso()
     name = (display_name or normalized_username).strip() or normalized_username
 
-    with _connect() as conn:
-        if _password_user_count(conn) > 0:
-            row = conn.execute(
-                f"""
-                SELECT {settings_store.USER_PUBLIC_COLUMNS}
-                FROM users
-                WHERE password_hash != ''
-                ORDER BY created_at ASC
-                LIMIT 1
-                """
-            ).fetchone()
-            return _public_user(row), False
-
-        try:
-            conn.execute(
-                """
-                INSERT INTO users (
-                    id, username, display_name, password_hash, password_salt,
-                    password_iterations, role, is_default, created_at, updated_at
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
-                """,
-                (
-                    user_id,
-                    normalized_username,
-                    name,
-                    _encode(password_hash),
-                    _encode(salt),
-                    PASSWORD_ITERATIONS,
-                    ROLE_ADMIN,
-                    now,
-                    now,
-                ),
+    try:
+        with _orm_session() as session:
+            existing = session.scalar(
+                select(User)
+                .where(User.password_hash != "")
+                .order_by(User.created_at.asc())
+                .limit(1)
             )
-        except sqlite3.IntegrityError:
-            raise ValueError("用户名已存在") from None
+            if existing is not None:
+                return _public_user(existing), False
 
-        _copy_default_settings(conn, user_id)
-        row = conn.execute(
-            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+            user = User(
+                id=user_id,
+                username=normalized_username,
+                display_name=name,
+                password_hash=_encode(password_hash),
+                password_salt=_encode(salt),
+                password_iterations=PASSWORD_ITERATIONS,
+                role=ROLE_ADMIN,
+                is_default=0,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(user)
+            session.flush()
+            _copy_default_settings(session, user_id)
+    except IntegrityError:
+        raise ValueError("用户名已存在") from None
 
-    return _public_user(row), True
+    return _public_user(user), True
 
 
 def authenticate_user(username: str, password: str) -> Optional[dict[str, Any]]:
     init_auth_schema()
     normalized_username = username.strip().lower()
 
-    with _connect() as conn:
-        row = conn.execute(
-            """
-            SELECT id, username, display_name, role, password_hash, password_salt,
-                   password_iterations, is_default, created_at, updated_at
-            FROM users
-            WHERE username = ?
-            """,
-            (normalized_username,),
-        ).fetchone()
+    with _orm_session() as session:
+        user = session.scalar(select(User).where(User.username == normalized_username))
 
-    if row is None or not row["password_hash"] or not row["password_salt"]:
+    if user is None or not user.password_hash or not user.password_salt:
         _password_hash(password, _DUMMY_PASSWORD_SALT, PASSWORD_ITERATIONS)
         return None
 
     try:
-        salt = _decode(row["password_salt"])
-        expected = _decode(row["password_hash"])
-        iterations = int(row["password_iterations"] or PASSWORD_ITERATIONS)
+        salt = _decode(user.password_salt)
+        expected = _decode(user.password_hash)
+        iterations = int(user.password_iterations or PASSWORD_ITERATIONS)
     except Exception:
         _password_hash(password, _DUMMY_PASSWORD_SALT, PASSWORD_ITERATIONS)
         return None
@@ -531,21 +502,18 @@ def authenticate_user(username: str, password: str) -> Optional[dict[str, Any]]:
     if not secrets.compare_digest(actual, expected):
         return None
 
-    return _public_user(row)
+    return _public_user(user)
 
 
 def list_users() -> list[dict[str, Any]]:
     init_auth_schema()
-    with _connect() as conn:
-        rows = conn.execute(
-            f"""
-            SELECT {settings_store.USER_PUBLIC_COLUMNS}
-            FROM users
-            WHERE password_hash != ''
-            ORDER BY created_at ASC
-            """
-        ).fetchall()
-    return [_public_user(row) for row in rows]
+    with _orm_session() as session:
+        users = session.scalars(
+            select(User)
+            .where(User.password_hash != "")
+            .order_by(User.created_at.asc())
+        ).all()
+    return [_public_user(user) for user in users]
 
 
 def update_user_password(user_id: str, password: str) -> dict[str, Any]:
@@ -556,39 +524,24 @@ def update_user_password(user_id: str, password: str) -> dict[str, Any]:
     password_hash = _password_hash(password, salt)
     now = _now_iso()
 
-    with _connect() as conn:
-        row = conn.execute(
-            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ? AND password_hash != ''",
-            (user_id,),
-        ).fetchone()
-        if row is None:
+    with _orm_session() as session:
+        user = session.scalar(
+            select(User).where(User.id == user_id, User.password_hash != "")
+        )
+        if user is None:
             raise ValueError("User not found")
 
-        conn.execute(
-            """
-            UPDATE users
-            SET password_hash = ?,
-                password_salt = ?,
-                password_iterations = ?,
-                updated_at = ?
-            WHERE id = ?
-            """,
-            (_encode(password_hash), _encode(salt), PASSWORD_ITERATIONS, now, user_id),
+        user.password_hash = _encode(password_hash)
+        user.password_salt = _encode(salt)
+        user.password_iterations = PASSWORD_ITERATIONS
+        user.updated_at = now
+        session.execute(
+            update(DbSession)
+            .where(DbSession.user_id == user_id, DbSession.revoked_at.is_(None))
+            .values(revoked_at=now)
         )
-        conn.execute(
-            """
-            UPDATE sessions
-            SET revoked_at = ?
-            WHERE user_id = ? AND revoked_at IS NULL
-            """,
-            (now, user_id),
-        )
-        updated = conn.execute(
-            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
 
-    return _public_user(updated)
+    return _public_user(user)
 
 
 def update_user_role(user_id: str, role: str) -> dict[str, Any]:
@@ -598,31 +551,24 @@ def update_user_role(user_id: str, role: str) -> dict[str, Any]:
         raise ValueError("Unsupported role")
 
     now = _now_iso()
-    with _connect() as conn:
-        row = conn.execute(
-            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ? AND password_hash != ''",
-            (user_id,),
-        ).fetchone()
-        if row is None:
+    with _orm_session() as session:
+        user = session.scalar(
+            select(User).where(User.id == user_id, User.password_hash != "")
+        )
+        if user is None:
             raise ValueError("User not found")
 
-        if row["role"] == ROLE_ADMIN and next_role != ROLE_ADMIN and _admin_user_count(conn) <= 1:
+        if (
+            user.role == ROLE_ADMIN
+            and next_role != ROLE_ADMIN
+            and _admin_user_count(session) <= 1
+        ):
             raise ValueError("At least one admin user is required")
 
-        conn.execute(
-            """
-            UPDATE users
-            SET role = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (next_role, now, user_id),
-        )
-        updated = conn.execute(
-            f"SELECT {settings_store.USER_PUBLIC_COLUMNS} FROM users WHERE id = ?",
-            (user_id,),
-        ).fetchone()
+        user.role = next_role
+        user.updated_at = now
 
-    return _public_user(updated)
+    return _public_user(user)
 
 
 def create_session(user_id: str) -> tuple[str, datetime]:
@@ -631,27 +577,29 @@ def create_session(user_id: str) -> tuple[str, datetime]:
     expires_at = _now() + timedelta(seconds=get_session_max_age_seconds())
     now = _now_iso()
 
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO sessions (id, user_id, token_hash, created_at, expires_at, revoked_at)
-            VALUES (?, ?, ?, ?, ?, NULL)
-            """,
-            (uuid.uuid4().hex, user_id, _hash_token(token), now, expires_at.isoformat()),
+    with _orm_session() as session:
+        session.add(
+            DbSession(
+                id=uuid.uuid4().hex,
+                user_id=user_id,
+                token_hash=_hash_token(token),
+                created_at=now,
+                expires_at=expires_at.isoformat(),
+                revoked_at=None,
+            )
         )
-        conn.execute(
-            """
-            DELETE FROM sessions
-            WHERE user_id = ?
-              AND id NOT IN (
-                  SELECT id
-                  FROM sessions
-                  WHERE user_id = ?
-                  ORDER BY created_at DESC
-                  LIMIT ?
-              )
-            """,
-            (user_id, user_id, get_max_sessions_per_user()),
+        session.flush()
+        recent_sessions = session.scalars(
+            select(DbSession.id)
+            .where(DbSession.user_id == user_id)
+            .order_by(DbSession.created_at.desc())
+            .limit(get_max_sessions_per_user())
+        ).all()
+        session.execute(
+            delete(DbSession).where(
+                DbSession.user_id == user_id,
+                DbSession.id.not_in(recent_sessions),
+            )
         )
 
     return token, expires_at
@@ -662,20 +610,18 @@ def get_user_by_session_token(token: str) -> Optional[dict[str, Any]]:
         return None
 
     init_auth_schema()
-    with _connect() as conn:
-        row = conn.execute(
-            f"""
-            SELECT u.{settings_store.USER_PUBLIC_COLUMNS.replace(", ", ", u.")}
-            FROM sessions s
-            JOIN users u ON u.id = s.user_id
-            WHERE s.token_hash = ?
-              AND s.revoked_at IS NULL
-              AND s.expires_at > ?
-            """,
-            (_hash_token(token), _now_iso()),
-        ).fetchone()
+    with _orm_session() as session:
+        user = session.scalar(
+            select(User)
+            .join(DbSession, DbSession.user_id == User.id)
+            .where(
+                DbSession.token_hash == _hash_token(token),
+                DbSession.revoked_at.is_(None),
+                DbSession.expires_at > _now_iso(),
+            )
+        )
 
-    return _public_user(row) if row else None
+    return _public_user(user) if user else None
 
 
 def revoke_session(token: str) -> None:
@@ -683,12 +629,12 @@ def revoke_session(token: str) -> None:
         return
 
     init_auth_schema()
-    with _connect() as conn:
-        conn.execute(
-            """
-            UPDATE sessions
-            SET revoked_at = ?
-            WHERE token_hash = ? AND revoked_at IS NULL
-            """,
-            (_now_iso(), _hash_token(token)),
+    with _orm_session() as session:
+        session.execute(
+            update(DbSession)
+            .where(
+                DbSession.token_hash == _hash_token(token),
+                DbSession.revoked_at.is_(None),
+            )
+            .values(revoked_at=_now_iso())
         )

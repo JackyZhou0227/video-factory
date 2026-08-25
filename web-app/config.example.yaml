@@ -29,6 +29,14 @@ llm:
   api_key: ""
   model: ""
 
+database:
+  # Optional SQLAlchemy URL. Empty keeps the existing SQLite database.
+  # DATABASE_URL takes precedence over this value.
+  url: ""
+  pool_size: 5
+  max_overflow: 5
+  pool_timeout: 30
+
 server:
   # Production default: only expose the local machine. Put the public HTTPS
   # tunnel/reverse proxy in front of this process.

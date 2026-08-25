@@ -1,4 +1,6 @@
 fastapi>=0.115.0
+SQLAlchemy>=2.0,<3.0
+alembic>=1.13,<2.0
 pydantic>=2.8.0,<3.0.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.9
