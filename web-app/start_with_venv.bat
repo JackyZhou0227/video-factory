@@ -54,7 +54,7 @@ if not exist "%READY_MARKER%" (
 )
 
 echo Using Python: %PYTHON_EXE%
-call "%APP_DIR%start_app.bat"
+call "%APP_DIR%start_without_venv.bat"
 set "EXIT_CODE=%ERRORLEVEL%"
 
 endlocal

@@ -11,7 +11,8 @@ web-app/
   config.yaml             本地私有配置，已被 .gitignore 忽略
   requirements.txt        Python 后端依赖
   init_default_admin.bat  Windows 初始管理员账号脚本
-  start_app.bat           Windows 一键启动脚本，同时提供前端页面和后端接口
+  start_with_venv.bat     创建/准备并启动虚拟环境，再启动应用
+  start_without_venv.bat  不处理虚拟环境，构建前端并启动应用
   app/                    FastAPI 后端包
   data/                   本机运行数据与迁移备份，已被 .gitignore 忽略
   frontend/               React + Vite 前端
@@ -330,14 +331,14 @@ web-app/output/tasks/2026/08/07/digital_human/71a.../
 
 ```powershell
 cd D:\project\video-factory\web-app
-.\start.bat
+.\start_with_venv.bat
 ```
 
-如果当前命令行已经激活了正确的 Python 虚拟环境，也可以直接启动。`start_app.bat` 不会创建或激活虚拟环境，但会检查并安装前端依赖、执行 `npm run build`，再启动 FastAPI：
+如果当前命令行已经激活了正确的 Python 虚拟环境，也可以直接启动。`start_without_venv.bat` 不会创建或激活虚拟环境，但会检查并安装前端依赖、执行 `npm run build`，再启动 FastAPI：
 
 ```powershell
 cd D:\project\video-factory\web-app
-.\start_app.bat
+.\start_without_venv.bat
 ```
 
 访问：
@@ -357,7 +358,7 @@ cd D:\project\video-factory
 git pull
 ```
 
-如果只修改了前端代码，可以直接重新运行 `start_app.bat`，脚本会自动重新构建；也可以手动构建：
+如果只修改了前端代码，可以直接重新运行 `start_without_venv.bat`，脚本会自动重新构建；也可以手动构建：
 
 ```powershell
 cd web-app\frontend
