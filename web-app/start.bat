@@ -3,8 +3,9 @@ setlocal EnableExtensions EnableDelayedExpansion
 chcp 65001 >nul 2>&1
 
 set "APP_DIR=%~dp0"
-set "VENV_DIR=%APP_DIR%..\.venv"
+for %%I in ("%APP_DIR%..\.venv") do set "VENV_DIR=%%~fI"
 set "PYTHON_EXE="
+set "ACTIVATE_SCRIPT=%VENV_DIR%\Scripts\activate.bat"
 
 if exist "%VENV_DIR%\Scripts\python.exe" set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 if not defined PYTHON_EXE if exist "%VENV_DIR%\python.exe" set "PYTHON_EXE=%VENV_DIR%\python.exe"
@@ -27,12 +28,17 @@ if not defined PYTHON_EXE (
     set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 )
 
-echo Activating virtual environment: %VENV_DIR%
-call "%VENV_DIR%\Scripts\activate.bat"
-if errorlevel 1 (
-    echo Failed to activate the virtual environment.
-    endlocal
-    exit /b 1
+if exist "%ACTIVATE_SCRIPT%" (
+    echo Activating virtual environment: %VENV_DIR%
+    call "%ACTIVATE_SCRIPT%"
+    if errorlevel 1 (
+        echo Failed to activate the virtual environment.
+        endlocal
+        exit /b 1
+    )
+) else (
+    echo Using existing environment directly: %VENV_DIR%
+    set "PATH=%VENV_DIR%;%VENV_DIR%\Library\bin;%VENV_DIR%\Scripts;%VENV_DIR%\bin;%PATH%"
 )
 
 set "READY_MARKER=%VENV_DIR%\.video_factory_requirements_ready"

@@ -6,7 +6,7 @@ set "APP_DIR=%~dp0"
 if not defined DATABASE_URL (
     for /f "tokens=2,*" %%a in ('reg query "HKCU\Environment" /v DATABASE_URL 2^>nul') do set "DATABASE_URL=%%b"
 )
-set "PYTHON_EXE=python"
+if not defined PYTHON_EXE set "PYTHON_EXE=python"
 if not defined APP_HOST set "APP_HOST=127.0.0.1"
 if not defined APP_PORT set "APP_PORT=18888"
 set "VIDEO_FACTORY_ENV=production"
@@ -73,9 +73,16 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%APP_PORT% .*LISTENIN
 )
 
 pushd "%APP_DIR%"
-where %PYTHON_EXE% >nul 2>&1
-if errorlevel 1 (
-    echo Python was not found on PATH. Activate the virtual environment first.
+if /i "%PYTHON_EXE%"=="python" (
+    where python >nul 2>&1
+    if errorlevel 1 (
+        echo Python was not found on PATH. Activate the virtual environment first.
+        popd
+        endlocal
+        exit /b 1
+    )
+) else if not exist "%PYTHON_EXE%" (
+    echo Python executable was not found: %PYTHON_EXE%
     popd
     endlocal
     exit /b 1

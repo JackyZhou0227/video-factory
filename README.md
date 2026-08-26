@@ -326,7 +326,7 @@ web-app/output/tasks/2026/08/07/digital_human/71a.../
 
 ## 启动应用
 
-完整启动（推荐）：创建或准备 `.venv`、激活虚拟环境、安装 Python 依赖，然后构建前端并启动服务：
+完整启动（推荐）：创建或准备 `.venv`、激活标准 Python 虚拟环境（或直接使用已有 Conda 环境）、安装 Python 依赖，然后构建前端并启动服务：
 
 ```powershell
 cd D:\project\video-factory\web-app
