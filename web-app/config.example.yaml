@@ -34,8 +34,10 @@ database:
   # the standalone migration tool and is rejected by the application.
   # DATABASE_URL takes precedence over this value.
   url: ""
-  pool_size: 5
-  max_overflow: 5
+  # For a single application process, 10 persistent + 10 burst connections
+  # is a balanced starting point on a PostgreSQL server with max_connections=100.
+  pool_size: 10
+  max_overflow: 10
   pool_timeout: 30
 
 server:
