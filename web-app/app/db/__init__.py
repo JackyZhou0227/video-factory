@@ -6,7 +6,6 @@ from app.db.engine import (
     dispose_engines,
     get_database_url,
     get_engine,
-    sqlite_url_for_path,
 )
 from app.db.models import (
     BgmTrack,
@@ -33,5 +32,4 @@ __all__ = [
     "get_engine",
     "get_session_factory",
     "session_scope",
-    "sqlite_url_for_path",
 ]

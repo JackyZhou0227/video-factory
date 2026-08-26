@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.api import digital_human
 from app.api.auth import require_current_user
 from app.services import settings_store, task_store
+from tests.pg_test_utils import column_names, ensure_test_user, task_extra_info_json
 
 
 class DigitalHumanApiTests(unittest.TestCase):
@@ -21,15 +22,8 @@ class DigitalHumanApiTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_root = Path(self.temp_dir.name) / "output"
         self.output_root.mkdir()
-        self.original_db_path = settings_store._db_path
-        settings_store._db_path = lambda: Path(self.temp_dir.name) / "settings.db"
         settings_store.init_db()
-        now = settings_store._now_iso()
-        with settings_store._connect() as conn:
-            conn.execute(
-                "INSERT INTO users (id, username, display_name, is_default, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-                ("user-a", "user_a", "User A", now, now),
-            )
+        ensure_test_user("user-a", username="user_a", display_name="User A")
         digital_human._tasks.clear()
 
         app = FastAPI()
@@ -40,7 +34,6 @@ class DigitalHumanApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         digital_human._tasks.clear()
-        settings_store._db_path = self.original_db_path
         self.temp_dir.cleanup()
 
     @staticmethod
@@ -120,12 +113,8 @@ class DigitalHumanApiTests(unittest.TestCase):
         persisted = task_store.get_task(task_id, "user-a")
         self.assertEqual(persisted["status"], "completed")
         self.assertEqual(persisted["extra_info"]["runninghub_task_id"], "runninghub-123")
-        with settings_store._connect() as conn:
-            columns = {row[1] for row in conn.execute("PRAGMA table_info(generation_tasks)").fetchall()}
-            raw_json = conn.execute(
-                "SELECT extra_info_json FROM generation_tasks WHERE id = ?",
-                (task_id,),
-            ).fetchone()[0]
+        columns = column_names("generation_tasks")
+        raw_json = task_extra_info_json(task_id)
         self.assertNotIn("runninghub_task_id", columns)
         self.assertEqual(json.loads(raw_json)["runninghub_task_id"], "runninghub-123")
 

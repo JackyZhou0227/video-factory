@@ -30,7 +30,8 @@ llm:
   model: ""
 
 database:
-  # Optional SQLAlchemy URL. Empty keeps the existing SQLite database.
+  # Formal service startup requires a PostgreSQL URL. SQLite is only used by
+  # the standalone migration tool and is rejected by the application.
   # DATABASE_URL takes precedence over this value.
   url: ""
   pool_size: 5

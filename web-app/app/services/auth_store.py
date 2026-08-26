@@ -6,7 +6,6 @@ import math
 import os
 import re
 import secrets
-import sqlite3
 import threading
 import time
 import uuid
@@ -16,7 +15,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
@@ -194,27 +192,18 @@ def check_registration_rate_limit(client_ip: str, username: str) -> None:
     )
 
 
-def _public_user(row: sqlite3.Row | dict[str, Any] | User) -> dict[str, Any]:
-    def value(name: str) -> Any:
-        if isinstance(row, (sqlite3.Row, dict)):
-            return row[name]
-        return getattr(row, name)
-
-    role = value("role")
+def _public_user(user: User) -> dict[str, Any]:
+    role = user.role
     return {
-        "id": value("id"),
-        "username": value("username"),
-        "display_name": value("display_name"),
+        "id": user.id,
+        "username": user.username,
+        "display_name": user.display_name,
         "role": role,
         "is_admin": role == ROLE_ADMIN,
-        "is_default": bool(value("is_default")),
-        "created_at": value("created_at"),
-        "updated_at": value("updated_at"),
+        "is_default": bool(user.is_default),
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
     }
-
-
-def _connect() -> AbstractContextManager[sqlite3.Connection]:
-    return settings_store._connect()
 
 
 def _orm_session() -> AbstractContextManager[OrmSession]:
@@ -254,48 +243,20 @@ def _validate_password(password: str) -> None:
 def init_auth_schema() -> None:
     global _last_session_cleanup_at
 
-    database_url = settings_store._orm_database_url()
-    if not make_url(database_url).drivername.startswith("sqlite"):
-        return
     settings_store.init_db()
-    with _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS sessions (
-                id TEXT PRIMARY KEY,
-                user_id TEXT NOT NULL,
-                token_hash TEXT NOT NULL UNIQUE,
-                created_at TEXT NOT NULL,
-                expires_at TEXT NOT NULL,
-                revoked_at TEXT,
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-            )
-            """
+    with _orm_session() as session:
+        _ensure_admin_user(session)
+
+    now_monotonic = time.monotonic()
+    with _session_cleanup_lock:
+        should_cleanup = (
+            now_monotonic - _last_session_cleanup_at >= SESSION_CLEANUP_INTERVAL_SECONDS
         )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_sessions_token_hash
-            ON sessions (token_hash)
-            """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_sessions_user_id
-            ON sessions (user_id)
-            """
-        )
-        with _orm_session() as session:
-            _ensure_admin_user(session)
-        now_monotonic = time.monotonic()
-        with _session_cleanup_lock:
-            should_cleanup = (
-                now_monotonic - _last_session_cleanup_at >= SESSION_CLEANUP_INTERVAL_SECONDS
-            )
-            if should_cleanup:
-                _last_session_cleanup_at = now_monotonic
         if should_cleanup:
-            with _orm_session() as session:
-                _delete_expired_sessions(session)
+            _last_session_cleanup_at = now_monotonic
+    if should_cleanup:
+        with _orm_session() as session:
+            _delete_expired_sessions(session)
 
 
 def _delete_expired_sessions(session: OrmSession) -> None:

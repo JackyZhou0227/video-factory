@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
 
 from app.services import settings_store
+from tests.pg_test_utils import ensure_test_user
 
 
 class SettingsStoreTests(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.original_db_path = settings_store._db_path
-        db_path = Path(self.temp_dir.name) / "settings.db"
-        settings_store._db_path = lambda: db_path
         settings_store.init_db(
             {
                 "runninghub": {},
@@ -21,8 +16,7 @@ class SettingsStoreTests(unittest.TestCase):
         )
 
     def tearDown(self):
-        settings_store._db_path = self.original_db_path
-        self.temp_dir.cleanup()
+        pass
 
     def test_llm_settings_update_preserves_and_clears_secret(self):
         initial = settings_store.get_llm_settings()
@@ -41,15 +35,7 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertFalse(settings_store.public_llm_settings(cleared)["api_key_configured"])
 
     def test_llm_settings_are_isolated_by_user(self):
-        with settings_store._connect() as conn:
-            now = settings_store._now_iso()
-            conn.execute(
-                """
-                INSERT INTO users (id, username, display_name, created_at, updated_at)
-                VALUES ('user-2', 'user2', 'User 2', ?, ?)
-                """,
-                (now, now),
-            )
+        ensure_test_user("user-2", username="user2", display_name="User 2")
         settings_store.update_llm_settings(user_id="user-2", base_url="https://other.example/v1", model="other")
         self.assertEqual(settings_store.get_llm_settings("user-2")["model"], "other")
         self.assertEqual(settings_store.get_llm_settings()["model"], "seed-model")

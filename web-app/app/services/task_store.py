@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import mimetypes
 import re
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -181,48 +180,6 @@ def _validate_task_values(task_type: str, generation_type: str, status: str) -> 
         raise ValueError(f"Unsupported task status: {status}")
 
 
-def ensure_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS generation_tasks (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            creator_username TEXT NOT NULL,
-            creator_display_name TEXT NOT NULL,
-            task_type TEXT NOT NULL,
-            generation_type TEXT NOT NULL,
-            requested_count INTEGER NOT NULL CHECK (requested_count >= 1),
-            success_count INTEGER NOT NULL DEFAULT 0 CHECK (success_count >= 0),
-            failed_count INTEGER NOT NULL DEFAULT 0 CHECK (failed_count >= 0),
-            status TEXT NOT NULL DEFAULT 'pending',
-            progress INTEGER NOT NULL DEFAULT 0 CHECK (progress >= 0 AND progress <= 100),
-            message TEXT NOT NULL DEFAULT '',
-            error TEXT,
-            storage_path TEXT NOT NULL,
-            extra_info_json TEXT NOT NULL DEFAULT '{}',
-            artifacts_json TEXT NOT NULL DEFAULT '[]',
-            created_at TEXT NOT NULL,
-            started_at TEXT,
-            finished_at TEXT,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_generation_tasks_user_created "
-        "ON generation_tasks (user_id, created_at DESC)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_generation_tasks_user_type "
-        "ON generation_tasks (user_id, task_type, generation_type)"
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_generation_tasks_status "
-        "ON generation_tasks (user_id, status)"
-    )
-
-
 def _output_root(output_root: Optional[Path] = None) -> Path:
     return Path(output_root or resolve_output_dir(app_config)).resolve()
 
@@ -253,8 +210,8 @@ def task_directory(
     return path
 
 
-def _row_to_record(row: sqlite3.Row | dict[str, Any] | GenerationTask) -> dict[str, Any]:
-    if isinstance(row, (sqlite3.Row, dict)):
+def _row_to_record(row: dict[str, Any] | GenerationTask) -> dict[str, Any]:
+    if isinstance(row, dict):
         record = dict(row)
     else:
         record = {

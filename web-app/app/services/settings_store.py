@@ -1,19 +1,15 @@
 from __future__ import annotations
 
-import os
-import sqlite3
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any, Iterator, Optional
 
 from sqlalchemy import func, select
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError as SqlAlchemyIntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from app.core.config import app_config
-from app.db.engine import get_database_url, sqlite_url_for_path
+from app.db.engine import require_postgresql_url
 from app.db.models import BgmTrack, Setting, SubtitleReplacement, User
 from app.db.session import get_session_factory, session_scope as orm_session_scope
 
@@ -43,44 +39,12 @@ class BgmTrackNotFoundError(LookupError):
     pass
 
 
-def _root() -> Path:
-    from app.core.config import ROOT
-
-    return ROOT
-
-
-def _db_path() -> Path:
-    return _root() / "data" / "video_factory.db"
-
-
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-@contextmanager
-def _connect() -> Iterator[sqlite3.Connection]:
-    db_path = _db_path()
-    db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    try:
-        yield conn
-        conn.commit()
-    except Exception:
-        conn.rollback()
-        raise
-    finally:
-        conn.close()
-
-
 def _orm_database_url() -> str:
-    if os.getenv("DATABASE_URL", "").strip():
-        return get_database_url()
-    configured_url = str((app_config.get("database") or {}).get("url") or "").strip()
-    if configured_url:
-        return configured_url
-    return sqlite_url_for_path(_db_path())
+    return require_postgresql_url(app_config)
 
 
 @contextmanager
@@ -194,115 +158,46 @@ def mask_api_key(api_key: str) -> str:
     return f"{value[:4]}{'*' * max(len(value) - 8, 4)}{value[-4:]}"
 
 
-def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
-    row = conn.execute(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
-        (table_name,),
-    ).fetchone()
-    return row is not None
-
-
-def _ensure_default_user(conn: sqlite3.Connection) -> None:
+def _ensure_default_user(session: OrmSession) -> bool:
     now = _now_iso()
-    conn.execute(
-        """
-        INSERT INTO users (id, username, display_name, is_default, created_at, updated_at)
-        VALUES (?, ?, ?, 1, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            is_default = 1,
-            updated_at = excluded.updated_at
-        """,
-        (DEFAULT_USER_ID, DEFAULT_USERNAME, DEFAULT_DISPLAY_NAME, now, now),
+    user = session.get(User, DEFAULT_USER_ID)
+    if user is None:
+        session.add(
+            User(
+                id=DEFAULT_USER_ID,
+                username=DEFAULT_USERNAME,
+                display_name=DEFAULT_DISPLAY_NAME,
+                role="user",
+                password_hash="",
+                password_salt="",
+                password_iterations=0,
+                is_default=1,
+                created_at=now,
+                updated_at=now,
+            )
+        )
+        return True
+
+    if not user.is_default:
+        user.is_default = 1
+        user.updated_at = now
+    return False
+
+
+def _namespace_has_settings(session: OrmSession, namespace: str) -> bool:
+    count = session.scalar(
+        select(func.count())
+        .select_from(Setting)
+        .where(Setting.user_id == DEFAULT_USER_ID, Setting.namespace == namespace)
     )
+    return bool(count)
 
 
-def _upsert_setting(
-    conn: sqlite3.Connection,
-    *,
-    user_id: str,
-    namespace: str,
-    setting_name: str,
-    value: Any,
-    value_type: str = "string",
-    is_secret: bool = False,
+def _seed_runninghub_from_config(
+    session: OrmSession,
+    config: Optional[dict[str, Any]],
 ) -> None:
-    now = _now_iso()
-    conn.execute(
-        """
-        INSERT INTO settings (
-            user_id, namespace, setting_name, value, value_type, is_secret, created_at, updated_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(user_id, namespace, setting_name) DO UPDATE SET
-            value = excluded.value,
-            value_type = excluded.value_type,
-            is_secret = excluded.is_secret,
-            updated_at = excluded.updated_at
-        """,
-        (
-            user_id,
-            namespace,
-            setting_name,
-            str(value or ""),
-            value_type,
-            1 if is_secret else 0,
-            now,
-            now,
-        ),
-    )
-
-
-def _migrate_legacy_runninghub_settings(conn: sqlite3.Connection) -> None:
-    if not _table_exists(conn, "runninghub_settings"):
-        return
-
-    row = conn.execute(
-        """
-        SELECT api_key, concurrent_limit, instance_type
-        FROM runninghub_settings
-        WHERE id = 1
-        """
-    ).fetchone()
-    if row:
-        settings = _normalize_runninghub_settings(dict(row))
-        _upsert_setting(
-            conn,
-            user_id=DEFAULT_USER_ID,
-            namespace=RUNNINGHUB_NAMESPACE,
-            setting_name="api_key",
-            value=settings["api_key"],
-            is_secret=True,
-        )
-        _upsert_setting(
-            conn,
-            user_id=DEFAULT_USER_ID,
-            namespace=RUNNINGHUB_NAMESPACE,
-            setting_name="concurrent_limit",
-            value=settings["concurrent_limit"],
-            value_type="integer",
-        )
-        _upsert_setting(
-            conn,
-            user_id=DEFAULT_USER_ID,
-            namespace=RUNNINGHUB_NAMESPACE,
-            setting_name="instance_type",
-            value=settings["instance_type"],
-        )
-
-    conn.execute("DROP TABLE runninghub_settings")
-
-
-def _seed_from_config(conn: sqlite3.Connection, config: Optional[dict[str, Any]]) -> None:
-    existing = conn.execute(
-        """
-        SELECT 1
-        FROM settings
-        WHERE user_id = ? AND namespace = ?
-        LIMIT 1
-        """,
-        (DEFAULT_USER_ID, RUNNINGHUB_NAMESPACE),
-    ).fetchone()
-    if existing:
+    if _namespace_has_settings(session, RUNNINGHUB_NAMESPACE):
         return
 
     config = config or {}
@@ -314,24 +209,24 @@ def _seed_from_config(conn: sqlite3.Connection, config: Optional[dict[str, Any]]
             "instance_type": runninghub_config.get("instance_type"),
         }
     )
-    _upsert_setting(
-        conn,
+    _orm_upsert_setting(
+        session,
         user_id=DEFAULT_USER_ID,
         namespace=RUNNINGHUB_NAMESPACE,
         setting_name="api_key",
         value=settings["api_key"],
         is_secret=True,
     )
-    _upsert_setting(
-        conn,
+    _orm_upsert_setting(
+        session,
         user_id=DEFAULT_USER_ID,
         namespace=RUNNINGHUB_NAMESPACE,
         setting_name="concurrent_limit",
         value=settings["concurrent_limit"],
         value_type="integer",
     )
-    _upsert_setting(
-        conn,
+    _orm_upsert_setting(
+        session,
         user_id=DEFAULT_USER_ID,
         namespace=RUNNINGHUB_NAMESPACE,
         setting_name="instance_type",
@@ -339,38 +234,32 @@ def _seed_from_config(conn: sqlite3.Connection, config: Optional[dict[str, Any]]
     )
 
 
-def _seed_llm_from_config(conn: sqlite3.Connection, config: Optional[dict[str, Any]]) -> None:
-    existing = conn.execute(
-        """
-        SELECT 1
-        FROM settings
-        WHERE user_id = ? AND namespace = ?
-        LIMIT 1
-        """,
-        (DEFAULT_USER_ID, LLM_NAMESPACE),
-    ).fetchone()
-    if existing:
+def _seed_llm_from_config(
+    session: OrmSession,
+    config: Optional[dict[str, Any]],
+) -> None:
+    if _namespace_has_settings(session, LLM_NAMESPACE):
         return
 
     llm_config = (config or {}).get("llm") or {}
     settings = _normalize_llm_settings(llm_config)
-    _upsert_setting(
-        conn,
+    _orm_upsert_setting(
+        session,
         user_id=DEFAULT_USER_ID,
         namespace=LLM_NAMESPACE,
         setting_name="base_url",
         value=settings["base_url"],
     )
-    _upsert_setting(
-        conn,
+    _orm_upsert_setting(
+        session,
         user_id=DEFAULT_USER_ID,
         namespace=LLM_NAMESPACE,
         setting_name="api_key",
         value=settings["api_key"],
         is_secret=True,
     )
-    _upsert_setting(
-        conn,
+    _orm_upsert_setting(
+        session,
         user_id=DEFAULT_USER_ID,
         namespace=LLM_NAMESPACE,
         setting_name="model",
@@ -378,142 +267,12 @@ def _seed_llm_from_config(conn: sqlite3.Connection, config: Optional[dict[str, A
     )
 
 
-def _create_settings_table(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS settings (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id TEXT NOT NULL,
-            namespace TEXT NOT NULL,
-            setting_name TEXT NOT NULL,
-            value TEXT NOT NULL DEFAULT '',
-            value_type TEXT NOT NULL DEFAULT 'string',
-            is_secret INTEGER NOT NULL DEFAULT 0 CHECK (is_secret IN (0, 1)),
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            UNIQUE (user_id, namespace, setting_name)
-        )
-        """
-    )
-
-
-def _ensure_users_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id TEXT PRIMARY KEY,
-            username TEXT NOT NULL UNIQUE,
-            display_name TEXT NOT NULL,
-            role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
-            password_hash TEXT NOT NULL DEFAULT '',
-            password_salt TEXT NOT NULL DEFAULT '',
-            password_iterations INTEGER NOT NULL DEFAULT 0,
-            is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
-    migrations = {
-        "role": "ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user'",
-        "password_hash": "ALTER TABLE users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''",
-        "password_salt": "ALTER TABLE users ADD COLUMN password_salt TEXT NOT NULL DEFAULT ''",
-        "password_iterations": "ALTER TABLE users ADD COLUMN password_iterations INTEGER NOT NULL DEFAULT 0",
-    }
-    for column, statement in migrations.items():
-        if column not in columns:
-            conn.execute(statement)
-
-
-def _ensure_settings_schema(conn: sqlite3.Connection) -> None:
-    if not _table_exists(conn, "settings"):
-        _create_settings_table(conn)
-        return
-
-    columns = {row["name"] for row in conn.execute("PRAGMA table_info(settings)").fetchall()}
-    if "setting_name" in columns:
-        return
-
-    if "key" not in columns:
-        conn.execute("DROP TABLE settings")
-        _create_settings_table(conn)
-        return
-
-    conn.execute("ALTER TABLE settings RENAME TO settings_legacy_key")
-    _create_settings_table(conn)
-    conn.execute(
-        """
-        INSERT INTO settings (
-            id, user_id, namespace, setting_name, value, value_type, is_secret, created_at, updated_at
-        )
-        SELECT id, user_id, namespace, "key", value, value_type, is_secret, created_at, updated_at
-        FROM settings_legacy_key
-        """
-    )
-    conn.execute("DROP TABLE settings_legacy_key")
-
-
-def _ensure_subtitle_replacements_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS subtitle_replacements (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            source TEXT NOT NULL UNIQUE,
-            replacement TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
-        )
-        """
-    )
-
-
-def _ensure_bgm_tracks_schema(conn: sqlite3.Connection) -> None:
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS bgm_tracks (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            name TEXT NOT NULL,
-            relative_path TEXT NOT NULL,
-            duration REAL NOT NULL DEFAULT 0,
-            file_size INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_bgm_tracks_user ON bgm_tracks (user_id)"
-    )
-
-
 def init_db(config: Optional[dict[str, Any]] = None) -> None:
-    database_url = _orm_database_url()
-    if not make_url(database_url).drivername.startswith("sqlite"):
-        return
-    with _connect() as conn:
-        _ensure_users_schema(conn)
-        _ensure_settings_schema(conn)
-        _ensure_subtitle_replacements_schema(conn)
-        _ensure_bgm_tracks_schema(conn)
-        from app.services import task_store
-
-        task_store.ensure_schema(conn)
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_settings_user_namespace
-            ON settings (user_id, namespace)
-            """
-        )
-
-        _ensure_default_user(conn)
-        _migrate_legacy_runninghub_settings(conn)
-        _seed_from_config(conn, config)
-        _seed_llm_from_config(conn, config)
+    require_postgresql_url(app_config)
+    with _orm_session() as session:
+        _ensure_default_user(session)
+        _seed_runninghub_from_config(session, config)
+        _seed_llm_from_config(session, config)
 
 
 def get_default_user() -> dict[str, Any]:
@@ -724,7 +483,7 @@ def create_subtitle_replacement(*, source: Any, replacement: Any) -> dict[str, A
             session.add(row)
             session.flush()
             record = _subtitle_replacement_record(row)
-    except (SqlAlchemyIntegrityError, sqlite3.IntegrityError) as exc:
+    except SqlAlchemyIntegrityError as exc:
         raise SubtitleReplacementConflictError(f"字幕原词“{normalized_source}”已存在") from exc
     return record
 def update_subtitle_replacement(
@@ -747,7 +506,7 @@ def update_subtitle_replacement(
             row.updated_at = _now_iso()
             session.flush()
             record = _subtitle_replacement_record(row)
-    except (SqlAlchemyIntegrityError, sqlite3.IntegrityError) as exc:
+    except SqlAlchemyIntegrityError as exc:
         raise SubtitleReplacementConflictError(f"字幕原词“{normalized_source}”已存在") from exc
     return record
 

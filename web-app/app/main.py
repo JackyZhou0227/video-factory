@@ -17,6 +17,7 @@ from app.api.tasks import router as tasks_router
 from app.api.tts_studio import router as tts_studio_router
 from app.core.config import ROOT, app_config
 from app.core.security import install_security_middleware
+from app.db.engine import require_postgresql_url
 from app.services import auth_store, settings_store, task_store
 from app.services.tts import tts_service
 
@@ -33,6 +34,7 @@ async def lifespan(_application: FastAPI):
 
 
 def create_app() -> FastAPI:
+    require_postgresql_url(app_config)
     settings_store.init_db(app_config)
     auth_store.init_auth_schema()
     task_store.mark_incomplete_tasks_failed()

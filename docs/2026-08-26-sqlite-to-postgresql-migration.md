@@ -8,9 +8,9 @@
 - 驱动：`psycopg==3.3.4`、`psycopg-binary==3.3.4`
 - Alembic `upgrade head` 成功
 - SQLite 六张业务表已成功导入 PostgreSQL
-- 行数核对一致：`users=5`、`settings=12`、`sessions=15`、`subtitle_replacements=2`、`bgm_tracks=1`、`generation_tasks=14`
+- 正式库 `video_factory` 当前行数：`users=10`、`settings=21`、`sessions=16`、`subtitle_replacements=0`、`bgm_tracks=0`、`generation_tasks=7`
 - `alembic check` 通过
-- 设置 `DATABASE_URL` 后应用可以正常启动
+- `web-app/config.yaml` 已配置正式 PostgreSQL URL，应用启动时强制校验 PostgreSQL；连接失败或配置为 SQLite 时启动失败。
 
 迁移范围只包括数据库记录。BGM、任务产物、音色和上传文件仍然在文件系统中，迁移时必须同步保留对应目录。
 
@@ -44,10 +44,14 @@ python -m alembic check
 
 迁移脚本默认拒绝写入非空目标库；只有确认需要覆盖测试库时才使用 `--replace`。
 
+## 测试环境
+
+自动化测试使用独立的 PostgreSQL 数据库 `video_factory_test`，每个测试前清空并重新初始化，不会触碰正式库。
+
 ## 迁移后核对
 
 - 逐表核对行数、用户 ID、任务 ID 和外键关系。
-- 使用 PostgreSQL 的 `DATABASE_URL` 启动应用。
+- 使用配置文件中的 PostgreSQL URL 启动应用。
 - 验证登录、退出、配置读取/保存、任务创建/查询、BGM 列表/播放和历史产物下载。
 - 检查任务输出目录和 BGM 目录仍与数据库中的相对路径一致。
 - 观察启动日志、任务失败率和 PostgreSQL 连接数。
@@ -62,4 +66,4 @@ python -m alembic check
 
 不得提交：`web-app/config.yaml`、`web-app/data/video_factory.db`、数据库备份、测试库凭据、API Key、任务输出和 BGM 文件。
 
-生产切换后，应用只要持续设置 `DATABASE_URL`，业务读写就全部走 PostgreSQL。SQLite 兼容代码暂时保留用于开发和回滚，生产环境不会调用它。
+生产切换后，业务读写全部走 PostgreSQL。SQLite 文件和备份暂时保留用于迁移和回滚；业务模块已移除 SQLite 回退及旧建表逻辑，正式 `create_app()` 只使用 PostgreSQL。自动化测试统一使用 `video_factory_test`，不再创建 SQLite 测试文件。

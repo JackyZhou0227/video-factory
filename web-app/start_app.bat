@@ -3,11 +3,16 @@ setlocal
 chcp 65001 >nul 2>&1
 
 set "APP_DIR=%~dp0"
+if not defined DATABASE_URL (
+    for /f "tokens=2,*" %%a in ('reg query "HKCU\Environment" /v DATABASE_URL 2^>nul') do set "DATABASE_URL=%%b"
+)
+set "PYTHON_EXE=python"
 if not defined APP_HOST set "APP_HOST=127.0.0.1"
 if not defined APP_PORT set "APP_PORT=18888"
 set "VIDEO_FACTORY_ENV=production"
 set "VIDEO_FACTORY_RELOAD=0"
 set "FRONTEND_DIST=%APP_DIR%frontend\dist"
+set "FRONTEND_DIR=%APP_DIR%frontend"
 
 echo ==============================================
 echo Video Factory - App
@@ -16,18 +21,41 @@ echo.
 echo Frontend + API: http://%APP_HOST%:%APP_PORT%
 echo.
 
-if not exist "%FRONTEND_DIST%\index.html" (
-    echo Frontend build not found:
-    echo %FRONTEND_DIST%\index.html
-    echo.
-    echo Please build the frontend before running this app:
-    echo cd /d "%APP_DIR%frontend"
-    echo npm install
-    echo npm run build
-    echo.
-    pause
+if not exist "%FRONTEND_DIR%\package.json" (
+    echo Frontend package.json was not found: %FRONTEND_DIR%
     endlocal
     exit /b 1
+)
+
+where npm >nul 2>&1
+if errorlevel 1 (
+    echo npm was not found on PATH. Install Node.js before starting Video Factory.
+    endlocal
+    exit /b 1
+)
+
+if not exist "%FRONTEND_DIR%\node_modules" (
+    echo Installing frontend dependencies...
+    pushd "%FRONTEND_DIR%"
+    call npm install
+    set "NPM_EXIT_CODE=%ERRORLEVEL%"
+    popd
+    if not "%NPM_EXIT_CODE%"=="0" (
+        echo Failed to install frontend dependencies.
+        endlocal
+        exit /b %NPM_EXIT_CODE%
+    )
+)
+
+echo Building frontend...
+pushd "%FRONTEND_DIR%"
+call npm run build
+set "BUILD_EXIT_CODE=%ERRORLEVEL%"
+popd
+if not "%BUILD_EXIT_CODE%"=="0" (
+    echo Frontend build failed. Backend startup was skipped.
+    endlocal
+    exit /b %BUILD_EXIT_CODE%
 )
 
 for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%APP_PORT% .*LISTENING"') do (
@@ -45,7 +73,14 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%APP_PORT% .*LISTENIN
 )
 
 pushd "%APP_DIR%"
-python -m uvicorn main:app --host %APP_HOST% --port %APP_PORT%
+where %PYTHON_EXE% >nul 2>&1
+if errorlevel 1 (
+    echo Python was not found on PATH. Activate the virtual environment first.
+    popd
+    endlocal
+    exit /b 1
+)
+%PYTHON_EXE% -m uvicorn main:app --host %APP_HOST% --port %APP_PORT%
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 

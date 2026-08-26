@@ -16,6 +16,7 @@ from app.api import smart_editing as smart_api
 from app.api import tasks as tasks_api
 from app.api.auth import require_current_user
 from app.services import settings_store, task_store
+from tests.pg_test_utils import ensure_test_user
 
 
 class SmartEditingApiTests(unittest.TestCase):
@@ -24,8 +25,6 @@ class SmartEditingApiTests(unittest.TestCase):
         self.user_id = "user-a"
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_root = Path(self.temp_dir.name)
-        self.original_db_path = settings_store._db_path
-        settings_store._db_path = lambda: self.output_root / "settings.db"
         settings_store.init_db()
         self._ensure_test_user("user-a")
         self._ensure_test_user("user-b")
@@ -45,21 +44,11 @@ class SmartEditingApiTests(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
-        settings_store._db_path = self.original_db_path
         self.temp_dir.cleanup()
         smart_api._tasks.clear()
 
     def _ensure_test_user(self, user_id: str) -> None:
-        now = settings_store._now_iso()
-        with settings_store._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO users (id, username, display_name, is_default, created_at, updated_at)
-                VALUES (?, ?, ?, 0, ?, ?)
-                ON CONFLICT(id) DO NOTHING
-                """,
-                (user_id, user_id, user_id, now, now),
-            )
+        ensure_test_user(user_id, username=user_id, display_name=user_id)
 
     def _create_bgm_track(
         self,

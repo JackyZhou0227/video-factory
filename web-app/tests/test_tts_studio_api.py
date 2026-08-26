@@ -14,6 +14,7 @@ from app.api import digital_human, tts_studio
 from app.api.auth import require_current_user
 from app.services.tts import EDGE_TTS_MODEL
 from app.services import settings_store, task_store
+from tests.pg_test_utils import ensure_test_user
 
 
 class TTSStudioApiTests(unittest.TestCase):
@@ -22,15 +23,8 @@ class TTSStudioApiTests(unittest.TestCase):
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_root = Path(self.temp_dir.name) / "output"
         self.output_root.mkdir()
-        self.original_db_path = settings_store._db_path
-        settings_store._db_path = lambda: Path(self.temp_dir.name) / "settings.db"
         settings_store.init_db()
-        now = settings_store._now_iso()
-        with settings_store._connect() as conn:
-            conn.execute(
-                "INSERT INTO users (id, username, display_name, is_default, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-                (self.user_id, "user_a", self.user_id, now, now),
-            )
+        ensure_test_user(self.user_id, username="user_a", display_name=self.user_id)
         self.voice_root_patch = patch.object(
             tts_studio.voice_profiles,
             "_root",
@@ -46,7 +40,6 @@ class TTSStudioApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.voice_root_patch.stop()
-        settings_store._db_path = self.original_db_path
         self.temp_dir.cleanup()
 
     def _current_user(self):

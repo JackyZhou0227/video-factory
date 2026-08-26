@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import os
-import tempfile
 import unittest
-from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api.auth import router as auth_router
 from app.services import auth_store, settings_store
+from tests.pg_test_utils import count_sessions, set_session_expires_at
 
 
 class AuthSecurityTests(unittest.TestCase):
@@ -23,8 +22,6 @@ class AuthSecurityTests(unittest.TestCase):
     )
 
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.original_db_path = settings_store._db_path
         self.original_limits = {
             name: getattr(auth_store, name)
             for name in (
@@ -35,7 +32,6 @@ class AuthSecurityTests(unittest.TestCase):
             )
         }
         self.original_env = {name: os.environ.get(name) for name in self.ENV_NAMES}
-        settings_store._db_path = lambda: Path(self.temp_dir.name) / "auth.db"
         settings_store.init_db()
         auth_store.init_auth_schema()
         auth_store.reset_rate_limits()
@@ -54,8 +50,6 @@ class AuthSecurityTests(unittest.TestCase):
                 os.environ[name] = value
         for name, value in self.original_limits.items():
             setattr(auth_store, name, value)
-        settings_store._db_path = self.original_db_path
-        self.temp_dir.cleanup()
 
     def set_env(self, name: str, value: str | None) -> None:
         if value is None:
@@ -172,11 +166,10 @@ class AuthSecurityTests(unittest.TestCase):
         expired_token, _ = auth_store.create_session(user["id"])
         active_token, _ = auth_store.create_session(user["id"])
 
-        with auth_store._connect() as conn:
-            conn.execute(
-                "UPDATE sessions SET expires_at = ? WHERE token_hash = ?",
-                ("2000-01-01T00:00:00+00:00", auth_store._hash_token(expired_token)),
-            )
+        set_session_expires_at(
+            auth_store._hash_token(expired_token),
+            "2000-01-01T00:00:00+00:00",
+        )
 
         auth_store.cleanup_sessions(force=True)
 
@@ -191,13 +184,7 @@ class AuthSecurityTests(unittest.TestCase):
         auth_store.create_session(user["id"])
         auth_store.create_session(user["id"])
 
-        with auth_store._connect() as conn:
-            row = conn.execute(
-                "SELECT COUNT(*) AS total FROM sessions WHERE user_id = ?",
-                (user["id"],),
-            ).fetchone()
-
-        self.assertEqual(row["total"], 2)
+        self.assertEqual(count_sessions(user["id"]), 2)
 
 
 if __name__ == "__main__":

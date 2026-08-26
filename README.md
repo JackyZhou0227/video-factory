@@ -13,7 +13,7 @@ web-app/
   init_default_admin.bat  Windows 初始管理员账号脚本
   start_app.bat           Windows 一键启动脚本，同时提供前端页面和后端接口
   app/                    FastAPI 后端包
-  data/                   SQLite 和本机运行数据，已被 .gitignore 忽略
+  data/                   本机运行数据与迁移备份，已被 .gitignore 忽略
   frontend/               React + Vite 前端
     skills/               可随前端打包下载的项目级 Skills 源码
 ```
@@ -271,7 +271,7 @@ python scripts\init_admin.py --username admin --display-name admin
 
 登录后在页面“设置”里配置当前用户的 RunningHub API Key、并发限制和机器规格，以及 OpenAI 兼容 LLM 的 Base URL、API Key 和模型名称。
 
-这些设置按用户保存在后端本机 SQLite：`web-app/data/video_factory.db`。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。
+这些设置按用户保存在配置的 PostgreSQL 数据库。数字人 RunningHub 工作流 ID 是系统固定值，不在页面或数据库里让客户配置。
 
 ## 任务中心与产物
 
@@ -326,6 +326,15 @@ web-app/output/tasks/2026/08/07/digital_human/71a.../
 
 ## 启动应用
 
+完整启动（推荐）：创建或准备 `.venv`、激活虚拟环境、安装 Python 依赖，然后构建前端并启动服务：
+
+```powershell
+cd D:\project\video-factory\web-app
+.\start.bat
+```
+
+如果当前命令行已经激活了正确的 Python 虚拟环境，也可以直接启动。`start_app.bat` 不会创建或激活虚拟环境，但会检查并安装前端依赖、执行 `npm run build`，再启动 FastAPI：
+
 ```powershell
 cd D:\project\video-factory\web-app
 .\start_app.bat
@@ -337,7 +346,7 @@ cd D:\project\video-factory\web-app
 http://127.0.0.1:18888
 ```
 
-`start_app.bat` 会启动 FastAPI。FastAPI 会在检测到 `web-app/frontend/dist` 存在时，自动把构建后的前端页面挂载到根路径，同时提供 `/api` 后端接口。也就是说用户只需要运行这一个脚本，就能同时访问前端和后端。
+FastAPI 会在检测到 `web-app/frontend/dist` 存在时，自动把构建后的前端页面挂载到根路径，同时提供 `/api` 后端接口。
 
 ## 更新代码
 
@@ -348,7 +357,7 @@ cd D:\project\video-factory
 git pull
 ```
 
-如果前端代码有更新，重新构建：
+如果只修改了前端代码，可以直接重新运行 `start_app.bat`，脚本会自动重新构建；也可以手动构建：
 
 ```powershell
 cd web-app\frontend

@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from app.services import settings_store, task_store
+from tests.pg_test_utils import ensure_test_user, index_names, table_names
 
 
 class TaskStoreTests(unittest.TestCase):
@@ -13,19 +14,11 @@ class TaskStoreTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         self.output_root = self.root / "output"
         self.output_root.mkdir()
-        self.original_db_path = settings_store._db_path
-        settings_store._db_path = lambda: self.root / "settings.db"
         settings_store.init_db()
-        now = settings_store._now_iso()
-        with settings_store._connect() as conn:
-            for user_id, username in (("user-a", "user_a"), ("user-b", "user_b")):
-                conn.execute(
-                    "INSERT INTO users (id, username, display_name, is_default, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-                    (user_id, username, username.title(), now, now),
-                )
+        for user_id, username in (("user-a", "user_a"), ("user-b", "user_b")):
+            ensure_test_user(user_id, username=username, display_name=username.title())
 
     def tearDown(self):
-        settings_store._db_path = self.original_db_path
         self.temp_dir.cleanup()
 
     def user(self, user_id: str = "user-a") -> dict[str, str]:
@@ -33,17 +26,12 @@ class TaskStoreTests(unittest.TestCase):
 
     def test_schema_is_idempotent_and_has_indexes(self):
         settings_store.init_db()
-        with settings_store._connect() as conn:
-            table = conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='generation_tasks'"
-            ).fetchone()
-            indexes = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_generation_tasks_%'"
-                ).fetchall()
-            }
-        self.assertIsNotNone(table)
+        self.assertIn("generation_tasks", table_names())
+        indexes = {
+            name
+            for name in index_names("generation_tasks")
+            if name.startswith("idx_generation_tasks_")
+        }
         self.assertGreaterEqual(len(indexes), 3)
 
     def test_task_round_trip_snapshots_owner_and_uses_utc_date_directory(self):

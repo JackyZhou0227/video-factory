@@ -13,6 +13,7 @@ from fastapi.testclient import TestClient
 from app.api import tasks as tasks_api
 from app.api.auth import require_current_user
 from app.services import settings_store, task_store
+from tests.pg_test_utils import ensure_test_user, set_task_artifacts
 
 
 class TasksApiTests(unittest.TestCase):
@@ -21,16 +22,9 @@ class TasksApiTests(unittest.TestCase):
         self.root = Path(self.temp_dir.name)
         self.output_root = self.root / "output"
         self.output_root.mkdir()
-        self.original_db_path = settings_store._db_path
-        settings_store._db_path = lambda: self.root / "settings.db"
         settings_store.init_db()
-        now = settings_store._now_iso()
-        with settings_store._connect() as conn:
-            for user_id, username in (("user-a", "user_a"), ("user-b", "user_b")):
-                conn.execute(
-                    "INSERT INTO users (id, username, display_name, is_default, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
-                    (user_id, username, username.title(), now, now),
-                )
+        for user_id, username in (("user-a", "user_a"), ("user-b", "user_b")):
+            ensure_test_user(user_id, username=username, display_name=username.title())
 
         self.user_id = "user-a"
 
@@ -51,7 +45,6 @@ class TasksApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.output_root_patch.stop()
-        settings_store._db_path = self.original_db_path
         self.temp_dir.cleanup()
 
     def user(self, user_id: str) -> dict[str, str]:
@@ -177,11 +170,7 @@ class TasksApiTests(unittest.TestCase):
             "created_at": settings_store._now_iso(),
             "is_primary": True,
         }]
-        with settings_store._connect() as conn:
-            conn.execute(
-                "UPDATE generation_tasks SET artifacts_json = ? WHERE id = ?",
-                (json.dumps(malicious), task["id"]),
-            )
+        set_task_artifacts(task["id"], malicious)
         response = self.client.get(f"/api/tasks/{task['id']}/artifacts/malicious/download")
         self.assertEqual(response.status_code, 404, response.text)
         self.assertNotIn(str(outside), response.text)

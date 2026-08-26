@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from sqlalchemy import inspect, select
@@ -24,6 +22,7 @@ from app.db.models import (
 from app.db.engine import get_database_url
 from app.db.session import get_session_factory, session_scope
 from app.services import auth_store, settings_store, task_store
+from tests.pg_test_utils import TEST_DATABASE_URL
 
 
 TABLE_NAMES = {
@@ -40,16 +39,12 @@ EXPIRES_AT = "2026-09-22T00:00:00+00:00"
 
 class DbModelsTests(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        database_path = Path(self.temp_dir.name) / "orm-models.sqlite3"
-        database_url = f"sqlite:///{database_path.resolve().as_posix()}"
-        self.engine = create_engine_from_url(database_url)
+        self.engine = create_engine_from_url(TEST_DATABASE_URL)
         Base.metadata.create_all(self.engine)
         self.session_factory = sessionmaker(bind=self.engine)
 
     def tearDown(self):
         self.engine.dispose()
-        self.temp_dir.cleanup()
 
     @staticmethod
     def _user(user_id: str = "user-1", username: str = "alice") -> User:
@@ -61,7 +56,7 @@ class DbModelsTests(unittest.TestCase):
             password_hash="password-hash",
             password_salt="password-salt",
             password_iterations=390000,
-            is_default=False,
+            is_default=0,
             created_at=CREATED_AT,
             updated_at=CREATED_AT,
         )
@@ -93,7 +88,7 @@ class DbModelsTests(unittest.TestCase):
             setting_name=setting_name,
             value=value,
             value_type="string",
-            is_secret=False,
+            is_secret=0,
             created_at=CREATED_AT,
             updated_at=CREATED_AT,
         )
@@ -163,7 +158,7 @@ class DbModelsTests(unittest.TestCase):
         )
 
     def test_store_sessions_share_database_url_and_engine(self):
-        database_url = f"sqlite:///{(Path(self.temp_dir.name) / 'shared.sqlite3').resolve().as_posix()}"
+        database_url = TEST_DATABASE_URL
         with patch.dict(os.environ, {"DATABASE_URL": database_url}, clear=False):
             settings_factory = get_session_factory(database_url)
             auth_factory = get_session_factory(database_url)

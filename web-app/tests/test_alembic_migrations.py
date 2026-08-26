@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import os
-import tempfile
-import unittest
 from pathlib import Path
+import unittest
 from unittest.mock import patch
 
 from alembic import command
@@ -11,7 +10,8 @@ from alembic.config import Config
 from sqlalchemy import inspect, text
 
 from app.db.base import Base
-from app.db.engine import create_engine_from_url, sqlite_url_for_path
+from app.db.engine import create_engine_from_url
+from tests.pg_test_utils import TEST_DATABASE_URL, drop_database_objects, reset_public_schema
 
 
 TABLE_NAMES = {
@@ -26,12 +26,12 @@ TABLE_NAMES = {
 
 class AlembicMigrationTests(unittest.TestCase):
     def setUp(self):
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.database_url = sqlite_url_for_path(Path(self.temp_dir.name) / "migration.sqlite3")
+        drop_database_objects()
+        self.database_url = TEST_DATABASE_URL
         self.config_path = Path(__file__).resolve().parents[1] / "alembic.ini"
 
     def tearDown(self):
-        self.temp_dir.cleanup()
+        reset_public_schema()
 
     def _config(self) -> Config:
         return Config(str(self.config_path))

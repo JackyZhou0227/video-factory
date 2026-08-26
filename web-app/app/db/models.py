@@ -73,7 +73,6 @@ class Setting(Base):
         Index("idx_settings_user_namespace", "user_id", "namespace"),
         UniqueConstraint("user_id", "namespace", "setting_name"),
         CheckConstraint("is_secret IN (0, 1)"),
-        {"sqlite_autoincrement": True},
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, nullable=False)
@@ -95,7 +94,6 @@ class Setting(Base):
 
 class SubtitleReplacement(Base):
     __tablename__ = "subtitle_replacements"
-    __table_args__ = ({"sqlite_autoincrement": True},)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True, nullable=False)
     source: Mapped[str] = mapped_column(Text, nullable=False, unique=True)

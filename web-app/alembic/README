@@ -10,12 +10,14 @@ python -m alembic current
 python -m alembic revision --autogenerate -m "describe the schema change"
 ```
 
-The database URL comes from `DATABASE_URL`, then `database.url` in `config.yaml`, and finally the existing SQLite database path.
+The database URL comes from `DATABASE_URL` or `database.url` in `config.yaml`.
+Alembic operates on PostgreSQL only; SQLite is handled by the standalone
+`scripts/migrate_sqlite_to_postgres.py` migration tool.
 
 The first migration is a baseline for the six existing tables. Before applying it to an existing database, verify the schema and use `stamp` for that database instead of running the baseline `upgrade` against already-created tables:
 
 ```powershell
-$env:DATABASE_URL = "sqlite:///D:/path/to/video_factory.db"
+$env:DATABASE_URL = "postgresql+psycopg://video_factory_app:<PASSWORD>@127.0.0.1:5432/video_factory"
 python -m alembic stamp 0001
 Remove-Item Env:DATABASE_URL
 ```

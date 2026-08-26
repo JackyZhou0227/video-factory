@@ -28,8 +28,7 @@ def upgrade() -> None:
     sa.Column('created_at', sa.Text(), nullable=False),
     sa.Column('updated_at', sa.Text(), nullable=False),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('source'),
-    sqlite_autoincrement=True
+    sa.UniqueConstraint('source')
     )
     op.create_table('users',
     sa.Column('id', sa.Text(), nullable=True),
@@ -117,8 +116,7 @@ def upgrade() -> None:
     sa.CheckConstraint('is_secret IN (0, 1)'),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('user_id', 'namespace', 'setting_name'),
-    sqlite_autoincrement=True
+    sa.UniqueConstraint('user_id', 'namespace', 'setting_name')
     )
     op.create_index('idx_settings_user_namespace', 'settings', ['user_id', 'namespace'], unique=False)
     # ### end Alembic commands ###

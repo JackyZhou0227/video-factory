@@ -16,6 +16,7 @@ from app.api import template_production as template_api
 from app.api.auth import require_current_user
 from app.services import settings_store, task_store
 from app.services.template_registry import TemplateRegistry
+from tests.pg_test_utils import ensure_test_user
 
 
 class TemplateProductionApiTests(unittest.TestCase):
@@ -31,8 +32,6 @@ class TemplateProductionApiTests(unittest.TestCase):
             self.registry,
         )
         self.registry_patch.start()
-        self.original_db_path = settings_store._db_path
-        settings_store._db_path = lambda: self.output_root / "settings.db"
         settings_store.init_db()
         self._ensure_test_user("user-a")
         self._ensure_test_user("user-b")
@@ -48,21 +47,11 @@ class TemplateProductionApiTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         self.registry_patch.stop()
-        settings_store._db_path = self.original_db_path
         self.temp_dir.cleanup()
         template_api._tasks.clear()
 
     def _ensure_test_user(self, user_id: str) -> None:
-        now = settings_store._now_iso()
-        with settings_store._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO users (id, username, display_name, is_default, created_at, updated_at)
-                VALUES (?, ?, ?, 0, ?, ?)
-                ON CONFLICT(id) DO NOTHING
-                """,
-                (user_id, user_id, user_id, now, now),
-            )
+        ensure_test_user(user_id, username=user_id, display_name=user_id)
 
     def importable_template(self, template_id: str = "user-doctor-intro") -> dict:
         value = json.loads(self.registry.export_template_json("user-a", "doctor-intro"))

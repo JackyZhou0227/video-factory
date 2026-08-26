@@ -4,19 +4,14 @@ from __future__ import annotations
 
 import os
 import threading
-from pathlib import Path
 from typing import Any, Mapping
 
-from sqlalchemy import Engine, create_engine, event
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.engine import make_url
-from sqlalchemy.pool import NullPool, Pool
+from sqlalchemy.pool import Pool
 
 _engines: dict[str, Engine] = {}
 _engines_lock = threading.RLock()
-
-
-def _application_root() -> Path:
-    return Path(__file__).resolve().parents[2]
 
 
 def _application_config() -> Mapping[str, Any]:
@@ -47,31 +42,27 @@ def _non_negative_int(value: Any, default: int) -> int:
     return parsed if parsed >= 0 else default
 
 
-def sqlite_url_for_path(path: str | Path) -> str:
-    database_path = Path(path).expanduser().resolve()
-    return f"sqlite:///{database_path.as_posix()}"
-
-
-def _default_sqlite_url() -> str:
-    return sqlite_url_for_path(_application_root() / "data" / "video_factory.db")
-
-
 def get_database_url(config: Mapping[str, Any] | None = None) -> str:
     environment_url = os.getenv("DATABASE_URL", "").strip()
     if environment_url:
         return environment_url
 
     configured_url = str(_database_config(config).get("url") or "").strip()
-    return configured_url or _default_sqlite_url()
+    if not configured_url:
+        raise RuntimeError(
+            "Video Factory requires PostgreSQL; configure DATABASE_URL or database.url "
+            "with a postgresql+psycopg URL."
+        )
+    return configured_url
 
 
-def _enable_sqlite_foreign_keys(dbapi_connection: Any, connection_record: Any) -> None:
-    del connection_record
-    cursor = dbapi_connection.cursor()
-    try:
-        cursor.execute("PRAGMA foreign_keys=ON")
-    finally:
-        cursor.close()
+def require_postgresql_url(config: Mapping[str, Any] | None = None) -> str:
+    """Resolve and validate the PostgreSQL URL used by the application."""
+
+    database_url = get_database_url(config)
+    if not make_url(database_url).drivername.startswith("postgresql"):
+        raise RuntimeError("Video Factory requires a PostgreSQL database URL.")
+    return database_url
 
 
 def create_engine_from_url(
@@ -82,13 +73,12 @@ def create_engine_from_url(
 ) -> Engine:
     url = make_url(database_url)
     engine_options: dict[str, Any] = {}
+    if not url.drivername.startswith("postgresql"):
+        raise RuntimeError("Video Factory requires a PostgreSQL database URL.")
 
-    if url.drivername.startswith("sqlite"):
-        engine_options["connect_args"] = {"check_same_thread": False}
-        engine_options["poolclass"] = NullPool
-    else:
-        database = _database_config(config)
-        engine_options["pool_pre_ping"] = True
+    database = _database_config(config)
+    engine_options["pool_pre_ping"] = True
+    if poolclass is None:
         if "pool_size" in database:
             engine_options["pool_size"] = _positive_int(database.get("pool_size"), 5)
         if "max_overflow" in database:
@@ -99,10 +89,7 @@ def create_engine_from_url(
     if poolclass is not None:
         engine_options["poolclass"] = poolclass
 
-    engine = create_engine(database_url, **engine_options)
-    if url.drivername.startswith("sqlite"):
-        event.listen(engine, "connect", _enable_sqlite_foreign_keys)
-    return engine
+    return create_engine(database_url, **engine_options)
 
 
 def get_engine(
