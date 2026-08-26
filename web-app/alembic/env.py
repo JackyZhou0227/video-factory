@@ -28,6 +28,10 @@ def _include_object(
     reflected: bool,
     compare_to: object | None,
 ) -> bool:
+    # The baseline uses unnamed CHECK constraints. PostgreSQL reflects generated
+    # names for them, which would make ``alembic check`` report false removals.
+    if type_ == "check_constraint" and reflected and compare_to is None:
+        return False
     if type_ != "column":
         return True
     if getattr(object_, "primary_key", False):

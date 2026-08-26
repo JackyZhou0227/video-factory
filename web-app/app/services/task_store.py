@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
-from sqlalchemy import func, select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session as OrmSession
 
 from app.core.config import app_config, resolve_output_dir
@@ -688,9 +688,13 @@ def mark_incomplete_tasks_failed() -> None:
                 status="failed",
                 error=func.coalesce(GenerationTask.error, "后端重启时任务未完成"),
                 message="后端重启时任务未完成",
-                failed_count=func.max(
-                    GenerationTask.failed_count,
-                    GenerationTask.requested_count - GenerationTask.success_count,
+                failed_count=case(
+                    (
+                        GenerationTask.failed_count
+                        >= GenerationTask.requested_count - GenerationTask.success_count,
+                        GenerationTask.failed_count,
+                    ),
+                    else_=GenerationTask.requested_count - GenerationTask.success_count,
                 ),
                 finished_at=func.coalesce(GenerationTask.finished_at, now),
                 updated_at=now,
