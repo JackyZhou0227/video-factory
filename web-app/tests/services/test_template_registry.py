@@ -8,7 +8,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from app.models.template_definition import (
+from app.schemas.template_definition import (
     MAX_TOTAL_MATERIAL_COUNT,
     TemplateDefinition,
     TemplateRuntimeValidationError,

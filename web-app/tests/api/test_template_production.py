@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import template_production as template_api
+from app.api import common, template_production as template_api
 from app.api.auth import require_current_user
 from app.services import settings_store, task_store
 from app.services.template_registry import TemplateRegistry
@@ -440,7 +440,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             template_api.template_production,
             "compose_zhongyi_video",
             side_effect=compose_video,
-        ) as compose, patch.object(template_api, "_public_output_url", return_value="/output/test"):
+        ) as compose, patch.object(common, "public_output_url", return_value="/output/test"):
             asyncio.run(
                 template_api._run_task(
                     task_id=task_id,
@@ -769,7 +769,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         with patch.object(template_api.tts_service, "synthesize", synthesize), \
              patch.object(template_api.template_production, "compose_video", side_effect=compose_video) as compose, \
              patch.object(template_api.template_production, "prepare_material_segment"), \
-             patch.object(template_api, "_public_output_url", return_value="/output/test"):
+             patch.object(common, "public_output_url", return_value="/output/test"):
             asyncio.run(
                 template_api._run_task(
                     task_id=task_id,
@@ -821,7 +821,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         with patch.object(template_api.tts_service, "synthesize", synthesize), \
              patch.object(template_api.template_production, "compose_video", side_effect=compose_video) as compose, \
              patch.object(template_api.template_production, "prepare_material_segment"), \
-             patch.object(template_api, "_public_output_url", return_value="/output/test"):
+             patch.object(common, "public_output_url", return_value="/output/test"):
             asyncio.run(
                 template_api._run_task(
                     task_id=task_id,
