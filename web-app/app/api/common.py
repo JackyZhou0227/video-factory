@@ -1,0 +1,67 @@
+"""Shared helper functions for API layer."""
+
+from __future__ import annotations
+
+import json
+import re
+import zipfile
+from pathlib import Path
+from typing import Any
+
+from fastapi import HTTPException
+
+from app.core.config import app_config, resolve_output_dir
+from app.services import task_store
+
+
+def artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
+    """Generate artifact URL for task center."""
+    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
+
+
+def public_output_url(path: Path) -> str:
+    """Convert absolute output path to public URL path."""
+    output_root = resolve_output_dir(app_config).resolve()
+    relative = path.resolve().relative_to(output_root).as_posix()
+    return f"/output/{relative}"
+
+
+def persist_task_update(task_id: str, **updates: Any) -> None:
+    """Update task metadata, ignoring TaskNotFoundError."""
+    try:
+        task_store.update_task(task_id, **updates)
+    except task_store.TaskNotFoundError:
+        pass
+
+
+def persist_artifact(task_id: str, **artifact: Any) -> None:
+    """Add artifact to task, ignoring TaskNotFoundError."""
+    try:
+        task_store.add_artifact(task_id, **artifact)
+    except task_store.TaskNotFoundError:
+        pass
+
+
+def safe_filename(filename: str, fallback: str) -> str:
+    """Sanitize filename to remove unsafe characters."""
+    value = Path(filename or fallback).name
+    safe = re.sub(r"[^\w.\-一-鿿]+", "_", value, flags=re.UNICODE).strip("._")
+    return safe or fallback
+
+
+def parse_json_field(value: str, label: str, expected_type: type) -> Any:
+    """Parse and validate JSON form field."""
+    try:
+        parsed = json.loads(value)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail=f"{label} 必须是有效 JSON") from exc
+    if not isinstance(parsed, expected_type):
+        raise HTTPException(status_code=422, detail=f"{label} 格式不正确")
+    return parsed
+
+
+def create_output_zip(zip_path: Path, files: list[Path]) -> None:
+    """Create ZIP archive from list of output files."""
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for path in files:
+            archive.write(path, arcname=path.name)

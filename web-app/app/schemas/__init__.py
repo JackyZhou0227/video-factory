@@ -1,6 +1,6 @@
 """Pydantic models shared by backend services."""
 
-from app.models.template_definition import (
+from app.schemas.template_definition import (
     ContentField,
     ContentValues,
     FieldType,

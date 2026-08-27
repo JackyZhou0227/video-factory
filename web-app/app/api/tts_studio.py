@@ -11,6 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from app.api import common
 from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
@@ -61,10 +62,6 @@ def _public_output_url(path: Path) -> str:
     except ValueError:
         raise HTTPException(status_code=422, detail="Audio file is outside output directory") from None
     return f"/output/{relative_path.as_posix()}"
-
-
-def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
-    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
 
 
 def _new_voice_task(user: dict, suffix: str, extra_info: dict) -> tuple[str, str, Path, Path]:
@@ -336,7 +333,7 @@ async def update_preview_speech_rate(
     adjusted_audio_url = None
     adjusted_artifact_id = None
     if task is not None:
-        original_audio_url = _artifact_url(task_id, artifact_id)
+        original_audio_url = common.artifact_url(task_id, artifact_id)
         if output_audio_path != audio_path:
             adjusted_artifact_id = uuid.uuid4().hex
             task_store.add_artifact(
@@ -349,7 +346,7 @@ async def update_preview_speech_rate(
                 mime_type="audio/mpeg" if output_audio_path.suffix.lower() == ".mp3" else "audio/wav",
                 counts_toward_result=False,
             )
-            adjusted_audio_url = _artifact_url(task_id, adjusted_artifact_id)
+            adjusted_audio_url = common.artifact_url(task_id, adjusted_artifact_id)
     elif output_audio_path != audio_path:
         adjusted_audio_url = _public_output_url(output_audio_path)
     return {
@@ -422,7 +419,7 @@ async def preview_edge_tts(
         _fail_voice_task(task_id, RuntimeError("TTS did not produce an audio file"))
         raise HTTPException(status_code=500, detail="TTS did not produce an audio file")
     _complete_voice_task(task_id, artifact_id, audio_path)
-    audio_url = _artifact_url(task_id, artifact_id)
+    audio_url = common.artifact_url(task_id, artifact_id)
     return {
         "audio_id": task_id,
         "task_id": task_id,
@@ -534,7 +531,7 @@ async def preview_voice_clone_tts(
         _fail_voice_task(task_id, RuntimeError("TTS did not produce an audio file"))
         raise HTTPException(status_code=500, detail="TTS did not produce an audio file")
     _complete_voice_task(task_id, artifact_id, audio_path)
-    audio_url = _artifact_url(task_id, artifact_id)
+    audio_url = common.artifact_url(task_id, artifact_id)
     return {
         "audio_id": task_id,
         "task_id": task_id,

@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from app.api import common
 from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
@@ -23,16 +24,6 @@ MEDIA_TYPES = {"video", "image"}
 _tasks: dict[str, dict] = {}
 
 
-def _public_output_url(path: Path) -> str:
-    output_root = resolve_output_dir(app_config).resolve()
-    relative_path = path.resolve().relative_to(output_root).as_posix()
-    return f"/output/{relative_path}"
-
-
-def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
-    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
-
-
 def _task_payload(record: dict, cached: dict | None = None) -> dict:
     items = list(cached.get("items", [])) if cached else []
     if not items:
@@ -42,13 +33,13 @@ def _task_payload(record: dict, cached: dict | None = None) -> dict:
                 "filename": artifact.get("name") or artifact["id"],
                 "status": artifact.get("status", "pending"),
                 "message": "处理完成" if artifact.get("status") == "completed" else "处理失败",
-                "video_url": _artifact_url(record["id"], artifact["id"])
+                "video_url": common.artifact_url(record["id"], artifact["id"])
                 if artifact.get("kind") == "video" and artifact.get("status") == "completed"
                 else None,
-                "image_url": _artifact_url(record["id"], artifact["id"])
+                "image_url": common.artifact_url(record["id"], artifact["id"])
                 if artifact.get("kind") == "image" and artifact.get("status") == "completed"
                 else None,
-                "asset_url": _artifact_url(record["id"], artifact["id"])
+                "asset_url": common.artifact_url(record["id"], artifact["id"])
                 if artifact.get("kind") in {"image", "video"} and artifact.get("status") == "completed"
                 else None,
                 "error": artifact.get("error"),
@@ -67,15 +58,9 @@ def _task_payload(record: dict, cached: dict | None = None) -> dict:
         "progress": record["progress"],
         "message": record["message"],
         "items": items,
-        "zip_url": _artifact_url(record["id"], archive["id"], "download") if archive else None,
+        "zip_url": common.artifact_url(record["id"], archive["id"], "download") if archive else None,
         "error": record.get("error"),
     }
-
-
-def _safe_filename(filename: str, fallback: str) -> str:
-    raw = Path(filename or fallback).name
-    safe = re.sub(r"[^\w.\-\u4e00-\u9fff]+", "_", raw, flags=re.UNICODE).strip("._")
-    return safe or fallback
 
 
 def _new_task(user_id: str, task_dir: Path, files: list[dict], media_type: str) -> dict:
@@ -170,7 +155,7 @@ async def generate_poster_videos(
         for index, asset in enumerate(assets, start=1):
             suffix = Path(asset.filename or "").suffix.lower() or default_suffix
             file_id = uuid.uuid4().hex
-            safe_name = _safe_filename(asset.filename or f"{media_type}_{index}{suffix}", f"{media_type}_{index}{suffix}")
+            safe_name = common.safe_filename(asset.filename or f"{media_type}_{index}{suffix}", f"{media_type}_{index}{suffix}")
             input_path = input_dir / f"{file_id}{suffix}"
             await uploads.save_upload(
                 asset,
@@ -305,7 +290,7 @@ async def _run_batch(task_id: str, files: list[dict], overlay_path: Path, task_d
                     overlay_path,
                     item["output_path"],
                 )
-                public_url = _artifact_url(task_id, item["id"])
+                public_url = common.artifact_url(task_id, item["id"])
                 set_item(
                     item["id"],
                     status="completed",
@@ -343,7 +328,7 @@ async def _run_batch(task_id: str, files: list[dict], overlay_path: Path, task_d
         if completed:
             await asyncio.to_thread(_create_zip, zip_path, [item["output_path"] for item in files if item["output_path"].exists()])
             archive_id = f"{task_id}-archive"
-            task["zip_url"] = _artifact_url(task_id, archive_id, "download")
+            task["zip_url"] = common.artifact_url(task_id, archive_id, "download")
             task_store.add_artifact(
                 task_id,
                 artifact_id=archive_id,
@@ -381,9 +366,3 @@ async def _run_batch(task_id: str, files: list[dict], overlay_path: Path, task_d
             failed_count=max(failed, total - completed),
             finished=True,
         )
-
-
-def _create_zip(zip_path: Path, files: list[Path]) -> None:
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in files:
-            archive.write(path, arcname=path.name)

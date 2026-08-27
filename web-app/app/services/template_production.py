@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from app.models.template_definition import (
+from app.schemas.template_definition import (
     TemplateDefinition,
     TemplateRuntimeValidationError,
     render_script_prompt,

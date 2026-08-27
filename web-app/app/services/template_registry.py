@@ -9,7 +9,7 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from app.models.template_definition import TemplateDefinition
+from app.schemas.template_definition import TemplateDefinition
 
 MAX_TEMPLATE_JSON_BYTES = 128 * 1024
 BUILTIN_TEMPLATE_ORDER = ("zhongyi-xunfang", "doctor-intro")

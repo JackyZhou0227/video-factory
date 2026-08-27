@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 
+from app.api import common
 from app.api.auth import require_current_user
 from app.core.config import ROOT, app_config
 from app.core import uploads
@@ -56,10 +57,6 @@ def _output_root(cfg: dict) -> Path:
     return output_root
 
 
-def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
-    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
-
-
 def _task_payload(task: dict) -> dict:
     extra = task.get("extra_info") or {}
     video_artifact = next(
@@ -70,7 +67,7 @@ def _task_payload(task: dict) -> dict:
         ),
         None,
     )
-    video_url = _artifact_url(task["id"], video_artifact["id"]) if video_artifact else None
+    video_url = common.artifact_url(task["id"], video_artifact["id"]) if video_artifact else None
     return {
         "user_id": task["user_id"],
         "status": task["status"],

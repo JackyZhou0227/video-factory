@@ -25,6 +25,8 @@ def _date_boundary(value: Optional[date], *, end: bool = False) -> Optional[str]
     return local_datetime.astimezone(timezone.utc).isoformat()
 
 
+# Note: This differs from common.artifact_url() - it returns a dict with both
+# preview_url and download_url, while common.artifact_url() returns a single URL
 def _artifact_urls(task_id: str, artifact: dict) -> dict:
     artifact_id = artifact["id"]
     return {

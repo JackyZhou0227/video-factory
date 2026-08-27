@@ -13,10 +13,11 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, Upl
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
+from app.api import common
 from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
-from app.models.template_definition import (
+from app.schemas.template_definition import (
     MAX_TOTAL_MATERIAL_COUNT,
     TemplateDefinition,
     TemplateRuntimeValidationError,
@@ -290,7 +291,7 @@ async def upload_bgm_track(
         raise HTTPException(status_code=500, detail="保存背景音乐失败") from None
 
     relative_path = f"bgm/{user['id']}/{bgm_id}{suffix}"
-    safe_name = _safe_filename(file.filename or f"bgm{suffix}", f"bgm{suffix}")
+    safe_name = common.safe_filename(file.filename or f"bgm{suffix}", f"bgm{suffix}")
     try:
         track = settings_store.create_bgm_track(
             user_id=user["id"],
@@ -334,28 +335,6 @@ def delete_bgm_track(
     return Response(status_code=204)
 
 
-def _public_output_url(path: Path) -> str:
-    output_root = resolve_output_dir(app_config).resolve()
-    relative = path.resolve().relative_to(output_root).as_posix()
-    return f"/output/{relative}"
-
-
-def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
-    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
-
-
-def _persist_task_update(task_id: str, **updates: Any) -> None:
-    try:
-        task_store.update_task(task_id, **updates)
-    except task_store.TaskNotFoundError:
-        pass
-
-
-def _persist_artifact(task_id: str, **artifact: Any) -> None:
-    try:
-        task_store.add_artifact(task_id, **artifact)
-    except task_store.TaskNotFoundError:
-        pass
 
 
 def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -376,7 +355,7 @@ def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) 
             "script": "",
             "status": artifact.get("status", "pending"),
             "message": "生成完成" if artifact.get("status") == "completed" else "生成失败",
-            "video_url": _artifact_url(record["id"], artifact["id"])
+            "video_url": common.artifact_url(record["id"], artifact["id"])
             if artifact.get("kind") == "video" and artifact.get("status") == "completed"
             else None,
             "error": artifact.get("error"),
@@ -400,29 +379,13 @@ def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) 
         "progress": record["progress"],
         "message": record["message"],
         "items": items,
-        "zip_url": _artifact_url(record["id"], archive["id"], "download") if archive else None,
+        "zip_url": common.artifact_url(record["id"], archive["id"], "download") if archive else None,
         "error": record.get("error"),
     }
 
 
-def _safe_filename(filename: str, fallback: str) -> str:
-    value = Path(filename or fallback).name
-    safe = re.sub(r"[^\w.\-\u4e00-\u9fff]+", "_", value, flags=re.UNICODE).strip("._")
-    return safe or fallback
-
-
-def _parse_json_field(value: str, label: str, expected_type: type) -> Any:
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"{label} 必须是有效 JSON") from exc
-    if not isinstance(parsed, expected_type):
-        raise HTTPException(status_code=422, detail=f"{label} 格式不正确")
-    return parsed
-
-
 def _parse_subtitle_replacements(value: str) -> list[dict[str, str]]:
-    parsed = _parse_json_field(value or "[]", "subtitle_replacements", list)
+    parsed = common.parse_json_field(value or "[]", "subtitle_replacements", list)
     if len(parsed) > MAX_SUBTITLE_REPLACEMENTS:
         raise HTTPException(status_code=422, detail=f"字幕替换规则最多添加 {MAX_SUBTITLE_REPLACEMENTS} 条")
 
@@ -556,10 +519,10 @@ async def create_task(
     if not materials or len(materials) > MAX_MATERIAL_COUNT:
         raise HTTPException(status_code=422, detail=f"素材数量必须在 1-{MAX_MATERIAL_COUNT} 之间")
 
-    script_values = [str(item).strip() for item in _parse_json_field(scripts, "scripts", list) if str(item).strip()]
+    script_values = [str(item).strip() for item in common.parse_json_field(scripts, "scripts", list) if str(item).strip()]
     if not script_values or len(script_values) > MAX_GENERATE_COUNT:
         raise HTTPException(status_code=422, detail="文案数量必须在 1-50 之间")
-    video = _parse_json_field(video_config, "video_config", dict)
+    video = common.parse_json_field(video_config, "video_config", dict)
     subtitle_style_value = video.get("subtitle_style")
     if subtitle_style_value is not None and not isinstance(subtitle_style_value, dict):
         raise HTTPException(status_code=422, detail="subtitle_style 格式不正确")
@@ -571,7 +534,7 @@ async def create_task(
         {"source": item["source"], "replacement": item["replacement"]}
         for item in stored_replacements
     ]
-    manifest = _parse_json_field(material_manifest, "material_manifest", list)
+    manifest = common.parse_json_field(material_manifest, "material_manifest", list)
     manifest = _validate_material_manifest(template, manifest, len(materials))
     manifest_by_index = {int(item["file_index"]): item for item in manifest}
     for index, upload in enumerate(materials):
@@ -647,7 +610,7 @@ async def create_task(
                 label=media_type,
             )
             material_id = uuid.uuid4().hex
-            safe_name = _safe_filename(upload.filename or f"material_{index}{suffix}", f"material_{index}{suffix}")
+            safe_name = common.safe_filename(upload.filename or f"material_{index}{suffix}", f"material_{index}{suffix}")
             input_path = input_dir / f"{material_id}{suffix}"
             await uploads.save_upload(
                 upload,
@@ -796,7 +759,7 @@ async def _run_task(
                     progress=max(2, round(index / len(materials) * 10)),
                     message=f"正在处理素材 {index}/{len(materials)}",
                 )
-        _persist_task_update(
+        common.persist_task_update(
             task_id,
             status="running",
             progress=task["progress"],
@@ -811,7 +774,7 @@ async def _run_task(
                 progress=10 + round((index - 1) / total * 85),
                 message=f"正在生成第 {index}/{total} 条视频",
             )
-            _persist_task_update(
+            common.persist_task_update(
                 task_id,
                 status="running",
                 progress=task["progress"],
@@ -867,7 +830,7 @@ async def _run_task(
                     video_url=_artifact_url(task_id, item["id"]),
                     error=None,
                 )
-                _persist_artifact(
+                common.persist_artifact(
                     task_id,
                     artifact_id=item["id"],
                     path=output_path,
@@ -879,7 +842,7 @@ async def _run_task(
             except Exception as exc:
                 failed += 1
                 item.update(status="failed", message="生成失败", error=str(exc))
-                _persist_artifact(
+                common.persist_artifact(
                     task_id,
                     artifact_id=item["id"],
                     path=output_path,
@@ -893,10 +856,10 @@ async def _run_task(
 
         if completed_outputs:
             zip_path = task_dir / "template_videos.zip"
-            await asyncio.to_thread(_create_zip, zip_path, completed_outputs)
+            await asyncio.to_thread(common.create_output_zip, zip_path, completed_outputs)
             archive_id = f"{task_id}-archive"
             task["zip_url"] = _artifact_url(task_id, archive_id, "download")
-            _persist_artifact(
+            common.persist_artifact(
                 task_id,
                 artifact_id=archive_id,
                 path=zip_path,
@@ -910,7 +873,7 @@ async def _run_task(
         status = "failed" if completed == 0 else ("partial_failed" if failed else "completed")
         message = f"批量生成完成：成功 {completed} 条，失败 {failed} 条"
         task.update(status=status, progress=100, message=message, error=message if completed == 0 else None)
-        _persist_task_update(
+        common.persist_task_update(
             task_id,
             status=status,
             progress=100,
@@ -922,7 +885,7 @@ async def _run_task(
         )
     except Exception as exc:
         task.update(status="failed", progress=0, message="模板量产任务失败", error=str(exc))
-        _persist_task_update(
+        common.persist_task_update(
             task_id,
             status="failed",
             progress=0,
@@ -934,12 +897,6 @@ async def _run_task(
         )
     finally:
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def _create_zip(zip_path: Path, outputs: list[Path]) -> None:
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in outputs:
-            archive.write(path, arcname=path.name)
 
 
 def _template_tts_request(text: str) -> TTSRequest:

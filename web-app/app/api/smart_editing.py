@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from app.api import common
 from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
@@ -28,40 +29,6 @@ SMART_EDITING_TTS_SPEED = 1.0
 SMART_EDITING_TTS_VOLUME = 100
 
 _tasks: dict[str, dict[str, Any]] = {}
-
-
-def _parse_json_field(value: str, label: str, expected_type: type) -> Any:
-    try:
-        parsed = json.loads(value)
-    except json.JSONDecodeError as exc:
-        raise HTTPException(status_code=422, detail=f"{label} 必须是有效 JSON") from exc
-    if not isinstance(parsed, expected_type):
-        raise HTTPException(status_code=422, detail=f"{label} 格式不正确")
-    return parsed
-
-
-def _safe_filename(filename: str, fallback: str) -> str:
-    value = Path(filename or fallback).name
-    safe = re.sub(r"[^\w.\-\u4e00-\u9fff]+", "_", value, flags=re.UNICODE).strip("._")
-    return safe or fallback
-
-
-def _artifact_url(task_id: str, artifact_id: str, action: str = "preview") -> str:
-    return f"/api/tasks/{task_id}/artifacts/{artifact_id}/{action}"
-
-
-def _persist_task_update(task_id: str, **updates: Any) -> None:
-    try:
-        task_store.update_task(task_id, **updates)
-    except task_store.TaskNotFoundError:
-        pass
-
-
-def _persist_artifact(task_id: str, **artifact: Any) -> None:
-    try:
-        task_store.add_artifact(task_id, **artifact)
-    except task_store.TaskNotFoundError:
-        pass
 
 
 def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -102,7 +69,7 @@ def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) 
         "progress": record["progress"],
         "message": record["message"],
         "items": items,
-        "zip_url": _artifact_url(record["id"], archive["id"], "download") if archive else None,
+        "zip_url": common.artifact_url(record["id"], archive["id"], "download") if archive else None,
         "error": record.get("error"),
     }
 
@@ -129,8 +96,8 @@ def _persisted_item_payload(
         "index": index,
         "status": status,
         "message": "生成完成" if completed else "生成失败",
-        "video_url": _artifact_url(task_id, artifact["id"]) if completed else None,
-        "download_url": _artifact_url(task_id, artifact["id"], "download") if completed else None,
+        "video_url": common.artifact_url(task_id, artifact["id"]) if completed else None,
+        "download_url": common.artifact_url(task_id, artifact["id"], "download") if completed else None,
         "error": artifact.get("error"),
     }
 
@@ -295,7 +262,7 @@ async def create_task(
 
     try:
         normalized_keywords = smart_editing.normalize_keywords(
-            _parse_json_field(keywords, "keywords", list)
+            common.parse_json_field(keywords, "keywords", list)
         )
         smart_editing.pacing_range(pacing)
         template_production.require_ffmpeg()
@@ -305,7 +272,7 @@ async def create_task(
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
     manifest = _normalize_manifest(
-        _parse_json_field(material_manifest, "material_manifest", list),
+        common.parse_json_field(material_manifest, "material_manifest", list),
         file_count=len(materials),
         keyword_count=len(normalized_keywords),
     )
@@ -374,7 +341,7 @@ async def create_task(
             saved_materials.append(
                 {
                     "id": material_id,
-                    "name": _safe_filename(
+                    "name": common.safe_filename(
                         upload.filename or item["name"],
                         f"material_{index}{suffix}",
                     ),
@@ -385,7 +352,7 @@ async def create_task(
                 }
             )
     except Exception as exc:
-        _persist_task_update(
+        common.persist_task_update(
             task_id,
             status="failed",
             progress=0,
@@ -478,7 +445,7 @@ async def _run_task(
     audio_path = temp_dir / "narration.mp3"
     try:
         task.update(status="running", progress=5, message="正在生成配音")
-        _persist_task_update(
+        common.persist_task_update(
             task_id,
             status="running",
             progress=5,
@@ -500,7 +467,7 @@ async def _run_task(
             item.update(status="running", message="正在合成视频")
             progress = 15 + round((index - 1) / total * 80)
             task.update(progress=progress, message=f"正在生成第 {index}/{total} 条视频")
-            _persist_task_update(
+            common.persist_task_update(
                 task_id,
                 status="running",
                 progress=progress,
@@ -528,11 +495,11 @@ async def _run_task(
                 item.update(
                     status="completed",
                     message="生成完成",
-                    video_url=_artifact_url(task_id, item["id"]),
-                    download_url=_artifact_url(task_id, item["id"], "download"),
+                    video_url=common.artifact_url(task_id, item["id"]),
+                    download_url=common.artifact_url(task_id, item["id"], "download"),
                     error=None,
                 )
-                _persist_artifact(
+                common.persist_artifact(
                     task_id,
                     artifact_id=item["id"],
                     path=output_path,
@@ -544,7 +511,7 @@ async def _run_task(
             except Exception as exc:
                 failed += 1
                 item.update(status="failed", message="生成失败", error=str(exc))
-                _persist_artifact(
+                common.persist_artifact(
                     task_id,
                     artifact_id=item["id"],
                     path=output_path,
@@ -558,8 +525,8 @@ async def _run_task(
             zip_path = task_dir / "smart_edit_videos.zip"
             await asyncio.to_thread(_create_zip, zip_path, completed_outputs)
             archive_id = f"{task_id}-archive"
-            task["zip_url"] = _artifact_url(task_id, archive_id, "download")
-            _persist_artifact(
+            task["zip_url"] = common.artifact_url(task_id, archive_id, "download")
+            common.persist_artifact(
                 task_id,
                 artifact_id=archive_id,
                 path=zip_path,
@@ -579,7 +546,7 @@ async def _run_task(
             message=message,
             error=message if completed == 0 else None,
         )
-        _persist_task_update(
+        common.persist_task_update(
             task_id,
             status=status,
             progress=100,
@@ -595,7 +562,7 @@ async def _run_task(
                 item.update(status="failed", message="生成失败", error=str(exc))
         failed_count = max(failed, len(task.get("items", [])) - len(completed_outputs))
         task.update(status="failed", progress=0, message="智能剪辑任务失败", error=str(exc))
-        _persist_task_update(
+        common.persist_task_update(
             task_id,
             status="failed",
             progress=0,
@@ -608,12 +575,6 @@ async def _run_task(
     finally:
         audio_path.unlink(missing_ok=True)
         shutil.rmtree(temp_dir, ignore_errors=True)
-
-
-def _create_zip(zip_path: Path, outputs: list[Path]) -> None:
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for path in outputs:
-            archive.write(path, arcname=path.name)
 
 
 def _smart_editing_tts_request(text: str) -> TTSRequest:
