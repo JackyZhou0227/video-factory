@@ -18,6 +18,10 @@ from app.schemas.template_definition import (
 from app.services import template_registry
 from app.services.tts import TTSTiming
 
+# ============================================================================
+# Configuration & Constants
+# ============================================================================
+
 ZHONGYI_TEMPLATE_ID = "zhongyi-xunfang"
 DEFAULT_VIDEO_RATIO = "9:16"
 VIDEO_RATIOS = {
@@ -59,9 +63,17 @@ DEFAULT_SUBTITLE_STYLE = {
 SUBTITLE_FONT_FAMILIES = frozenset({"Microsoft YaHei", "SimHei", "SimSun", "KaiTi"})
 SUBTITLE_ALIGNMENT_CODES = {"left": 1, "center": 2, "right": 3}
 
+# ============================================================================
+# Exceptions
+# ============================================================================
+
 class TemplateProductionError(RuntimeError):
     pass
 
+
+# ============================================================================
+# Subtitle Style Utilities
+# ============================================================================
 
 def normalize_subtitle_style(value: dict[str, Any] | None = None) -> dict[str, Any]:
     """Normalize user-facing subtitle style values into ASS-safe settings."""
@@ -126,6 +138,10 @@ def _scaled_subtitle_value(
         return max(legacy_minimum, round(height * legacy_ratio))
     return max(0, round(style[name] * height / 1920))
 
+
+# ============================================================================
+# Template & Prompt Building
+# ============================================================================
 
 @dataclass(frozen=True)
 class TimelineSegment:
@@ -264,6 +280,10 @@ def script_text_for_tts(script: str) -> str:
     return "".join(normalized)
 
 
+# ============================================================================
+# FFmpeg Utilities
+# ============================================================================
+
 def require_ffmpeg() -> None:
     if ffmpeg_executable() is None:
         raise TemplateProductionError("缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
@@ -368,6 +388,10 @@ def _image_motion_filter(width: int, height: int, *, fill_mode: str = "cover") -
         "format=yuv420p"
     )
 
+
+# ============================================================================
+# Material & Video Composition
+# ============================================================================
 
 def prepare_material_segment(
     source_path: Path,
@@ -590,6 +614,10 @@ def compose_prepared_video(
     return output_path
 
 
+# ============================================================================
+# Zhongyi Timeline
+# ============================================================================
+
 def build_zhongyi_timeline(
     materials: list[dict[str, Any]],
     target_duration: float,
@@ -644,6 +672,10 @@ def build_zhongyi_timeline(
         previous_path = source_path
     return timeline
 
+
+# ============================================================================
+# Subtitle Processing
+# ============================================================================
 
 def _normalize_spoken_text(value: str) -> str:
     return re.sub(r"[^\u4e00-\u9fffA-Za-z0-9]", "", str(value or ""))
@@ -794,6 +826,10 @@ def write_subtitle_ass(
     output_path.write_text("\n".join(lines), encoding="utf-8-sig")
     return output_path
 
+
+# ============================================================================
+# Zhongyi Video Composition
+# ============================================================================
 
 def _ffmpeg_filter_path(path: Path) -> str:
     value = path.resolve().as_posix().replace("\\", "/")

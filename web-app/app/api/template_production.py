@@ -68,6 +68,10 @@ class SubtitleReplacementRequest(BaseModel):
     replacement: str
 
 
+# ============================================================================
+# Helper Functions - Templates
+# ============================================================================
+
 def _runtime_capabilities(template: TemplateDefinition) -> dict[str, Any]:
     pipeline = PIPELINE_CAPABILITIES[template.production.pipeline_id]
     return {
@@ -93,6 +97,10 @@ def _get_template(user_id: str, template_id: str, *, not_found_status: int = 422
     except template_registry.TemplateRegistryError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+
+# ============================================================================
+# Routes - Templates CRUD
+# ============================================================================
 
 @router.get("/templates")
 def list_templates(user: dict = Depends(require_current_user)):
@@ -161,6 +169,10 @@ def export_template(template_id: str, user: dict = Depends(require_current_user)
     )
 
 
+# ============================================================================
+# Routes - Subtitle Replacements CRUD
+# ============================================================================
+
 @router.get("/subtitle-replacements")
 def list_subtitle_replacements(user: dict = Depends(require_current_user)):
     """List the shared subtitle replacement rules available to every user."""
@@ -217,6 +229,10 @@ def delete_subtitle_replacement(
     return Response(status_code=204)
 
 
+# ============================================================================
+# Helper Functions - BGM
+# ============================================================================
+
 def _bgm_track_payload(track: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": track["id"],
@@ -227,6 +243,10 @@ def _bgm_track_payload(track: dict[str, Any]) -> dict[str, Any]:
         "created_at": track["created_at"],
     }
 
+
+# ============================================================================
+# Routes - BGM CRUD
+# ============================================================================
 
 @router.get("/bgm")
 def list_bgm_tracks(user: dict = Depends(require_current_user)):
@@ -335,7 +355,9 @@ def delete_bgm_track(
     return Response(status_code=204)
 
 
-
+# ============================================================================
+# Helper Functions - Tasks
+# ============================================================================
 
 def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) -> dict[str, Any]:
     if cached is not None:
@@ -426,6 +448,10 @@ def _validate_material_manifest(
     return [item.model_dump(mode="json", exclude_none=True) for item in parsed]
 
 
+# ============================================================================
+# Routes - Script Generation & Rewrite
+# ============================================================================
+
 @router.post("/scripts/generate")
 async def generate_scripts(payload: ScriptGenerateRequest, user: dict = Depends(require_current_user)):
     template = _get_template(user["id"], payload.template_id)
@@ -494,6 +520,10 @@ async def rewrite_script(payload: ScriptRewriteRequest, user: dict = Depends(req
         raise HTTPException(status_code=502, detail="LLM 没有返回可用文案，请重试")
     return {"script": scripts[0]}
 
+
+# ============================================================================
+# Routes - Task Creation & Execution
+# ============================================================================
 
 @router.post("/tasks")
 async def create_task(
@@ -715,6 +745,10 @@ def get_task(task_id: str, user: dict = Depends(require_current_user)):
         return {key: value for key, value in task.items() if not key.startswith("_")}
     return _task_payload(record, _tasks.get(task_id))
 
+
+# ============================================================================
+# Task Execution - Background Runner
+# ============================================================================
 
 async def _run_task(
     *,
