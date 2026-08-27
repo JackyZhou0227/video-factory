@@ -193,22 +193,11 @@ def _namespace_has_settings(session: OrmSession, namespace: str) -> bool:
     return bool(count)
 
 
-def _seed_runninghub_from_config(
-    session: OrmSession,
-    config: Optional[dict[str, Any]],
-) -> None:
+def _seed_runninghub_settings(session: OrmSession) -> None:
     if _namespace_has_settings(session, RUNNINGHUB_NAMESPACE):
         return
 
-    config = config or {}
-    runninghub_config = config.get("runninghub") or {}
-    settings = _normalize_runninghub_settings(
-        {
-            "api_key": runninghub_config.get("api_key"),
-            "concurrent_limit": runninghub_config.get("concurrent_limit"),
-            "instance_type": runninghub_config.get("instance_type"),
-        }
-    )
+    settings = _normalize_runninghub_settings({})
     _orm_upsert_setting(
         session,
         user_id=DEFAULT_USER_ID,
@@ -271,7 +260,7 @@ def init_db(config: Optional[dict[str, Any]] = None) -> None:
     require_postgresql_url(app_config)
     with _orm_session() as session:
         _ensure_default_user(session)
-        _seed_runninghub_from_config(session, config)
+        _seed_runninghub_settings(session)
         _seed_llm_from_config(session, config)
 
 

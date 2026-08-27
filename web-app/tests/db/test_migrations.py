@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
 import unittest
-from unittest.mock import patch
 
 from alembic import command
 from alembic.config import Config
@@ -28,7 +26,7 @@ class AlembicMigrationTests(unittest.TestCase):
     def setUp(self):
         drop_database_objects()
         self.database_url = TEST_DATABASE_URL
-        self.config_path = Path(__file__).resolve().parents[1] / "alembic.ini"
+        self.config_path = Path(__file__).resolve().parents[2] / "alembic.ini"
 
     def tearDown(self):
         reset_public_schema()
@@ -36,12 +34,8 @@ class AlembicMigrationTests(unittest.TestCase):
     def _config(self) -> Config:
         return Config(str(self.config_path))
 
-    def _run_with_database_url(self, operation, *args):
-        with patch.dict(os.environ, {"DATABASE_URL": self.database_url}, clear=False):
-            return operation(self._config(), *args)
-
     def test_upgrade_head_creates_baseline_schema(self):
-        self._run_with_database_url(command.upgrade, "head")
+        command.upgrade(self._config(), "head")
 
         engine = create_engine_from_url(self.database_url)
         try:
@@ -92,8 +86,8 @@ class AlembicMigrationTests(unittest.TestCase):
         finally:
             engine.dispose()
 
-        self._run_with_database_url(command.stamp, "head")
-        self._run_with_database_url(command.check)
+        command.stamp(self._config(), "head")
+        command.check(self._config())
 
         engine = create_engine_from_url(self.database_url)
         try:

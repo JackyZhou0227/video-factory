@@ -523,7 +523,7 @@ async def _run_task(
 
         if completed_outputs:
             zip_path = task_dir / "smart_edit_videos.zip"
-            await asyncio.to_thread(_create_zip, zip_path, completed_outputs)
+            await asyncio.to_thread(common.create_output_zip, zip_path, completed_outputs)
             archive_id = f"{task_id}-archive"
             task["zip_url"] = common.artifact_url(task_id, archive_id, "download")
             common.persist_artifact(

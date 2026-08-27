@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import re
 import uuid
-import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -326,7 +325,7 @@ async def _run_batch(task_id: str, files: list[dict], overlay_path: Path, task_d
         zip_name = "poster_videos.zip" if media_type == "video" else "poster_images.zip"
         zip_path = task_dir / zip_name
         if completed:
-            await asyncio.to_thread(_create_zip, zip_path, [item["output_path"] for item in files if item["output_path"].exists()])
+            await asyncio.to_thread(common.create_output_zip, zip_path, [item["output_path"] for item in files if item["output_path"].exists()])
             archive_id = f"{task_id}-archive"
             task["zip_url"] = common.artifact_url(task_id, archive_id, "download")
             task_store.add_artifact(

@@ -68,7 +68,7 @@ def create_tts_service(config: dict | None = None) -> TTSService:
     service = TTSService()
     service.register(
         EDGE_TTS_MODEL,
-        lambda: EdgeTtsProvider(default_voice=tts_config.get("edge_default_voice") or "zh-CN-XiaoxiaoNeural"),
+        lambda: EdgeTtsProvider(default_voice="zh-CN-YunjianNeural"),
     )
     service.register(
         QWEN3_TTS_BASE_MODEL,

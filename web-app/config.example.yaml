@@ -2,88 +2,60 @@ runninghub:
   # 中国账号请使用 https://www.runninghub.cn。
   # 如果账号属于其他地区，可通过 RUNNINGHUB_BASE_URL 或此处覆盖。
   base_url: "https://www.runninghub.cn"
-  # 系统密钥仅用于读取固定工作流定义，供客户密钥无法直接访问时使用。
-  # 客户上传和任务调用仍然使用客户自己的密钥。
-  api_key: ""
-  concurrent_limit: 1
-  instance_type: plus
 
 tts:
   qwen3_tts_base:
     # 不部署本地音色克隆模型的服务器请保持关闭。
     enabled: false
-    # 兼容的 Qwen3-TTS Base 模型目录，例如 0.6B-Base 或 1.7B-Base。
+    # Qwen3-TTS Base 模型目录，例如 0.6B-Base 或 1.7B-Base。
     model_path: ""
     # 支持的值：cpu、cuda、cuda:0、cuda:1 等。
     device: "cpu"
-    # 本地 Qwen3-TTS 同时推理的最大并发数（1-8），建议先保持 1。
+    # 本地推理的最大并发数（1-8），建议先保持 1。
     concurrent_limit: 1
-  default_language: "Chinese"
-  # 模板量产模块的默认提供方。
-  default_provider: "Edge-TTS"
-  edge_default_voice: "zh-CN-XiaoxiaoNeural"
-
-llm:
-  # 这些默认值会写入本地默认用户；每个登录用户都可以在设置页单独覆盖。
-  base_url: "https://api.openai.com/v1"
-  api_key: ""
-  model: ""
 
 database:
-  # Formal service startup requires a PostgreSQL URL. SQLite is only used by
-  # the standalone migration tool and is rejected by the application.
-  # DATABASE_URL takes precedence over this value.
+  # 正式服务启动必须提供 PostgreSQL 连接 URL。
   url: ""
-  # For a single application process, 10 persistent + 10 burst connections
-  # is a balanced starting point on a PostgreSQL server with max_connections=100.
+  # 单进程的场景下，10 个持久连接 + 10 个突发是比较均衡的起点。
   pool_size: 10
   max_overflow: 10
   pool_timeout: 30
 
 server:
-  # Production default: only expose the local machine. Put the public HTTPS
-  # tunnel/reverse proxy in front of this process.
+  # 生产默认只监听本机，对外请通过反向代理/HTTPS 隧道暴露。
   host: "127.0.0.1"
   port: 18888
   environment: "production" # production | development
-  reload: false # only honored in development
+  reload: false # 仅在 development 模式生效
   output_dir: "output"
 
 security:
-  # Hostnames accepted in the HTTP Host header. Do not use "*" in production.
-  # Add your public Peanut Shell hostname when the tunnel is enabled.
+  # HTTP Host 头白名单，生产环境请勿使用 "*"。
   allowed_hosts:
     - "127.0.0.1"
     - "localhost"
     # - "your-public-host.example.com"
 
-  # Same-origin production deployments need no CORS entries. For a separate
-  # Vite dev server, use the local origins below or set your own allow-list.
+  # 同源部署无需 CORS；独立 Vite 开发服务器时添加本地地址。
   cors_allowed_origins: []
   # - "http://127.0.0.1:5173"
   # - "http://localhost:5173"
 
-  # Reject oversized uploads before the business routes process them.
-  # 512 MiB preserves the existing largest upload use case; lower this if
-  # your deployment does not need large video uploads.
   max_request_body_bytes: 536870912
 
-  # Double-submit CSRF protection for browser cookie sessions.
-  # GET, HEAD, OPTIONS and /api/health remain exempt when enabled.
-  csrf_enabled: true
-  csrf_cookie_name: "vf_csrf"
-  csrf_header_name: "X-CSRF-Token"
-  csrf_cookie_secure: true
-  csrf_cookie_samesite: "lax"
-  csrf_exempt_paths:
-    - "/api/health"
+  # 针对浏览器 Cookie 会话的双重提交 CSRF 防护。
+  csrf:
+    enabled: true
+    cookie_name: "vf_csrf"
+    header_name: "X-CSRF-Token"
+    cookie_secure: true
+    cookie_samesite: "lax"
+    exempt_paths:
+      - "/api/health"
 
-  # LLM outbound requests reject loopback/private/link-local targets by default.
-  # Set VF_LLM_ALLOW_PRIVATE_HOSTS=true only for a deliberately configured
-  # internal LLM service. Optional comma-separated exact host allow-list:
-  # VF_LLM_ALLOWED_HOSTS=api.openai.com,model.example.com
-
-  # Enable only when the public entry point is HTTPS and HSTS is desired.
-  hsts_enabled: false
-  # Keep empty until the bundled frontend has been verified against the policy.
-  content_security_policy: ""
+  # 响应头安全增强。HSTS 仅当公网入口为 HTTPS 时开启；
+  # CSP 在内置前端通过策略验证之前保持为空。
+  headers:
+    hsts_enabled: false
+    content_security_policy: ""

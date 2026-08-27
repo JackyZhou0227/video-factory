@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import unittest
-from unittest.mock import patch
 
 from sqlalchemy import inspect, select
 from sqlalchemy.exc import IntegrityError
@@ -159,10 +157,9 @@ class DbModelsTests(unittest.TestCase):
 
     def test_store_sessions_share_database_url_and_engine(self):
         database_url = TEST_DATABASE_URL
-        with patch.dict(os.environ, {"DATABASE_URL": database_url}, clear=False):
-            settings_factory = get_session_factory(database_url)
-            auth_factory = get_session_factory(database_url)
-            task_factory = get_session_factory(database_url)
+        settings_factory = get_session_factory(database_url)
+        auth_factory = get_session_factory(database_url)
+        task_factory = get_session_factory(database_url)
 
         self.assertIs(settings_factory, auth_factory)
         self.assertIs(auth_factory, task_factory)

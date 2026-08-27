@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import threading
 from typing import Any, Mapping
 
@@ -43,15 +42,11 @@ def _non_negative_int(value: Any, default: int) -> int:
 
 
 def get_database_url(config: Mapping[str, Any] | None = None) -> str:
-    environment_url = os.getenv("DATABASE_URL", "").strip()
-    if environment_url:
-        return environment_url
-
     configured_url = str(_database_config(config).get("url") or "").strip()
     if not configured_url:
         raise RuntimeError(
-            "Video Factory requires PostgreSQL; configure DATABASE_URL or database.url "
-            "with a postgresql+psycopg URL."
+            "Video Factory requires PostgreSQL; configure database.url "
+            "in config.yaml with a postgresql+psycopg URL."
         )
     return configured_url
 

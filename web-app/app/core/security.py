@@ -82,21 +82,23 @@ def get_security_settings(config: dict[str, Any]) -> dict[str, Any]:
         max_request_body_bytes = 512 * 1024 * 1024
     max_request_body_bytes = max(1, max_request_body_bytes)
 
-    csrf_exempt_paths = _as_list(security.get("csrf_exempt_paths")) or ["/api/health"]
+    csrf = security.get("csrf") or {}
+    csrf_exempt_paths = _as_list(csrf.get("exempt_paths")) or ["/api/health"]
+    headers = security.get("headers") or {}
 
     return {
         "environment": environment,
         "allowed_hosts": allowed_hosts,
         "cors_allowed_origins": cors_allowed_origins,
         "max_request_body_bytes": max_request_body_bytes,
-        "csrf_enabled": _as_bool(security.get("csrf_enabled"), False),
-        "csrf_cookie_name": str(security.get("csrf_cookie_name") or "vf_csrf"),
-        "csrf_header_name": str(security.get("csrf_header_name") or "x-csrf-token").lower(),
-        "csrf_cookie_secure": _as_bool(security.get("csrf_cookie_secure"), not is_development),
-        "csrf_cookie_samesite": str(security.get("csrf_cookie_samesite") or "lax").lower(),
+        "csrf_enabled": _as_bool(csrf.get("enabled"), False),
+        "csrf_cookie_name": str(csrf.get("cookie_name") or "vf_csrf"),
+        "csrf_header_name": str(csrf.get("header_name") or "x-csrf-token").lower(),
+        "csrf_cookie_secure": _as_bool(csrf.get("cookie_secure"), not is_development),
+        "csrf_cookie_samesite": str(csrf.get("cookie_samesite") or "lax").lower(),
         "csrf_exempt_paths": csrf_exempt_paths,
-        "hsts_enabled": _as_bool(security.get("hsts_enabled"), False),
-        "content_security_policy": str(security.get("content_security_policy") or "").strip(),
+        "hsts_enabled": _as_bool(headers.get("hsts_enabled"), False),
+        "content_security_policy": str(headers.get("content_security_policy") or "").strip(),
     }
 
 

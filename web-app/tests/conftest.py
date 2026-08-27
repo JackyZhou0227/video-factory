@@ -17,7 +17,6 @@ def pytest_sessionstart(session: pytest.Session) -> None:
 def isolate_database_for_tests(monkeypatch: pytest.MonkeyPatch):
     """Use an isolated PostgreSQL database and reset it before every test."""
 
-    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.setitem(app_config.setdefault("database", {}), "url", TEST_DATABASE_URL)
     truncate_app_tables()
     yield

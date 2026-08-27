@@ -3,9 +3,6 @@ setlocal
 chcp 65001 >nul 2>&1
 
 set "APP_DIR=%~dp0"
-if not defined DATABASE_URL (
-    for /f "tokens=2,*" %%a in ('reg query "HKCU\Environment" /v DATABASE_URL 2^>nul') do set "DATABASE_URL=%%b"
-)
 if not defined PYTHON_EXE set "PYTHON_EXE=python"
 if not defined APP_HOST set "APP_HOST=127.0.0.1"
 if not defined APP_PORT set "APP_PORT=18888"

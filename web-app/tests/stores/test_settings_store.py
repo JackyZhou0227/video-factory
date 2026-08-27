@@ -10,7 +10,6 @@ class SettingsStoreTests(unittest.TestCase):
     def setUp(self):
         settings_store.init_db(
             {
-                "runninghub": {},
                 "llm": {"base_url": "https://seed.example/v1", "api_key": "seed-key", "model": "seed-model"},
             }
         )

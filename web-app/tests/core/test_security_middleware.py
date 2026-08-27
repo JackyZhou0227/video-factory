@@ -73,7 +73,7 @@ def test_request_body_limit_returns_413() -> None:
 
 
 def test_csrf_validates_unsafe_requests() -> None:
-    client = TestClient(make_app(csrf_enabled=True, max_request_body_bytes=4096))
+    client = TestClient(make_app(csrf={"enabled": True}, max_request_body_bytes=4096))
 
     token_response = client.get("/csrf-token")
     csrf_token = token_response.cookies["vf_csrf"]
