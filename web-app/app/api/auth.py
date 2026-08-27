@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
 
 from app.services import auth_store
@@ -21,6 +21,11 @@ class AuthPayload(BaseModel):
 class LoginPayload(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1, max_length=auth_store.MAX_PASSWORD_LENGTH)
+
+
+class ChangePasswordPayload(BaseModel):
+    current_password: str = Field(..., min_length=1, max_length=auth_store.MAX_PASSWORD_LENGTH)
+    new_password: str = Field(..., min_length=8, max_length=auth_store.MAX_PASSWORD_LENGTH)
 
 
 def _request_is_secure(request: Request) -> bool:
@@ -134,6 +139,24 @@ def logout(request: Request, response: Response):
     auth_store.revoke_session(token)
     _clear_session_cookie(response, request)
     return {"ok": True}
+
+
+@router.put("/password")
+def change_password(payload: ChangePasswordPayload, user: dict = Depends(require_current_user)):
+    try:
+        changed_user = auth_store.change_user_password(
+            user["id"], payload.current_password, payload.new_password
+        )
+    except ValueError as exc:
+        detail = str(exc)
+        code = (
+            status.HTTP_401_UNAUTHORIZED
+            if detail == "当前密码不正确"
+            else status.HTTP_422_UNPROCESSABLE_ENTITY
+        )
+        raise HTTPException(status_code=code, detail=detail) from None
+
+    return {"user": changed_user, "reauthenticate": True}
 
 
 @router.get("/me")

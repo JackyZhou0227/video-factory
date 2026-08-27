@@ -410,7 +410,7 @@ export default function App() {
             <TaskCenter active={activePage === "task-center"} />
           </div>
           <div className={`settings-main page-panel ${activePage === "settings" ? "is-active" : ""}`}>
-            <Settings />
+            <Settings currentUser={currentUser} onLoggedOut={handleLogout} />
           </div>
           <div className={`settings-main page-panel ${activePage === "users" ? "is-active" : ""}`}>
             <UserManagement currentUser={currentUser} />

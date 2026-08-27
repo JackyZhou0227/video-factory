@@ -505,6 +505,53 @@ def update_user_password(user_id: str, password: str) -> dict[str, Any]:
     return _public_user(user)
 
 
+def change_user_password(
+    user_id: str,
+    current_password: str,
+    new_password: str,
+) -> dict[str, Any]:
+    """Change a user's password after verifying the current password."""
+    init_auth_schema()
+    _validate_password(current_password)
+    _validate_password(new_password)
+
+    with _orm_session() as session:
+        user = session.scalar(
+            select(User).where(User.id == user_id, User.password_hash != "")
+        )
+        if user is None:
+            raise ValueError("User not found")
+
+        try:
+            salt = _decode(user.password_salt)
+            expected = _decode(user.password_hash)
+            iterations = int(user.password_iterations or PASSWORD_ITERATIONS)
+        except Exception:
+            raise ValueError("当前密码不正确") from None
+
+        actual = _password_hash(current_password, salt, iterations)
+        if not secrets.compare_digest(actual, expected):
+            raise ValueError("当前密码不正确")
+        if secrets.compare_digest(
+            _password_hash(new_password, salt, iterations), expected
+        ):
+            raise ValueError("新密码不能与当前密码相同")
+
+        new_salt = secrets.token_bytes(16)
+        user.password_hash = _encode(_password_hash(new_password, new_salt))
+        user.password_salt = _encode(new_salt)
+        user.password_iterations = PASSWORD_ITERATIONS
+        now = _now_iso()
+        user.updated_at = now
+        session.execute(
+            update(DbSession)
+            .where(DbSession.user_id == user_id, DbSession.revoked_at.is_(None))
+            .values(revoked_at=now)
+        )
+
+    return _public_user(user)
+
+
 def update_user_role(user_id: str, role: str) -> dict[str, Any]:
     init_auth_schema()
     next_role = (role or "").strip().lower()

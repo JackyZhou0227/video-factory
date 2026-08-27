@@ -186,6 +186,41 @@ class AuthSecurityTests(unittest.TestCase):
 
         self.assertEqual(count_sessions(user["id"]), 2)
 
+    def test_user_can_change_password_and_old_sessions_are_revoked(self):
+        self.set_env("VF_AUTH_COOKIE_SECURE", "false")
+        user = auth_store.create_user("changeuser", "old-password")
+        old_token, _ = auth_store.create_session(user["id"])
+        self.client.cookies.set("vf_session", old_token)
+
+        response = self.client.put(
+            "/api/auth/password",
+            json={"current_password": "old-password", "new_password": "new-password"},
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["reauthenticate"])
+        self.assertIsNone(auth_store.get_user_by_session_token(old_token))
+        self.assertIsNotNone(auth_store.authenticate_user("changeuser", "new-password"))
+        self.assertIsNone(auth_store.authenticate_user("changeuser", "old-password"))
+
+    def test_user_password_change_rejects_wrong_or_reused_password(self):
+        self.set_env("VF_AUTH_COOKIE_SECURE", "false")
+        user = auth_store.create_user("changeuser", "old-password")
+        token, _ = auth_store.create_session(user["id"])
+        self.client.cookies.set("vf_session", token)
+
+        wrong = self.client.put(
+            "/api/auth/password",
+            json={"current_password": "wrong-password", "new_password": "new-password"},
+        )
+        self.assertEqual(wrong.status_code, 401)
+
+        reused = self.client.put(
+            "/api/auth/password",
+            json={"current_password": "old-password", "new_password": "old-password"},
+        )
+        self.assertEqual(reused.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()

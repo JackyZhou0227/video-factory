@@ -3,6 +3,7 @@ import Icon from "./Icon";
 import { apiFetch, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
 import { PAGE_NAMES } from "../lib/pageNames";
 import { maskApiKey } from "../lib/runninghubSettings";
+import { changePassword } from "../lib/auth";
 
 const DEFAULT_INSTANCE_TYPE = "plus";
 const INSTANCE_OPTIONS = [
@@ -24,7 +25,7 @@ const EMPTY_LLM = {
   api_key_masked: "",
 };
 
-export default function Settings() {
+export default function Settings({ onLoggedOut }) {
   const backendBaseUrl = useBackendBaseUrl();
   const backendDisplayUrl = useMemo(() => getBackendDisplayUrl(backendBaseUrl), [backendBaseUrl]);
   const [loading, setLoading] = useState(true);
@@ -44,6 +45,10 @@ export default function Settings() {
   const [llmFormVersion, setLlmFormVersion] = useState(0);
   const [testedLlmVersion, setTestedLlmVersion] = useState(null);
   const [llmSaved, setLlmSaved] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
 
   const runningHubConfigured = Boolean(runningHubKey.trim()) || runninghub.api_key_configured;
   const llmReady = Boolean(llmBaseUrl.trim() && llmModel.trim());
@@ -202,6 +207,29 @@ export default function Settings() {
     }
   }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmFormVersion, llmModel]);
 
+  const submitPasswordChange = useCallback(async (event) => {
+    event.preventDefault();
+    if (newPassword !== confirmPassword) {
+      setError("两次输入的新密码不一致。");
+      return;
+    }
+    setChangingPassword(true);
+    setNotice("");
+    setError("");
+    try {
+      await changePassword(currentPassword, newPassword);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setNotice("密码已修改，请重新登录。");
+      window.setTimeout(() => onLoggedOut?.(), 500);
+    } catch (err) {
+      setError(err.message || "修改密码失败");
+    } finally {
+      setChangingPassword(false);
+    }
+  }, [confirmPassword, currentPassword, newPassword, onLoggedOut]);
+
   return (
     <section className="workspace-panel settings-panel" aria-labelledby="settings-title">
       <div className="panel-heading settings-heading">
@@ -222,6 +250,28 @@ export default function Settings() {
       </div>
 
       <div className="settings-service-list">
+        <section className="settings-service-section" aria-labelledby="password-settings-title">
+          <div className="settings-service-copy">
+            <span className="section-kicker">Account security</span>
+            <h3 id="password-settings-title"><Icon name="shield" size={19} />修改密码</h3>
+            <p>修改后所有已登录设备都会退出，需要使用新密码重新登录。</p>
+          </div>
+          <form className="settings-form service-settings-form" onSubmit={submitPasswordChange}>
+            <label className="field">
+              <span className="field-label">当前密码</span>
+              <input className="control" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
+            </label>
+            <label className="field">
+              <span className="field-label">新密码</span>
+              <input className="control" type="password" autoComplete="new-password" minLength="8" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required />
+            </label>
+            <label className="field">
+              <span className="field-label">确认新密码</span>
+              <input className="control" type="password" autoComplete="new-password" minLength="8" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+            </label>
+            <div className="settings-actions"><button className="primary-action" type="submit" disabled={changingPassword}><Icon name={changingPassword ? "loading" : "save"} size={16} />{changingPassword ? "正在修改" : "修改密码"}</button></div>
+          </form>
+        </section>
         <section className="settings-service-section" aria-labelledby="runninghub-settings-title">
           <div className="settings-service-copy">
             <span className="section-kicker">RunningHub</span>

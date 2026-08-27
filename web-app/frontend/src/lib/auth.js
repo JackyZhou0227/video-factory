@@ -45,6 +45,16 @@ export async function logout() {
   return response.json();
 }
 
+export async function changePassword(currentPassword, newPassword) {
+  const response = await apiFetch("/api/auth/password", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+  if (!response.ok) throw new Error(await readApiError(response, "修改密码失败"));
+  return response.json();
+}
+
 export async function listUsers() {
   const response = await apiFetch("/api/admin/users");
   if (!response.ok) throw new Error(await readApiError(response, "读取用户列表失败"));
