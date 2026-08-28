@@ -161,13 +161,9 @@ def resolve_template_definition(template: str | TemplateDefinition) -> TemplateD
         return template
     normalized = str(template or "").strip()
     try:
-        # String-based calls are kept for built-in-template compatibility. User
-        # templates are resolved by the API and passed here as definitions.
-        entry = template_registry.template_registry.get_entry("__builtin__", normalized)
+        entry = template_registry.template_registry.get_entry(None, normalized)
     except template_registry.TemplateRegistryError as exc:
         raise TemplateProductionError(f"不支持的模板：{normalized or '空'}") from exc
-    if not entry.is_builtin:
-        raise TemplateProductionError(f"不支持的模板：{normalized or '空'}")
     return entry.definition
 
 

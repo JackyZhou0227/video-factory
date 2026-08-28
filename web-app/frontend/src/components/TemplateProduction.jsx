@@ -634,7 +634,7 @@ export default function TemplateProduction({ currentUser }) {
         contentIssues[0]
         || subtitleReplacementIssues[0]
         || materialIssues[0]
-        || (hasUnsavedSubtitleReplacements ? "请先保存全局敏感词替换规则。" : "请完善素材和文案后再生成。")
+        || (hasUnsavedSubtitleReplacements ? "请先保存当前用户的敏感词替换规则。" : "请完善素材和文案后再生成。")
       );
       return;
     }
@@ -708,23 +708,13 @@ export default function TemplateProduction({ currentUser }) {
     <section className="workspace-panel template-production-panel" aria-label="模板量产工作区">
       <div className="panel-heading">
         <div className="template-heading-actions">
-          <input
-            ref={templateFileInputRef}
-            hidden
-            type="file"
-            accept="application/json,.json"
-            onChange={importTemplate}
-          />
-          <button
-            className="secondary-action compact-action"
-            type="button"
-            onClick={() => templateFileInputRef.current?.click()}
-            disabled={submitting || importingTemplate}
-            title="导入模板 JSON"
-          >
-            <Icon name={importingTemplate ? "loading" : "upload"} size={15} />
-            {importingTemplate ? "导入中" : "导入模板"}
-          </button>
+          {currentUser?.is_admin ? <>
+            <input ref={templateFileInputRef} hidden type="file" accept="application/json,.json" onChange={importTemplate} />
+            <button className="secondary-action compact-action" type="button" onClick={() => templateFileInputRef.current?.click()} disabled={submitting || importingTemplate} title="导入共享模板 JSON">
+              <Icon name={importingTemplate ? "loading" : "upload"} size={15} />
+              {importingTemplate ? "导入中" : "导入模板"}
+            </button>
+          </> : null}
           <button
             className="secondary-action compact-action"
             type="button"
@@ -794,7 +784,7 @@ export default function TemplateProduction({ currentUser }) {
           >
             <span className="template-choice-icon"><Icon name="template" size={20} /></span>
             <span>
-              <strong>{item.name}{!item.is_builtin ? <em className="template-owned-label">我的</em> : null}</strong>
+              <strong>{item.name}</strong>
               <small>{item.description || "暂无模板说明"}</small>
             </span>
             {item.id === templateId ? <Icon name="check" size={17} /> : null}

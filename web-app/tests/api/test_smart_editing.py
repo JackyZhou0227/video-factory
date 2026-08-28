@@ -107,7 +107,7 @@ class SmartEditingApiTests(unittest.TestCase):
         )
 
     def test_task_creation_saves_mixed_materials_snapshot_and_task_center_record(self):
-        settings_store.create_subtitle_replacement(source="医生", replacement="yi生")
+        settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
         with patch.object(smart_api, "resolve_output_dir", return_value=self.output_root), patch.object(
             smart_api.template_production,
@@ -141,7 +141,7 @@ class SmartEditingApiTests(unittest.TestCase):
             self.assertTrue(material["input_path"].is_file())
             material["input_path"].resolve().relative_to(Path(stored["storage_path"]).resolve())
 
-        settings_store.update_subtitle_replacement(1, source="医生", replacement="专家")
+        settings_store.update_subtitle_replacement(1, user_id=self.user_id, source="医生", replacement="专家")
         self.assertEqual(
             run_kwargs["subtitle_replacements"],
             [{"source": "医生", "replacement": "yi生"}],

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
 
-const MAX_SUBTITLE_REPLACEMENTS = 30;
 
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
@@ -58,14 +57,14 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         signal ? { signal } : undefined,
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "读取全局敏感词替换失败"));
+      if (!response.ok) throw new Error(await responseError(response, "读取个人敏感词替换失败"));
       const data = await response.json();
       setReplacements(Array.isArray(data.replacements) ? data.replacements : []);
       setDirtyIds(new Set());
       setSavedIds(new Set());
     } catch (loadError) {
       if (loadError?.name !== "AbortError") {
-        setError(loadError.message || "读取全局敏感词替换失败");
+        setError(loadError.message || "读取个人敏感词替换失败");
       }
     } finally {
       if (!signal?.aborted) setLoading(false);
@@ -81,7 +80,6 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
   const addReplacement = useCallback(() => {
     const id = makeId();
     setReplacements((current) => {
-      if (current.length >= MAX_SUBTITLE_REPLACEMENTS) return current;
       return [...current, { id, source: "", replacement: "" }];
     });
     setNotice("");
@@ -124,7 +122,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "保存全局敏感词替换失败"));
+      if (!response.ok) throw new Error(await responseError(response, "保存个人敏感词替换失败"));
       const data = await response.json();
       setReplacements((current) => current.map((currentItem) => (
         currentItem.id === id ? data.replacement : currentItem
@@ -135,9 +133,9 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         return next;
       });
       setSavedIds((current) => new Set(current).add(data.replacement.id));
-      setNotice("全局敏感词替换已保存。");
+      setNotice("个人敏感词替换已保存。");
     } catch (saveError) {
-      setError(saveError.message || "保存全局敏感词替换失败");
+      setError(saveError.message || "保存个人敏感词替换失败");
     } finally {
       setSavingIds((current) => {
         const next = new Set(current);
@@ -160,7 +158,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         next.delete(id);
         return next;
       });
-      setNotice("全局敏感词替换已删除。");
+      setNotice("个人敏感词替换已删除。");
       return true;
     }
 
@@ -172,7 +170,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         { method: "DELETE" },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "删除全局敏感词替换失败"));
+      if (!response.ok) throw new Error(await responseError(response, "删除个人敏感词替换失败"));
       setReplacements((current) => current.filter((item) => item.id !== id));
       setDirtyIds((current) => {
         const next = new Set(current);
@@ -184,10 +182,10 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         next.delete(id);
         return next;
       });
-      setNotice("全局敏感词替换已删除。");
+      setNotice("个人敏感词替换已删除。");
       return true;
     } catch (removeError) {
-      setError(removeError.message || "删除全局敏感词替换失败");
+      setError(removeError.message || "删除当前用户的敏感词替换失败");
       return false;
     } finally {
       setSavingIds((current) => {
@@ -209,15 +207,14 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
       <div className="subtitle-replacement-editor">
         <div className="subtitle-replacement-heading">
           <div>
-            <strong>全局敏感词替换</strong>
-            <small>配音保留原词，最终字幕按全局规则替换</small>
+            <strong>个人敏感词替换</strong>
+            <small>配音保留原词，最终字幕按个人规则替换</small>
           </div>
           {replacements.length ? (
             <button
               className="secondary-action subtitle-replacement-add"
               type="button"
               onClick={addReplacement}
-              disabled={replacements.length >= MAX_SUBTITLE_REPLACEMENTS}
             >
               <Icon name="plus" size={14} />添加
             </button>
@@ -268,7 +265,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
                   <button
                     className="primary-action subtitle-replacement-save"
                     type="button"
-                    title="保存此条全局敏感词替换"
+                    title="保存此条个人敏感词替换"
                     onClick={() => saveReplacement(item.id)}
                     disabled={!canSave || isSaving}
                   >
@@ -299,7 +296,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
           <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{issues[0]}</div>
         ) : null}
         {loading ? (
-          <div className="subtitle-replacement-issue"><Icon name="loading" size={14} />正在加载全局规则</div>
+          <div className="subtitle-replacement-issue"><Icon name="loading" size={14} />正在加载个人规则</div>
         ) : null}
         {error ? (
           <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{error}</div>

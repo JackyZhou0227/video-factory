@@ -446,24 +446,24 @@ def normalize_subtitle_replacement(source: Any, replacement: Any) -> tuple[str, 
     return normalized_source, normalized_replacement
 
 
-def list_subtitle_replacements() -> list[dict[str, Any]]:
+def list_subtitle_replacements(user_id: str = DEFAULT_USER_ID) -> list[dict[str, Any]]:
     init_db()
     with _orm_session() as session:
         rows = session.scalars(
-            select(SubtitleReplacement).order_by(SubtitleReplacement.id.asc())
+            select(SubtitleReplacement)
+            .where(SubtitleReplacement.user_id == user_id)
+            .order_by(SubtitleReplacement.id.asc())
         ).all()
     return [_subtitle_replacement_record(row) for row in rows]
 
-def create_subtitle_replacement(*, source: Any, replacement: Any) -> dict[str, Any]:
+def create_subtitle_replacement(*, user_id: str = DEFAULT_USER_ID, source: Any, replacement: Any) -> dict[str, Any]:
     normalized_source, normalized_replacement = normalize_subtitle_replacement(source, replacement)
     init_db()
     now = _now_iso()
     try:
         with _orm_session() as session:
-            count = session.scalar(select(func.count()).select_from(SubtitleReplacement)) or 0
-            if count >= MAX_SUBTITLE_REPLACEMENTS:
-                raise ValueError(f"字幕替换规则最多添加 {MAX_SUBTITLE_REPLACEMENTS} 条")
             row = SubtitleReplacement(
+                user_id=user_id,
                 source=normalized_source,
                 replacement=normalized_replacement,
                 created_at=now,
@@ -478,6 +478,7 @@ def create_subtitle_replacement(*, source: Any, replacement: Any) -> dict[str, A
 def update_subtitle_replacement(
     replacement_id: int,
     *,
+    user_id: str = DEFAULT_USER_ID,
     source: Any,
     replacement: Any,
 ) -> dict[str, Any]:
@@ -487,7 +488,10 @@ def update_subtitle_replacement(
     init_db()
     try:
         with _orm_session() as session:
-            row = session.get(SubtitleReplacement, replacement_id)
+            row = session.scalar(select(SubtitleReplacement).where(
+                SubtitleReplacement.id == replacement_id,
+                SubtitleReplacement.user_id == user_id,
+            ))
             if row is None:
                 raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
             row.source = normalized_source
@@ -499,12 +503,15 @@ def update_subtitle_replacement(
         raise SubtitleReplacementConflictError(f"字幕原词“{normalized_source}”已存在") from exc
     return record
 
-def delete_subtitle_replacement(replacement_id: int) -> None:
+def delete_subtitle_replacement(replacement_id: int, user_id: str = DEFAULT_USER_ID) -> None:
     if replacement_id < 1:
         raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
     init_db()
     with _orm_session() as session:
-        row = session.get(SubtitleReplacement, replacement_id)
+        row = session.scalar(select(SubtitleReplacement).where(
+            SubtitleReplacement.id == replacement_id,
+            SubtitleReplacement.user_id == user_id,
+        ))
         if row is None:
             raise SubtitleReplacementNotFoundError("字幕替换规则不存在")
         session.delete(row)

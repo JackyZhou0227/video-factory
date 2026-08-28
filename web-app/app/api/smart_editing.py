@@ -279,7 +279,7 @@ async def create_task(
     _validate_uploads(materials, manifest)
     replacements_snapshot = [
         {"source": item["source"], "replacement": item["replacement"]}
-        for item in settings_store.list_subtitle_replacements()
+        for item in settings_store.list_subtitle_replacements(user["id"])
     ]
     material_groups = [
         {

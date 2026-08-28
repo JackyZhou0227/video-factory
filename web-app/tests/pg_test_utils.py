@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from pathlib import Path
 
 from sqlalchemy import func, inspect, select, text, update
 from sqlalchemy.engine import make_url
@@ -9,7 +10,8 @@ from sqlalchemy.engine import make_url
 from app.core.config import app_config
 from app.db.base import Base
 from app.db.engine import create_engine_from_url, dispose_engines
-from app.db.models import GenerationTask, Session as DbSession, User
+from app.db.models import GenerationTask, Session as DbSession, Template, User
+from app.services.template_registry import parse_template_json
 from app.services import settings_store
 
 APP_TABLES = (
@@ -19,6 +21,7 @@ APP_TABLES = (
     "subtitle_replacements",
     "bgm_tracks",
     "generation_tasks",
+    "templates",
 )
 
 TEST_DATABASE_URL = str(
@@ -58,16 +61,28 @@ def truncate_app_tables() -> None:
     engine = create_engine_from_url(TEST_DATABASE_URL)
     try:
         with engine.begin() as connection:
-            connection.execute(
-                text(
-                    "TRUNCATE TABLE users, sessions, settings, "
-                    "subtitle_replacements, bgm_tracks, generation_tasks "
-                    "RESTART IDENTITY CASCADE"
-                )
-            )
+            connection.execute(text("TRUNCATE TABLE users, sessions, settings, subtitle_replacements, bgm_tracks, generation_tasks, templates RESTART IDENTITY CASCADE"))
     finally:
         engine.dispose()
     dispose_engines()
+    ensure_test_templates()
+
+
+def ensure_test_templates() -> None:
+    """Restore migration seed templates after per-test table truncation."""
+    builtin_root = Path(__file__).resolve().parents[1] / "app" / "templates" / "builtin"
+    with settings_store._orm_session() as session:
+        for path in sorted(builtin_root.glob("*.json")):
+            definition = parse_template_json(path.read_bytes())
+            if session.get(Template, definition.id) is None:
+                now = settings_store._now_iso()
+                session.add(Template(
+                    id=definition.id,
+                    definition=definition.model_dump(mode="json", exclude_none=True),
+                    created_by=None,
+                    created_at=now,
+                    updated_at=now,
+                ))
 
 
 def ensure_test_user(

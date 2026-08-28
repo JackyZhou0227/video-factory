@@ -13,7 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from app.api import common, template_production as template_api
-from app.api.auth import require_current_user
+from app.api.auth import require_current_user, require_admin_user
 from app.services import settings_store, task_store
 from app.services.template_registry import TemplateRegistry
 from tests.pg_test_utils import ensure_test_user
@@ -25,7 +25,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.user_id = "user-a"
         self.temp_dir = tempfile.TemporaryDirectory()
         self.output_root = Path(self.temp_dir.name)
-        self.registry = TemplateRegistry(storage_root=self.output_root / "templates")
+        self.registry = TemplateRegistry()
         self.registry_patch = patch.object(
             template_api.template_registry,
             "template_registry",
@@ -37,11 +37,12 @@ class TemplateProductionApiTests(unittest.TestCase):
         self._ensure_test_user("user-b")
 
         def current_user():
-            return {"id": self.user_id, "username": self.user_id, "display_name": self.user_id}
+            return {"id": self.user_id, "username": self.user_id, "display_name": self.user_id, "is_admin": True}
 
         app = FastAPI()
         app.include_router(template_api.router, prefix="/api")
         app.dependency_overrides[require_current_user] = current_user
+        app.dependency_overrides[require_admin_user] = current_user
         self.client = TestClient(app)
 
     def tearDown(self):
@@ -64,7 +65,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         templates = response.json()["templates"]
         self.assertEqual([item["id"] for item in templates[:2]], ["zhongyi-xunfang", "doctor-intro"])
-        self.assertTrue(all(item["is_builtin"] for item in templates[:2]))
+        self.assertTrue(all("is_builtin" not in item for item in templates[:2]))
         self.assertTrue(
             all(item["runtime_capabilities"]["subtitle_replacements"] for item in templates)
         )
@@ -83,7 +84,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 201, response.text)
         self.assertEqual(response.json()["template"]["id"], "user-doctor-intro")
-        self.assertFalse(response.json()["template"]["is_builtin"])
+        self.assertNotIn("is_builtin", response.json()["template"])
 
         response = self.client.post(
             "/api/template-production/templates/import",
@@ -93,7 +94,7 @@ class TemplateProductionApiTests(unittest.TestCase):
 
         self.user_id = "user-b"
         response = self.client.get("/api/template-production/templates/user-doctor-intro")
-        self.assertEqual(response.status_code, 404, response.text)
+        self.assertEqual(response.status_code, 200, response.text)
 
     def test_import_rejects_unknown_pipeline_and_oversized_json(self):
         value = self.importable_template("unknown-pipeline-template")
@@ -110,7 +111,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422, response.text)
 
-    def test_subtitle_replacement_crud_is_global_across_users(self):
+    def test_subtitle_replacement_crud_isolated_by_user(self):
         response = self.client.post(
             "/api/template-production/subtitle-replacements",
             json={"source": "医生", "replacement": "yi生"},
@@ -127,14 +128,13 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.user_id = "user-b"
         response = self.client.get("/api/template-production/subtitle-replacements")
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["replacements"], [rule])
+        self.assertEqual(response.json()["replacements"], [])
 
         response = self.client.put(
             f"/api/template-production/subtitle-replacements/{rule['id']}",
             json={"source": "名医", "replacement": "ming yi"},
         )
-        self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual(response.json()["replacement"]["source"], "名医")
+        self.assertEqual(response.status_code, 404, response.text)
 
         response = self.client.put(
             "/api/template-production/subtitle-replacements/999",
@@ -147,6 +147,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 422, response.text)
 
+        self.user_id = "user-a"
         response = self.client.delete(f"/api/template-production/subtitle-replacements/{rule['id']}")
         self.assertEqual(response.status_code, 204, response.text)
         response = self.client.get("/api/template-production/subtitle-replacements")
@@ -164,7 +165,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             {"requirement_id": "doctor-image", "file_index": 0, "media_type": "image", "name": "doctor.png"},
             {"requirement_id": "hospital-scene", "file_index": 1, "media_type": "video", "name": "hospital.mp4"},
         ]
-        global_replacement = settings_store.create_subtitle_replacement(source="医生", replacement="yi生")
+        global_replacement = settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
             template_api.template_production, "require_ffmpeg"
@@ -255,7 +256,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
             ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
         ]
-        settings_store.create_subtitle_replacement(source="医生", replacement="yi生")
+        settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
             template_api.template_production, "require_ffmpeg"
@@ -299,12 +300,12 @@ class TemplateProductionApiTests(unittest.TestCase):
         response = self.client.get(f"/api/template-production/tasks/{task_id}")
         self.assertEqual(response.status_code, 404)
 
-    def test_task_uses_global_subtitle_replacements_instead_of_form_values(self):
+    def test_task_uses_user_subtitle_replacements_instead_of_form_values(self):
         manifest = [
             {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
             {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
         ]
-        settings_store.create_subtitle_replacement(source="医生", replacement="yi生")
+        settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
             template_api.template_production, "require_ffmpeg"

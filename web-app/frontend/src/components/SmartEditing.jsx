@@ -335,7 +335,7 @@ export default function SmartEditing({ currentUser }) {
       return;
     }
     if (replacementStatus.hasUnsaved) {
-      setError("请先保存全局敏感词替换规则。");
+      setError("请先保存当前用户的敏感词替换规则。");
       return;
     }
 

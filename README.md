@@ -316,14 +316,28 @@ web-app/output/tasks/2026/08/07/digital_human/71a.../
 
 模板量产使用 Pydantic 校验的版本化 JSON 定义。模板只描述内容字段、素材槽、文案提示词和服务端流水线绑定，不包含某次任务填写的内容、上传文件、生成文案或任务状态。页面支持导入模板 JSON，也可以把当前模板直接导出。
 
-内置模板位于 `web-app/app/templates/builtin/` 且不可覆盖；用户导入的模板按账号隔离保存在 `web-app/data/templates/users/`。导入文件最大为 128 KiB，当前只允许绑定 `generic_concat_v1` 或 `zhongyi_visit_v1`，不会执行模板中提供的 Python 表达式或任意函数。
+模板定义存储在 PostgreSQL 的 `templates.definition` JSONB 字段中，全站共享。`web-app/app/templates/builtin/` 只保留两个初始模板的仓库备份，运行时不会读取；`web-app/data/templates/users/` 中的旧私有模板也不再加载或迁移。导入文件最大为 128 KiB，当前只允许绑定 `generic_concat_v1` 或 `zhongyi_visit_v1`，不会执行模板中提供的 Python 表达式或任意函数。模板 ID 全局唯一，重复导入返回 `409`；只有管理员可以导入，普通登录用户可以查看、导出和使用。
 
 模板接口：
 
-- `GET /api/template-production/templates`：列出当前用户可用的内置模板和个人模板。
+- `GET /api/template-production/templates`：列出全站共享模板。
 - `GET /api/template-production/templates/{template_id}`：读取模板详情。
 - `POST /api/template-production/templates/import`：以 multipart 字段 `file` 导入模板 JSON。
 - `GET /api/template-production/templates/{template_id}/export`：导出纯模板定义 JSON。
+
+## 数据库迁移与部署
+
+Alembic 是数据库结构和种子数据的唯一来源，不维护 `sql` 目录或静态 DDL。正式环境启动不会自动修改数据库；部署时必须手工执行迁移。
+
+正式部署顺序：
+
+1. 备份正式 PostgreSQL 数据库。
+2. 确认目标数据库已经创建，并检查 `web-app/config.yaml` 中的连接地址。
+3. 在 `web-app` 目录执行 `alembic upgrade head`。
+4. 检查 `alembic current` 的版本，并通过 PostgreSQL `obj_description`/`col_description` 确认表和字段中文注释。
+5. 启动应用。
+
+迁移和验收测试统一使用 `video_factory_test`，正式库只在测试全部通过并完成备份后执行迁移。`0002` 会把两个模板种子固化到迁移脚本；如果发现旧的全局敏感词记录，迁移会中止并要求人工分配用户。敏感词按 `(user_id, source)` 精确去重，每个用户独立维护。
 
 ## 启动应用
 

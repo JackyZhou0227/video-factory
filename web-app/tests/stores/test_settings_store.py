@@ -49,14 +49,16 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(updated["instance_type"], "")
         self.assertEqual(settings_store.get_runninghub_settings()["instance_type"], "")
 
-    def test_subtitle_replacements_support_global_crud_and_validation(self):
-        created = settings_store.create_subtitle_replacement(source="医生", replacement="yi生")
+    def test_subtitle_replacements_support_user_scoped_crud_and_validation(self):
+        user_id = "local-default"
+        created = settings_store.create_subtitle_replacement(user_id=user_id, source="医生", replacement="yi生")
         self.assertEqual(created["source"], "医生")
         self.assertEqual(created["replacement"], "yi生")
-        self.assertEqual(len(settings_store.list_subtitle_replacements()), 1)
+        self.assertEqual(len(settings_store.list_subtitle_replacements(user_id)), 1)
 
         updated = settings_store.update_subtitle_replacement(
             created["id"],
+            user_id=user_id,
             source="名医",
             replacement="ming yi",
         )
@@ -64,23 +66,33 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(updated["replacement"], "ming yi")
 
         with self.assertRaises(settings_store.SubtitleReplacementConflictError):
-            settings_store.create_subtitle_replacement(source="名医", replacement="other")
+            settings_store.create_subtitle_replacement(user_id=user_id, source="名医", replacement="other")
         with self.assertRaises(ValueError):
-            settings_store.create_subtitle_replacement(source="same", replacement="same")
+            settings_store.create_subtitle_replacement(user_id=user_id, source="same", replacement="same")
         with self.assertRaises(ValueError):
-            settings_store.create_subtitle_replacement(source="line\nbreak", replacement="safe")
+            settings_store.create_subtitle_replacement(user_id=user_id, source="line\nbreak", replacement="safe")
 
-        settings_store.delete_subtitle_replacement(created["id"])
-        self.assertEqual(settings_store.list_subtitle_replacements(), [])
+        settings_store.delete_subtitle_replacement(created["id"], user_id)
+        self.assertEqual(settings_store.list_subtitle_replacements(user_id), [])
         with self.assertRaises(settings_store.SubtitleReplacementNotFoundError):
-            settings_store.delete_subtitle_replacement(created["id"])
+            settings_store.delete_subtitle_replacement(created["id"], user_id)
 
-    def test_subtitle_replacement_maximum_is_enforced(self):
-        for index in range(settings_store.MAX_SUBTITLE_REPLACEMENTS):
-            settings_store.create_subtitle_replacement(source=f"source-{index}", replacement=f"target-{index}")
-
-        with self.assertRaises(ValueError):
-            settings_store.create_subtitle_replacement(source="one-more", replacement="target")
+    def test_subtitle_replacements_are_isolated_and_have_no_legacy_limit(self):
+        ensure_test_user("user-a")
+        ensure_test_user("user-b")
+        for index in range(31):
+            settings_store.create_subtitle_replacement(
+                user_id="user-a", source=f"source-{index}", replacement=f"target-{index}"
+            )
+        other = settings_store.create_subtitle_replacement(
+            user_id="user-b", source="source-0", replacement="other"
+        )
+        self.assertEqual(len(settings_store.list_subtitle_replacements("user-a")), 31)
+        self.assertEqual(settings_store.list_subtitle_replacements("user-b"), [other])
+        with self.assertRaises(settings_store.SubtitleReplacementNotFoundError):
+            settings_store.update_subtitle_replacement(
+                other["id"], user_id="user-a", source="cross", replacement="user"
+            )
 
 
 if __name__ == "__main__":

@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from app.api import common
-from app.api.auth import require_current_user
+from app.api.auth import require_current_user, require_admin_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.schemas.template_definition import (
@@ -81,10 +81,9 @@ def _runtime_capabilities(template: TemplateDefinition) -> dict[str, Any]:
     }
 
 
-def _template_payload(template: TemplateDefinition, *, is_builtin: bool) -> dict[str, Any]:
+def _template_payload(template: TemplateDefinition) -> dict[str, Any]:
     return {
         **template.model_dump(mode="json", exclude_none=True),
-        "is_builtin": is_builtin,
         "runtime_capabilities": _runtime_capabilities(template),
     }
 
@@ -110,7 +109,7 @@ def list_templates(user: dict = Depends(require_current_user)):
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {
         "templates": [
-            _template_payload(entry.definition, is_builtin=entry.is_builtin)
+            _template_payload(entry.definition)
             for entry in entries
         ]
     }
@@ -124,11 +123,11 @@ def get_template(template_id: str, user: dict = Depends(require_current_user)):
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except template_registry.TemplateRegistryError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"template": _template_payload(entry.definition, is_builtin=entry.is_builtin)}
+    return {"template": _template_payload(entry.definition)}
 
 
 @router.post("/templates/import", status_code=201)
-async def import_template(file: UploadFile = File(...), user: dict = Depends(require_current_user)):
+async def import_template(file: UploadFile = File(...), user: dict = Depends(require_admin_user)):
     import tempfile
 
     with tempfile.TemporaryDirectory(prefix="video-factory-template-") as temp_dir:
@@ -151,7 +150,7 @@ async def import_template(file: UploadFile = File(...), user: dict = Depends(req
         raise HTTPException(status_code=422, detail=str(exc)) from None
     except template_registry.TemplateRegistryError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    return {"template": _template_payload(definition, is_builtin=False)}
+    return {"template": _template_payload(definition)}
 
 
 @router.get("/templates/{template_id}/export")
@@ -176,7 +175,7 @@ def export_template(template_id: str, user: dict = Depends(require_current_user)
 @router.get("/subtitle-replacements")
 def list_subtitle_replacements(user: dict = Depends(require_current_user)):
     """List the shared subtitle replacement rules available to every user."""
-    return {"replacements": settings_store.list_subtitle_replacements()}
+    return {"replacements": settings_store.list_subtitle_replacements(user["id"])}
 
 
 @router.post("/subtitle-replacements", status_code=201)
@@ -186,7 +185,7 @@ def create_subtitle_replacement(
 ):
     try:
         replacement = settings_store.create_subtitle_replacement(
-            source=payload.source,
+            user_id=user["id"], source=payload.source,
             replacement=payload.replacement,
         )
     except settings_store.SubtitleReplacementConflictError as exc:
@@ -205,7 +204,7 @@ def update_subtitle_replacement(
     try:
         replacement = settings_store.update_subtitle_replacement(
             replacement_id,
-            source=payload.source,
+            user_id=user["id"], source=payload.source,
             replacement=payload.replacement,
         )
     except settings_store.SubtitleReplacementNotFoundError as exc:
@@ -223,7 +222,7 @@ def delete_subtitle_replacement(
     user: dict = Depends(require_current_user),
 ):
     try:
-        settings_store.delete_subtitle_replacement(replacement_id)
+        settings_store.delete_subtitle_replacement(replacement_id, user["id"])
     except settings_store.SubtitleReplacementNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     return Response(status_code=204)
@@ -559,7 +558,7 @@ async def create_task(
     subtitle_style = template_production.normalize_subtitle_style(subtitle_style_value)
     # The form field remains accepted for older clients, but production always
     # uses the shared database rules captured when this task is created.
-    stored_replacements = settings_store.list_subtitle_replacements()
+    stored_replacements = settings_store.list_subtitle_replacements(user["id"])
     parsed_replacements = [
         {"source": item["source"], "replacement": item["replacement"]}
         for item in stored_replacements

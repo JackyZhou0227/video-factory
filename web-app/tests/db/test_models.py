@@ -16,6 +16,7 @@ from app.db.models import (
     Setting,
     SubtitleReplacement,
     User,
+    Template,
 )
 from app.db.engine import get_database_url
 from app.db.session import get_session_factory, session_scope
@@ -30,6 +31,7 @@ TABLE_NAMES = {
     "subtitle_replacements",
     "bgm_tracks",
     "generation_tasks",
+    "templates",
 }
 CREATED_AT = "2026-08-23T00:00:00+00:00"
 EXPIRES_AT = "2026-09-22T00:00:00+00:00"
@@ -97,6 +99,7 @@ class DbModelsTests(unittest.TestCase):
         replacement: str = "yi生",
     ) -> SubtitleReplacement:
         return SubtitleReplacement(
+            user_id="user-1",
             source=source,
             replacement=replacement,
             created_at=CREATED_AT,
@@ -290,7 +293,7 @@ class DbModelsTests(unittest.TestCase):
                 self._setting(setting_name="model", value="other-model"),
             ),
             (
-                "subtitle_replacements.source",
+                "subtitle_replacements.user_id_source",
                 self._subtitle_replacement(replacement="other"),
             ),
             (
