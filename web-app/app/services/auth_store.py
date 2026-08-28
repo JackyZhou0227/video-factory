@@ -466,6 +466,24 @@ def authenticate_user(username: str, password: str) -> Optional[dict[str, Any]]:
     return _public_user(user)
 
 
+def update_user_profile(user_id: str, display_name: str) -> dict[str, Any]:
+    init_auth_schema()
+    normalized_display_name = display_name.strip()
+    if not normalized_display_name:
+        raise ValueError("显示名称不能为空")
+    if len(normalized_display_name) > 64:
+        raise ValueError("显示名称不能超过 64 个字符")
+
+    with _orm_session() as session:
+        user = session.scalar(select(User).where(User.id == user_id, User.password_hash != ""))
+        if user is None:
+            raise ValueError("User not found")
+        user.display_name = normalized_display_name
+        user.updated_at = _now_iso()
+
+    return _public_user(user)
+
+
 def list_users() -> list[dict[str, Any]]:
     init_auth_schema()
     with _orm_session() as session:

@@ -28,6 +28,10 @@ class ChangePasswordPayload(BaseModel):
     new_password: str = Field(..., min_length=8, max_length=auth_store.MAX_PASSWORD_LENGTH)
 
 
+class ProfilePayload(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=64)
+
+
 def _request_is_secure(request: Request) -> bool:
     override = auth_store.cookie_secure_override()
     if override is not None:
@@ -157,6 +161,16 @@ def change_password(payload: ChangePasswordPayload, user: dict = Depends(require
         raise HTTPException(status_code=code, detail=detail) from None
 
     return {"user": changed_user, "reauthenticate": True}
+
+
+@router.put("/profile")
+def update_profile(payload: ProfilePayload, user: dict = Depends(require_current_user)):
+    try:
+        updated_user = auth_store.update_user_profile(user["id"], payload.display_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from None
+
+    return {"user": updated_user}
 
 
 @router.get("/me")

@@ -55,6 +55,16 @@ export async function changePassword(currentPassword, newPassword) {
   return response.json();
 }
 
+export async function updateProfile(displayName) {
+  const response = await apiFetch("/api/auth/profile", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ display_name: displayName }),
+  });
+  if (!response.ok) throw new Error(await readApiError(response, "保存个人资料失败"));
+  return response.json();
+}
+
 export async function listUsers() {
   const response = await apiFetch("/api/admin/users");
   if (!response.ok) throw new Error(await readApiError(response, "读取用户列表失败"));

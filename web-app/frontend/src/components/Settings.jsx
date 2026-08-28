@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
 import { apiFetch, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
 import { maskApiKey } from "../lib/runninghubSettings";
-import { changePassword } from "../lib/auth";
 
 const DEFAULT_INSTANCE_TYPE = "plus";
 const INSTANCE_OPTIONS = [
@@ -24,7 +23,9 @@ const EMPTY_LLM = {
   api_key_masked: "",
 };
 
-export default function Settings({ onLoggedOut }) {
+const RUNNINGHUB_GUIDE_IMAGES = [1, 2, 3].map((step) => `/runninghub-key-guide/${step}.jpg`);
+
+export default function Settings() {
   const backendBaseUrl = useBackendBaseUrl();
   const backendDisplayUrl = useMemo(() => getBackendDisplayUrl(backendBaseUrl), [backendBaseUrl]);
   const [loading, setLoading] = useState(true);
@@ -44,11 +45,7 @@ export default function Settings({ onLoggedOut }) {
   const [llmFormVersion, setLlmFormVersion] = useState(0);
   const [testedLlmVersion, setTestedLlmVersion] = useState(null);
   const [llmSaved, setLlmSaved] = useState(false);
-  const [currentPassword, setCurrentPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [changingPassword, setChangingPassword] = useState(false);
-
+  const [runningHubGuideOpen, setRunningHubGuideOpen] = useState(false);
   const llmReady = Boolean(llmBaseUrl.trim() && llmModel.trim());
   const llmTestPassed = testedLlmVersion !== null && testedLlmVersion === llmFormVersion;
 
@@ -205,29 +202,6 @@ export default function Settings({ onLoggedOut }) {
     }
   }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmFormVersion, llmModel]);
 
-  const submitPasswordChange = useCallback(async (event) => {
-    event.preventDefault();
-    if (newPassword !== confirmPassword) {
-      setError("两次输入的新密码不一致。");
-      return;
-    }
-    setChangingPassword(true);
-    setNotice("");
-    setError("");
-    try {
-      await changePassword(currentPassword, newPassword);
-      setCurrentPassword("");
-      setNewPassword("");
-      setConfirmPassword("");
-      setNotice("密码已修改，请重新登录。");
-      window.setTimeout(() => onLoggedOut?.(), 500);
-    } catch (err) {
-      setError(err.message || "修改密码失败");
-    } finally {
-      setChangingPassword(false);
-    }
-  }, [confirmPassword, currentPassword, newPassword, onLoggedOut]);
-
   return (
     <section className="workspace-panel settings-panel" aria-label="设置工作区">
       <div className="settings-backend-bar">
@@ -241,28 +215,6 @@ export default function Settings({ onLoggedOut }) {
       </div>
 
       <div className="settings-service-list">
-        <section className="settings-service-section" aria-labelledby="password-settings-title">
-          <div className="settings-service-copy">
-            <span className="section-kicker">Account security</span>
-            <h3 id="password-settings-title"><Icon name="shield" size={19} />修改密码</h3>
-            <p>修改后所有已登录设备都会退出，需要使用新密码重新登录。</p>
-          </div>
-          <form className="settings-form service-settings-form" onSubmit={submitPasswordChange}>
-            <label className="field">
-              <span className="field-label">当前密码</span>
-              <input className="control" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required />
-            </label>
-            <label className="field">
-              <span className="field-label">新密码</span>
-              <input className="control" type="password" autoComplete="new-password" minLength="8" value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required />
-            </label>
-            <label className="field">
-              <span className="field-label">确认新密码</span>
-              <input className="control" type="password" autoComplete="new-password" minLength="8" value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
-            </label>
-            <div className="settings-actions"><button className="primary-action" type="submit" disabled={changingPassword}><Icon name={changingPassword ? "loading" : "save"} size={16} />{changingPassword ? "正在修改" : "修改密码"}</button></div>
-          </form>
-        </section>
         <section className="settings-service-section" aria-labelledby="runninghub-settings-title">
           <div className="settings-service-copy">
             <span className="section-kicker">RunningHub</span>
@@ -272,18 +224,16 @@ export default function Settings({ onLoggedOut }) {
               <div><dt>API Key</dt><dd>{runningHubKey.trim() ? maskApiKey(runningHubKey) : runninghub.api_key_masked || "尚未配置"}</dd></div>
             </dl>
             <div className="runninghub-key-link-slot">
-              <a
-                className="runninghub-key-link"
-                href="https://www.runninghub.cn/?inviteCode=kwqbktmi"
-                rel="noreferrer"
-                target="_blank"
-              >
-                <span className="runninghub-key-link-copy">
-                  <strong>还没有 RunningHub API Key？</strong>
-                  <small>前往 RunningHub 获取</small>
-                </span>
-                <Icon name="external" size={15} />
-              </a>
+              <div className="runninghub-key-actions">
+                <a className="runninghub-key-link" href="https://www.runninghub.cn/?inviteCode=kwqbktmi" rel="noreferrer" target="_blank">
+                  <span className="runninghub-key-link-copy"><strong>前往RunningHub</strong></span>
+                  <Icon name="external" size={15} />
+                </a>
+                <button className="runninghub-key-link" type="button" onClick={() => setRunningHubGuideOpen(true)}>
+                  <span className="runninghub-key-link-copy"><strong>获取教程</strong></span>
+                  <Icon name="book" size={15} />
+                </button>
+              </div>
             </div>
           </div>
           <div className="settings-form service-settings-form">
@@ -339,6 +289,19 @@ export default function Settings({ onLoggedOut }) {
 
       {error ? <div className="form-alert failed">{error}</div> : null}
       {notice ? <div className="form-alert completed">{notice}</div> : null}
+      {runningHubGuideOpen ? (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setRunningHubGuideOpen(false); }}>
+          <section className="modal-panel runninghub-guide-modal" role="dialog" aria-modal="true" aria-labelledby="runninghub-guide-title">
+            <div className="modal-heading">
+              <h3 id="runninghub-guide-title">获取教程</h3>
+              <button className="icon-button" type="button" onClick={() => setRunningHubGuideOpen(false)} aria-label="关闭" title="关闭"><Icon name="x" size={17} /></button>
+            </div>
+            <div className="runninghub-guide-images">
+              {RUNNINGHUB_GUIDE_IMAGES.map((src) => <img key={src} src={src} alt="" />)}
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

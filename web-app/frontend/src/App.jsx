@@ -8,6 +8,7 @@ import TTSStudio from "./components/TTSStudio";
 import TaskCenter from "./components/TaskCenter";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
+import UserProfile from "./components/UserProfile";
 import { getCurrentUser, login, logout, register } from "./lib/auth";
 import { PAGE_NAMES, PROJECT_NAME } from "./lib/pageNames";
 
@@ -55,6 +56,12 @@ const NAV_ITEMS = [
     icon: "settings",
   },
   {
+    id: "profile",
+    label: "个人资料",
+    description: "账号与安全设置",
+    icon: "user",
+  },
+  {
     id: "users",
     label: "用户管理",
     description: "账号与密码",
@@ -98,6 +105,11 @@ const PAGE_META = {
     eyebrow: PAGE_NAMES.settings,
     title: "设置",
     description: "管理当前用户的 RunningHub 和 LLM 服务配置。",
+  },
+  profile: {
+    eyebrow: "Account",
+    title: "个人资料",
+    description: "管理显示名称和账号安全设置。",
   },
   users: {
     eyebrow: PAGE_NAMES.userManagement,
@@ -388,7 +400,10 @@ export default function App() {
             <TaskCenter active={activePage === "task-center"} />
           </div>
           <div className={`settings-main page-panel ${activePage === "settings" ? "is-active" : ""}`}>
-            <Settings currentUser={currentUser} onLoggedOut={handleLogout} />
+            <Settings />
+          </div>
+          <div className={`settings-main page-panel ${activePage === "profile" ? "is-active" : ""}`}>
+            <UserProfile currentUser={currentUser} onUserUpdated={setCurrentUser} onLoggedOut={handleLogout} />
           </div>
           <div className={`settings-main page-panel ${activePage === "users" ? "is-active" : ""}`}>
             <UserManagement currentUser={currentUser} />

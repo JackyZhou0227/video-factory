@@ -1,6 +1,8 @@
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
+  BookOpen,
   Check,
   Cloud,
   Download,
@@ -64,7 +66,9 @@ function DigitalHumanIcon({ size = 16, strokeWidth: _strokeWidth, className = ""
 
 const ICONS = {
   alert: AlertTriangle,
+  arrowLeft: ArrowLeft,
   arrowRight: ArrowRight,
+  book: BookOpen,
   audio: FileAudio,
   check: Check,
   cloud: Cloud,
