@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import Button from "@mui/material/Button";
 import Icon from "./Icon";
 import { apiFetch } from "../lib/backend";
 
@@ -97,21 +98,24 @@ export function ProtectedDownloadButton({
   };
 
   return (
-    <button
+    <Button
       {...props}
-      className={`${className} ${error ? "has-download-error" : ""}`.trim()}
       type="button"
+      variant="outlined"
+      size="small"
+      color={error ? "error" : "primary"}
       disabled={disabled || downloading}
       onClick={handleDownload}
       title={error || props.title}
+      startIcon={
+        downloading ? (
+          <Icon name="loading" size={14} />
+        ) : error ? (
+          <Icon name="alert" size={14} />
+        ) : null
+      }
     >
-      {downloading ? (
-        <><Icon name="loading" size={14} />下载中</>
-      ) : error ? (
-        <><Icon name="alert" size={14} />重试</>
-      ) : (
-        children || <><Icon name="download" size={14} />下载</>
-      )}
-    </button>
+      {downloading ? "下载中" : error ? "重试" : children || (<><Icon name="download" size={14} />下载</>)}
+    </Button>
   );
 }

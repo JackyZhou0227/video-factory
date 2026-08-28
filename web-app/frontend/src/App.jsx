@@ -1,4 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import TextField from "@mui/material/TextField";
+import List from "@mui/material/List";
+import ListItemButton from "@mui/material/ListItemButton";
 import Icon from "./components/Icon";
 import DigitalHuman from "./components/DigitalHuman";
 import PosterVideo from "./components/PosterVideo";
@@ -114,9 +120,16 @@ const PAGE_META = {
   users: {
     eyebrow: PAGE_NAMES.userManagement,
     title: "用户管理",
-    description: "查看账号列表，并为忘记密码的用户重置登录密码。",
+    description: "查看用户列表，管理用户账号角色与登录密码。",
   },
 };
+
+const DEFAULT_PAGE = "digital-human";
+
+function pageFromPathname(pathname) {
+  const id = pathname.replace(/^\/+|\/+$/g, "");
+  return PAGE_META[id] ? id : null;
+}
 
 function AuthScreen({ onAuthenticated }) {
   const [mode, setMode] = useState("login");
@@ -171,82 +184,84 @@ function AuthScreen({ onAuthenticated }) {
             <Icon name="digitalHuman" size={32} />
           </div>
           <div>
-            <p className="eyebrow">{PROJECT_NAME}</p>
+            <Typography variant="eyebrow" component="p" className="eyebrow">{PROJECT_NAME}</Typography>
             <h1 id="auth-title">{title}</h1>
           </div>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="field" htmlFor="auth-username">
-            <span className="field-label">用户名</span>
-            <input
-              id="auth-username"
-              className="control"
-              type="text"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              autoComplete="username"
-              placeholder="3-32 位英文、数字或下划线"
-              required
-            />
-          </label>
+          <TextField
+            id="auth-username"
+            label="用户名"
+            fullWidth
+            size="small"
+            type="text"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            autoComplete="username"
+            placeholder="3-32 位英文、数字或下划线"
+            required
+          />
 
           {isRegister && (
-            <label className="field" htmlFor="auth-display-name">
-              <span className="field-label">显示名称</span>
-              <input
-                id="auth-display-name"
-                className="control"
-                type="text"
-                value={displayName}
-                onChange={(event) => setDisplayName(event.target.value)}
-                autoComplete="name"
-                placeholder="可选"
-              />
-            </label>
+            <TextField
+              id="auth-display-name"
+              label="显示名称"
+              fullWidth
+              size="small"
+              type="text"
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              autoComplete="name"
+              placeholder="可选"
+            />
           )}
 
-          <label className="field" htmlFor="auth-password">
-            <span className="field-label">密码</span>
-            <input
-              id="auth-password"
-              className="control"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete={isRegister ? "new-password" : "current-password"}
-              placeholder="至少 8 位"
-              required
-            />
-          </label>
+          <TextField
+            id="auth-password"
+            label="密码"
+            fullWidth
+            size="small"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete={isRegister ? "new-password" : "current-password"}
+            placeholder="至少 8 位"
+            required
+          />
 
           {isRegister && (
-            <label className="field" htmlFor="auth-password-confirm">
-              <span className="field-label">确认密码</span>
-              <input
-                id="auth-password-confirm"
-                className="control"
-                type="password"
-                value={passwordConfirm}
-                onChange={(event) => setPasswordConfirm(event.target.value)}
-                autoComplete="new-password"
-                placeholder="再次输入密码"
-                required
-              />
-            </label>
+            <TextField
+              id="auth-password-confirm"
+              label="确认密码"
+              fullWidth
+              size="small"
+              type="password"
+              value={passwordConfirm}
+              onChange={(event) => setPasswordConfirm(event.target.value)}
+              autoComplete="new-password"
+              placeholder="再次输入密码"
+              required
+            />
           )}
 
           {error && <div className="form-alert failed">{error}</div>}
 
-          <button className="primary-action auth-submit" type="submit" disabled={submitting}>
-            <Icon name={submitting ? "loading" : isRegister ? "check" : "lock"} size={16} />
+          <Button
+            className="auth-submit"
+            type="submit"
+            variant="contained"
+            color="primary"
+            disabled={submitting}
+            startIcon={<Icon name={submitting ? "loading" : isRegister ? "check" : "lock"} size={16} />}
+          >
             {submitting ? "处理中..." : actionLabel}
-          </button>
+          </Button>
         </form>
 
-        <button className="text-button auth-switch" type="button" onClick={switchMode}>
+        <Button className="auth-switch" type="button" variant="text" onClick={switchMode}>
           {isRegister ? "已有账号，去登录" : "还没有账号，创建一个"}
-        </button>
+        </Button>
         {!isRegister && <p className="auth-help-text">忘记密码请联系管理员重置。</p>}
       </section>
     </main>
@@ -266,7 +281,10 @@ function LoadingScreen() {
 }
 
 export default function App() {
-  const [activePage, setActivePage] = useState("digital-human");
+  const location = useLocation();
+  const navigate = useNavigate();
+  const routePage = pageFromPathname(location.pathname);
+  const activePage = routePage || DEFAULT_PAGE;
   const [authChecking, setAuthChecking] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [authError, setAuthError] = useState("");
@@ -275,10 +293,13 @@ export default function App() {
     [currentUser]
   );
   const pageMeta = useMemo(() => PAGE_META[activePage], [activePage]);
-  const handlePageChange = useCallback((pageId) => {
-    setActivePage(pageId);
-    window.scrollTo({ top: 0, left: 0 });
-  }, []);
+  const handlePageChange = useCallback(
+    (pageId) => {
+      navigate(`/${pageId}`);
+      window.scrollTo({ top: 0, left: 0 });
+    },
+    [navigate]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -303,6 +324,13 @@ export default function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (authChecking || !currentUser) return;
+    // URL 不指向有效页面、或指向无权限页面时，纠正到默认页（保留刷新/直达能力）
+    if (routePage && (routePage !== "users" || currentUser.is_admin)) return;
+    navigate(`/${DEFAULT_PAGE}`, { replace: true });
+  }, [authChecking, currentUser, navigate, routePage]);
+
   const handleLogout = useCallback(async () => {
     setAuthError("");
     try {
@@ -311,9 +339,9 @@ export default function App() {
       setAuthError(err.message || "退出登录失败");
     } finally {
       setCurrentUser(null);
-      setActivePage("digital-human");
+      navigate(`/${DEFAULT_PAGE}`, { replace: true });
     }
-  }, []);
+  }, [navigate]);
 
   if (authChecking) return <LoadingScreen />;
 
@@ -330,22 +358,30 @@ export default function App() {
     <div className="app-layout">
       <aside className="app-sidebar" aria-label="主导航">
         <nav className="sidebar-nav">
-          {visibleNavItems.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className={`nav-item ${activePage === item.id ? "is-active" : ""}`}
-              onClick={() => handlePageChange(item.id)}
-              aria-current={activePage === item.id ? "page" : undefined}
-            >
-              <span className="nav-icon">
-                <Icon name={item.icon} size={24} />
-              </span>
-              <span className="nav-item-main">
-                <strong>{item.label}</strong>
-              </span>
-            </button>
-          ))}
+          <List disablePadding sx={{ display: "grid", gap: "4px" }}>
+            {visibleNavItems.map((item) => (
+              <ListItemButton
+                key={item.id}
+                className={`nav-item ${activePage === item.id ? "is-active" : ""}`}
+                onClick={() => handlePageChange(item.id)}
+                aria-current={activePage === item.id ? "page" : undefined}
+                sx={{
+                  minHeight: 44,
+                  alignItems: "center",
+                  py: "6px",
+                  px: "12px",
+                  gap: "10px",
+                }}
+              >
+                <span className="nav-icon">
+                  <Icon name={item.icon} size={20} />
+                </span>
+                <span className="nav-item-main">
+                  <strong>{item.label}</strong>
+                </span>
+              </ListItemButton>
+            ))}
+          </List>
         </nav>
 
         <div className="sidebar-account" aria-label="当前账号">
@@ -361,10 +397,16 @@ export default function App() {
               <Icon name={currentUser.is_admin ? "shield" : "user"} size={14} />
               {currentUser.is_admin ? "管理员" : "普通账号"}
             </span>
-            <button className="sidebar-logout" type="button" onClick={handleLogout}>
-              <Icon name="logout" size={15} />
+            <Button
+              className="sidebar-logout"
+              type="button"
+              variant="text"
+              size="small"
+              onClick={handleLogout}
+              startIcon={<Icon name="logout" size={15} />}
+            >
               退出
-            </button>
+            </Button>
           </div>
         </div>
       </aside>
@@ -372,7 +414,7 @@ export default function App() {
       <main className="app-shell">
         <header className="app-header">
           <div>
-            <p className="eyebrow">{pageMeta.eyebrow}</p>
+            <Typography variant="eyebrow" component="p" className="eyebrow">{pageMeta.eyebrow}</Typography>
             <h1>{pageMeta.title}</h1>
             <p className="app-description">{pageMeta.description}</p>
           </div>

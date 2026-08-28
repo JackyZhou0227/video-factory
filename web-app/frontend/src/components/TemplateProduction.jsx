@@ -1,4 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Chip from "@mui/material/Chip";
+import Slider from "@mui/material/Slider";
+import Switch from "@mui/material/Switch";
+import LinearProgress from "@mui/material/LinearProgress";
+import Dialog from "@mui/material/Dialog";
+import { statusChipColors } from "../theme";
 import BgmManager from "./BgmManager";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
@@ -162,10 +173,11 @@ function MaterialPreview({ file, mediaType, label }) {
 }
 
 function ContentFieldControl({ field, value, onChange }) {
-  const inputId = `template-variable-${field.key}`;
   const sharedProps = {
-    className: "control",
-    id: inputId,
+    className: "field",
+    fullWidth: true,
+    size: "small",
+    label: `${field.label}${field.required ? " *" : ""}`,
     value,
     required: Boolean(field.required),
     onChange: (event) => onChange(event.target.value),
@@ -174,41 +186,39 @@ function ContentFieldControl({ field, value, onChange }) {
   let control;
   if (field.input_type === "textarea") {
     control = (
-      <textarea
+      <TextField
         {...sharedProps}
-        minLength={field.min_length ?? undefined}
-        maxLength={field.max_length ?? undefined}
-        placeholder={field.placeholder || "请输入内容"}
+        multiline
         rows={4}
+        slotProps={{ htmlInput: { minLength: field.min_length ?? undefined, maxLength: field.max_length ?? undefined } }}
+        placeholder={field.placeholder || "请输入内容"}
       />
     );
   } else if (field.input_type === "select") {
     control = (
-      <select {...sharedProps}>
-        <option value="">{field.placeholder || `请选择${field.label}`}</option>
+      <TextField {...sharedProps} select>
+        <MenuItem value="">{field.placeholder || `请选择${field.label}`}</MenuItem>
         {(field.options || []).map((option) => (
-          <option key={option.value} value={option.value}>{option.label}</option>
+          <MenuItem key={option.value} value={option.value}>{option.label}</MenuItem>
         ))}
-      </select>
+      </TextField>
     );
   } else {
     control = (
-      <input
+      <TextField
         {...sharedProps}
         type="text"
-        minLength={field.min_length ?? undefined}
-        maxLength={field.max_length ?? undefined}
+        slotProps={{ htmlInput: { minLength: field.min_length ?? undefined, maxLength: field.max_length ?? undefined } }}
         placeholder={field.placeholder || "请输入内容"}
       />
     );
   }
 
   return (
-    <label className="field" htmlFor={inputId}>
-      <span className="field-label">{field.label}{field.required ? " *" : ""}</span>
+    <div className="field">
       {control}
       {field.help_text ? <small className="field-help">{field.help_text}</small> : null}
-    </label>
+    </div>
   );
 }
 
@@ -710,44 +720,56 @@ export default function TemplateProduction({ currentUser }) {
         <div className="template-heading-actions">
           {currentUser?.is_admin ? <>
             <input ref={templateFileInputRef} hidden type="file" accept="application/json,.json" onChange={importTemplate} />
-            <button className="secondary-action compact-action" type="button" onClick={() => templateFileInputRef.current?.click()} disabled={submitting || importingTemplate} title="导入共享模板 JSON">
-              <Icon name={importingTemplate ? "loading" : "upload"} size={15} />
+            <Button type="button" variant="outlined" size="small" onClick={() => templateFileInputRef.current?.click()} disabled={submitting || importingTemplate} title="导入共享模板 JSON"
+              startIcon={<Icon name={importingTemplate ? "loading" : "upload"} size={15} />}>
               {importingTemplate ? "导入中" : "导入模板"}
-            </button>
+            </Button>
           </> : null}
-          <button
-            className="secondary-action compact-action"
+          <Button
             type="button"
+            variant="outlined"
+            size="small"
             onClick={exportTemplate}
             disabled={!selectedTemplate || exportingTemplate}
             title="导出当前模板 JSON"
+            startIcon={<Icon name={exportingTemplate ? "loading" : "download"} size={15} />}
           >
-            <Icon name={exportingTemplate ? "loading" : "download"} size={15} />
             {exportingTemplate ? "导出中" : "导出模板"}
-          </button>
-          <span className={`status-pill ${task?.status || (canSubmit ? "ready" : "pending")}`}>
-            <Icon
-              name={
-                templatesLoading || submitting
-                  ? "loading"
-                  : task?.status === "completed"
-                    ? "check"
-                    : task?.status === "partial_failed"
-                      ? "alert"
-                      : "template"
-              }
-              size={14}
-            />
-            {templatesLoading
-              ? "加载模板"
-              : task
-                ? statusLabel(task.status)
-                : !selectedTemplate
-                  ? "暂无模板"
-                  : canSubmit
-                    ? "可以生成"
-                    : "准备素材"}
-          </span>
+          </Button>
+          <Chip
+            size="small"
+            icon={
+              <Icon
+                name={
+                  templatesLoading || submitting
+                    ? "loading"
+                    : task?.status === "completed"
+                      ? "check"
+                      : task?.status === "partial_failed"
+                        ? "alert"
+                        : "template"
+                }
+                size={14}
+              />
+            }
+            label={
+              templatesLoading
+                ? "加载模板"
+                : task
+                  ? statusLabel(task.status)
+                  : !selectedTemplate
+                    ? "暂无模板"
+                    : canSubmit
+                      ? "可以生成"
+                      : "准备素材"
+            }
+            sx={{
+              backgroundColor: statusChipColors[task?.status || (canSubmit ? "ready" : "pending")]?.bg || "#f3f1e9",
+              color: statusChipColors[task?.status || (canSubmit ? "ready" : "pending")]?.fg || "#68645b",
+              fontWeight: 600,
+              "& .vf-icon": { color: statusChipColors[task?.status || (canSubmit ? "ready" : "pending")]?.fg || "#68645b" },
+            }}
+          />
         </div>
       </div>
 
@@ -763,9 +785,10 @@ export default function TemplateProduction({ currentUser }) {
           <div className="template-empty-state is-error">
             <Icon name="alert" size={20} />
             <span>{templateError}</span>
-            <button className="secondary-action compact-action" type="button" onClick={() => loadTemplates()}>
-              <Icon name="refresh" size={14} />重新加载
-            </button>
+            <Button variant="outlined" size="small" type="button" onClick={() => loadTemplates()}
+              startIcon={<Icon name="refresh" size={14} />}>
+              重新加载
+            </Button>
           </div>
         ) : !templates.length ? (
           <div className="template-empty-state">
@@ -773,14 +796,17 @@ export default function TemplateProduction({ currentUser }) {
             <span>还没有可用模板，请导入模板 JSON。</span>
           </div>
         ) : templates.map((item) => (
-          <button
+          <Button
             className={`template-choice ${item.id === templateId ? "is-active" : ""}`}
             key={item.id}
             onClick={() => switchTemplate(item)}
             role="tab"
             type="button"
+            variant="outlined"
+            color="inherit"
             aria-selected={item.id === templateId}
             disabled={submitting}
+            sx={{ justifyContent: "flex-start", textTransform: "none" }}
           >
             <span className="template-choice-icon"><Icon name="template" size={20} /></span>
             <span>
@@ -788,7 +814,7 @@ export default function TemplateProduction({ currentUser }) {
               <small>{item.description || "暂无模板说明"}</small>
             </span>
             {item.id === templateId ? <Icon name="check" size={17} /> : null}
-          </button>
+          </Button>
         ))}
       </div>
 
@@ -832,7 +858,7 @@ export default function TemplateProduction({ currentUser }) {
                           {requirement.media_type === "image" ? "图片" : "视频"} · {requirement.min_count > 0 ? `${requirement.min_count}-${requirement.max_count} 个` : `选填，最多 ${requirement.max_count} 个`}
                         </span>
                       </div>
-                      <label className="secondary-action compact-action">
+                      <Button component="label" variant="outlined" size="small">
                         <Icon name="upload" size={15} />选择文件
                         <input
                           hidden
@@ -844,7 +870,7 @@ export default function TemplateProduction({ currentUser }) {
                             event.target.value = "";
                           }}
                         />
-                      </label>
+                      </Button>
                     </div>
                     {items.length ? (
                       <div className="material-file-list">
@@ -857,15 +883,15 @@ export default function TemplateProduction({ currentUser }) {
                             />
                             <div className="material-preview-footer">
                               <span><Icon name={requirement.media_type} size={14} />{formatFileSize(item.file.size)}</span>
-                              <button
-                                className="material-preview-remove"
+                              <IconButton
                                 type="button"
                                 title={`移除第 ${index + 1} 个素材`}
                                 aria-label={`移除第 ${index + 1} 个素材`}
                                 onClick={() => removeMaterial(requirement.key, item.id)}
+                                size="small"
                               >
                                 <Icon name="x" size={15} />
-                              </button>
+                              </IconButton>
                             </div>
                           </div>
                         ))}
@@ -885,10 +911,10 @@ export default function TemplateProduction({ currentUser }) {
             <div className="template-section-heading with-actions">
               <span><Icon name="sparkles" size={17} /></span>
               <div><strong id="template-script-title">口播文案</strong><small>从候选中选择，再编辑最终文案</small></div>
-              <button className="primary-action compact-action" type="button" onClick={generateAiScripts} disabled={generatingScripts}>
-                <Icon name={generatingScripts ? "loading" : "sparkles"} size={15} />
+              <Button type="button" variant="contained" size="small" onClick={generateAiScripts} disabled={generatingScripts}
+                startIcon={<Icon name={generatingScripts ? "loading" : "sparkles"} size={15} />}>
                 {generatingScripts ? "生成中" : "AI 生成"}
-              </button>
+              </Button>
             </div>
             {scriptCandidates.length ? (
               <div className="script-candidate-grid" aria-label="AI 候选文案">
@@ -900,30 +926,33 @@ export default function TemplateProduction({ currentUser }) {
                     <div className="script-candidate-heading">
                       <span>候选 {index + 1}</span>
                       {selectedTemplate.runtime_capabilities?.script_rewrite ? (
-                        <button
+                        <IconButton
                           type="button"
                           title={`重写候选 ${index + 1}`}
                           aria-label={`重写候选 ${index + 1}`}
                           onClick={() => rewriteCandidate(candidate)}
                           disabled={Boolean(rewritingCandidateId)}
+                          size="small"
                         >
                           <Icon
                             name={rewritingCandidateId === candidate.id ? "loading" : "refresh"}
                             size={15}
                             data-loading={rewritingCandidateId === candidate.id ? "true" : undefined}
                           />
-                        </button>
+                        </IconButton>
                       ) : null}
                     </div>
-                    <button
+                    <Button
                       className="script-candidate-select"
                       type="button"
+                      variant="text"
                       onClick={() => selectCandidate(candidate)}
                       aria-pressed={candidate.id === selectedCandidateId}
+                      sx={{ display: "block", textAlign: "left", textTransform: "none" }}
                     >
                       <span>{candidate.content}</span>
                       <small>{candidate.id === selectedCandidateId ? <><Icon name="check" size={13} />已选为最终文案</> : "点击选用"}</small>
-                    </button>
+                    </Button>
                   </article>
                 ))}
               </div>
@@ -933,19 +962,20 @@ export default function TemplateProduction({ currentUser }) {
                 <span>填写内容信息后生成 {defaultCandidateCount} 条候选文案。</span>
               </div>
             )}
-            <label className="field final-script-field">
-              <span className="field-label">最终文案</span>
-              <textarea
-                className="control"
-                value={finalScript}
-                placeholder="选择上方候选，或直接在这里输入最终用于配音和生成视频的文案"
-                onChange={(event) => {
-                  setFinalScript(event.target.value);
-                  setSelectedCandidateId("");
-                  setNotice("");
-                }}
-              />
-            </label>
+            <TextField
+              className="final-script-field"
+              label="最终文案"
+              fullWidth
+              multiline
+              rows={5}
+              value={finalScript}
+              placeholder="选择上方候选，或直接在这里输入最终用于配音和生成视频的文案"
+              onChange={(event) => {
+                setFinalScript(event.target.value);
+                setSelectedCandidateId("");
+                setNotice("");
+              }}
+            />
             <div className="subtitle-style-launcher">
               <div className="subtitle-style-launcher-copy">
                 <span className="subtitle-style-launcher-icon"><Icon name="sliders" size={17} /></span>
@@ -954,56 +984,55 @@ export default function TemplateProduction({ currentUser }) {
                   <small>{subtitleStyle.notice_enabled ? "主字幕与小字免责申明" : "主字幕，已隐藏小字免责申明"}</small>
                 </div>
               </div>
-              <button
-                className="secondary-action compact-action subtitle-style-open"
+              <Button
+                className="subtitle-style-open"
                 type="button"
+                variant="outlined"
+                size="small"
                 onClick={() => setSubtitleStyleDialogOpen(true)}
                 disabled={submitting}
                 aria-haspopup="dialog"
                 aria-expanded={subtitleStyleDialogOpen}
+                startIcon={<Icon name="edit" size={15} />}
               >
-                <Icon name="edit" size={15} />编辑样式
-              </button>
+                编辑样式
+              </Button>
             </div>
-            {subtitleStyleDialogOpen ? (
-              <div
-                className="modal-backdrop subtitle-style-modal-backdrop"
-                role="presentation"
-                onMouseDown={(event) => {
-                  if (event.target === event.currentTarget) setSubtitleStyleDialogOpen(false);
-                }}
-              >
-                <section
-                  className="modal-panel subtitle-style-modal"
-                  role="dialog"
-                  aria-modal="true"
-                  aria-labelledby="subtitle-style-dialog-title"
-                  onMouseDown={(event) => event.stopPropagation()}
-                >
-                  <div className="subtitle-style-editor">
+            <Dialog
+              open={subtitleStyleDialogOpen}
+              onClose={() => setSubtitleStyleDialogOpen(false)}
+              aria-labelledby="subtitle-style-dialog-title"
+              maxWidth="lg"
+              fullWidth
+            >
+              <div className="subtitle-style-editor">
               <div className="subtitle-style-heading">
                 <div>
                   <strong id="subtitle-style-dialog-title">字幕样式</strong>
                   <small>预览使用固定示例内容；成片仍按最终文案、分句和替换规则填充字幕</small>
                 </div>
                 <div className="subtitle-style-heading-actions">
-                  <button
-                    className="secondary-action subtitle-style-reset"
+                  <Button
+                    className="subtitle-style-reset"
                     type="button"
+                    variant="outlined"
+                    size="small"
                     onClick={resetSubtitleStyle}
                     title="恢复当前默认字幕样式"
+                    startIcon={<Icon name="refresh" size={14} />}
                   >
-                    <Icon name="refresh" size={14} />恢复默认
-                  </button>
-                  <button
-                    className="icon-button subtitle-style-close"
+                    恢复默认
+                  </Button>
+                  <IconButton
+                    className="subtitle-style-close"
                     type="button"
                     onClick={() => setSubtitleStyleDialogOpen(false)}
                     title="关闭字幕样式编辑"
                     aria-label="关闭字幕样式编辑"
+                    size="small"
                   >
                     <Icon name="x" size={17} />
-                  </button>
+                  </IconButton>
                 </div>
               </div>
               <div className="subtitle-style-layout">
@@ -1015,45 +1044,47 @@ export default function TemplateProduction({ currentUser }) {
                       <span>仅调整样式</span>
                     </div>
                     <div className="subtitle-style-field-grid">
-                      <label className="field">
-                        <span className="field-label">字体</span>
-                        <select
-                          className="control"
-                          value={subtitleStyle.font_family}
-                          onChange={(event) => updateSubtitleStyle("font_family", event.target.value)}
-                        >
-                          <option value="Microsoft YaHei">微软雅黑</option>
-                          <option value="SimHei">黑体</option>
-                          <option value="SimSun">宋体</option>
-                          <option value="KaiTi">楷体</option>
-                        </select>
-                      </label>
-                      <label className="field">
-                        <span className="field-label">对齐</span>
-                        <select
-                          className="control"
-                          value={subtitleStyle.alignment}
-                          onChange={(event) => updateSubtitleStyle("alignment", event.target.value)}
-                        >
-                          <option value="left">左对齐</option>
-                          <option value="center">居中</option>
-                          <option value="right">右对齐</option>
-                        </select>
-                      </label>
+                      <TextField
+                        className="field"
+                        label="字体"
+                        fullWidth
+                        size="small"
+                        select
+                        value={subtitleStyle.font_family}
+                        onChange={(event) => updateSubtitleStyle("font_family", event.target.value)}
+                      >
+                        <MenuItem value="Microsoft YaHei">微软雅黑</MenuItem>
+                        <MenuItem value="SimHei">黑体</MenuItem>
+                        <MenuItem value="SimSun">宋体</MenuItem>
+                        <MenuItem value="KaiTi">楷体</MenuItem>
+                      </TextField>
+                      <TextField
+                        className="field"
+                        label="对齐"
+                        fullWidth
+                        size="small"
+                        select
+                        value={subtitleStyle.alignment}
+                        onChange={(event) => updateSubtitleStyle("alignment", event.target.value)}
+                      >
+                        <MenuItem value="left">左对齐</MenuItem>
+                        <MenuItem value="center">居中</MenuItem>
+                        <MenuItem value="right">右对齐</MenuItem>
+                      </TextField>
                     </div>
                     <div className="subtitle-style-slider-grid">
-                      <label className="field">
+                      <div className="field">
                         <span className="field-label">字号 {subtitleStyle.font_size}</span>
-                        <input className="speed-slider" type="range" min="36" max="108" value={subtitleStyle.font_size} onChange={(event) => updateSubtitleStyle("font_size", Number(event.target.value))} />
-                      </label>
-                      <label className="field">
+                        <Slider size="small" min={36} max={108} value={subtitleStyle.font_size} onChange={(_, value) => updateSubtitleStyle("font_size", value)} />
+                      </div>
+                      <div className="field">
                         <span className="field-label">描边 {subtitleStyle.outline_width}</span>
-                        <input className="speed-slider" type="range" min="0" max="12" value={subtitleStyle.outline_width} onChange={(event) => updateSubtitleStyle("outline_width", Number(event.target.value))} />
-                      </label>
-                      <label className="field">
+                        <Slider size="small" min={0} max={12} value={subtitleStyle.outline_width} onChange={(_, value) => updateSubtitleStyle("outline_width", value)} />
+                      </div>
+                      <div className="field">
                         <span className="field-label">底部边距 {subtitleStyle.bottom_margin}</span>
-                        <input className="speed-slider" type="range" min="80" max="480" step="5" value={subtitleStyle.bottom_margin} onChange={(event) => updateSubtitleStyle("bottom_margin", Number(event.target.value))} />
-                      </label>
+                        <Slider size="small" min={80} max={480} step={5} value={subtitleStyle.bottom_margin} onChange={(_, value) => updateSubtitleStyle("bottom_margin", value)} />
+                      </div>
                     </div>
                     <div className="subtitle-style-swatch-grid">
                       <label><span>文字</span><input type="color" value={subtitleStyle.color} onChange={(event) => updateSubtitleStyle("color", event.target.value)} /></label>
@@ -1064,40 +1095,40 @@ export default function TemplateProduction({ currentUser }) {
                     <div className="subtitle-style-section-heading">
                       <strong id="subtitle-notice-style-title">小字免责申明</strong>
                       <label className="subtitle-notice-toggle">
-                        <input
-                          type="checkbox"
+                        <Switch
+                          size="small"
                           checked={subtitleStyle.notice_enabled}
                           onChange={(event) => updateSubtitleStyle("notice_enabled", event.target.checked)}
                         />
-                        <span aria-hidden="true" />
                         <em>{subtitleStyle.notice_enabled ? "显示" : "不显示"}</em>
                       </label>
                     </div>
                     {subtitleStyle.notice_enabled ? (
                       <>
-                        <label className="field subtitle-notice-text-field">
-                          <span className="field-label">申明内容</span>
-                          <textarea
-                            className="control"
-                            rows={3}
-                            maxLength={120}
-                            value={subtitleStyle.notice_text}
-                            onChange={(event) => updateSubtitleStyle("notice_text", event.target.value)}
-                          />
-                        </label>
+                        <TextField
+                          className="field subtitle-notice-text-field"
+                          label="申明内容"
+                          fullWidth
+                          size="small"
+                          multiline
+                          rows={3}
+                          slotProps={{ htmlInput: { maxLength: 120 } }}
+                          value={subtitleStyle.notice_text}
+                          onChange={(event) => updateSubtitleStyle("notice_text", event.target.value)}
+                        />
                         <div className="subtitle-style-slider-grid">
-                          <label className="field">
+                          <div className="field">
                             <span className="field-label">字号 {subtitleStyle.notice_font_size}</span>
-                            <input className="speed-slider" type="range" min="18" max="58" value={subtitleStyle.notice_font_size} onChange={(event) => updateSubtitleStyle("notice_font_size", Number(event.target.value))} />
-                          </label>
-                          <label className="field">
+                            <Slider size="small" min={18} max={58} value={subtitleStyle.notice_font_size} onChange={(_, value) => updateSubtitleStyle("notice_font_size", value)} />
+                          </div>
+                          <div className="field">
                             <span className="field-label">描边 {subtitleStyle.notice_outline_width}</span>
-                            <input className="speed-slider" type="range" min="0" max="6" value={subtitleStyle.notice_outline_width} onChange={(event) => updateSubtitleStyle("notice_outline_width", Number(event.target.value))} />
-                          </label>
-                          <label className="field">
+                            <Slider size="small" min={0} max={6} value={subtitleStyle.notice_outline_width} onChange={(_, value) => updateSubtitleStyle("notice_outline_width", value)} />
+                          </div>
+                          <div className="field">
                             <span className="field-label">顶部边距 {subtitleStyle.notice_top_margin}</span>
-                            <input className="speed-slider" type="range" min="30" max="260" value={subtitleStyle.notice_top_margin} onChange={(event) => updateSubtitleStyle("notice_top_margin", Number(event.target.value))} />
-                          </label>
+                            <Slider size="small" min={30} max={260} value={subtitleStyle.notice_top_margin} onChange={(_, value) => updateSubtitleStyle("notice_top_margin", value)} />
+                          </div>
                         </div>
                         <div className="subtitle-style-swatch-grid">
                           <label><span>文字</span><input type="color" value={subtitleStyle.notice_color} onChange={(event) => updateSubtitleStyle("notice_color", event.target.value)} /></label>
@@ -1112,18 +1143,18 @@ export default function TemplateProduction({ currentUser }) {
               </div>
                   </div>
                   <div className="subtitle-style-modal-footer">
-                    <button
-                      className="primary-action subtitle-style-confirm"
+                    <Button
+                      className="subtitle-style-confirm"
                       type="button"
+                      variant="contained"
                       onClick={() => setSubtitleStyleDialogOpen(false)}
                       title="确认当前字幕样式"
+                      startIcon={<Icon name="check" size={15} />}
                     >
-                      <Icon name="check" size={15} />确认
-                    </button>
+                      确认
+                    </Button>
                   </div>
-                </section>
-              </div>
-            ) : null}
+            </Dialog>
             {selectedTemplate.runtime_capabilities?.subtitle_replacements ? (
               <SubtitleReplacementManager
                 currentUserId={currentUser?.id}
@@ -1145,22 +1176,20 @@ export default function TemplateProduction({ currentUser }) {
           {materialIssues.length && finalScript.trim() ? <div className="template-inline-warning">{materialIssues[0]}</div> : null}
 
           <div className="template-submit-row">
-            <label className="template-submit-count" htmlFor="template-generate-count">
-              <span>生成数量</span>
-              <input
-                id="template-generate-count"
-                className="control"
-                type="number"
-                min="1"
-                max={maxBatchSize}
-                value={generateCount}
-                onChange={(event) => setGenerateCount(Math.max(1, Math.min(maxBatchSize, Number(event.target.value) || 1)))}
-              />
-            </label>
-            <button className="primary-action template-submit-action" type="button" onClick={submitTask} disabled={!canSubmit}>
-              <Icon name={submitting ? "loading" : "wand"} size={17} />
+            <TextField
+              id="template-generate-count"
+              className="template-submit-count"
+              label="生成数量"
+              size="small"
+              type="number"
+              slotProps={{ htmlInput: { min: 1, max: maxBatchSize } }}
+              value={generateCount}
+              onChange={(event) => setGenerateCount(Math.max(1, Math.min(maxBatchSize, Number(event.target.value) || 1)))}
+            />
+            <Button className="template-submit-action" type="button" variant="contained" size="large" onClick={submitTask} disabled={!canSubmit}
+              startIcon={<Icon name={submitting ? "loading" : "wand"} size={17} />}>
               {submitting ? "正在批量生成" : `生成 ${generateCount} 条视频`}
-            </button>
+            </Button>
           </div>
         </div>
       </div> : null}
@@ -1169,13 +1198,12 @@ export default function TemplateProduction({ currentUser }) {
         <section className="template-results" aria-labelledby="template-results-title">
           <div className="template-results-heading">
             <div>
-              <span className="section-kicker">Output</span>
+              <Typography variant="kicker" component="span" className="section-kicker">Output</Typography>
               <h3 id="template-results-title">生成结果</h3>
               <p>{task.message}</p>
             </div>
             {task.zip_url ? (
               <ProtectedDownloadButton
-                className="secondary-action"
                 path={task.zip_url}
                 filename="template_videos.zip"
                 backendBaseUrl={backendBaseUrl}
@@ -1184,9 +1212,12 @@ export default function TemplateProduction({ currentUser }) {
               </ProtectedDownloadButton>
             ) : null}
           </div>
-          <div className="template-progress-track" aria-label={`生成进度 ${task.progress || 0}%`}>
-            <span style={{ width: `${task.progress || 0}%` }} />
-          </div>
+          <LinearProgress
+            variant="determinate"
+            value={task.progress || 0}
+            aria-label={`生成进度 ${task.progress || 0}%`}
+            sx={{ mt: 1.5, mb: 1.5 }}
+          />
           <div className="template-result-grid">
             {(task.items || []).map((item) => (
               <article className={`template-result-item ${item.status}`} key={item.id || item.index}>
@@ -1202,7 +1233,18 @@ export default function TemplateProduction({ currentUser }) {
                   )}
                 </div>
                 <div className="template-result-copy">
-                  <div><strong>视频 {item.index}</strong><span className={`status-pill ${item.status}`}>{statusLabel(item.status)}</span></div>
+                  <div>
+                    <strong>视频 {item.index}</strong>
+                    <Chip
+                      size="small"
+                      label={statusLabel(item.status)}
+                      sx={{
+                        backgroundColor: statusChipColors[item.status]?.bg || "#f3f1e9",
+                        color: statusChipColors[item.status]?.fg || "#68645b",
+                        fontWeight: 600,
+                      }}
+                    />
+                  </div>
                   <p>{item.script}</p>
                   {item.error ? <small className="result-error">{item.error}</small> : null}
                   {item.video_url ? (

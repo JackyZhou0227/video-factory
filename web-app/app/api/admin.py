@@ -18,8 +18,13 @@ class UpdateRolePayload(BaseModel):
 
 
 @router.get("/users")
-def list_users():
-    return {"users": auth_store.list_users()}
+def list_users(
+    name: str = "",
+    username: str = "",
+    page: int = 1,
+    page_size: int = 20,
+):
+    return {"users": auth_store.list_users(name=name, username=username, page=page, page_size=page_size)}
 
 
 @router.put("/users/{user_id}/password")

@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
+import Slider from "@mui/material/Slider";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import LinearProgress from "@mui/material/LinearProgress";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import ToggleButton from "@mui/material/ToggleButton";
+import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
@@ -465,18 +475,19 @@ export default function PosterVideo() {
                 <span>00</span>
                 <strong>输出类型</strong>
               </div>
-              <div className="segmented-control">
+              <ToggleButtonGroup
+                className="segmented-control"
+                exclusive
+                fullWidth
+                value={outputMode}
+                onChange={(_, nextMode) => nextMode && handleOutputModeChange(nextMode)}
+              >
                 {OUTPUT_MODES.map((mode) => (
-                  <button
-                    key={mode.value}
-                    className={`segment ${outputMode === mode.value ? "is-active" : ""}`}
-                    type="button"
-                    onClick={() => handleOutputModeChange(mode.value)}
-                  >
+                  <ToggleButton key={mode.value} value={mode.value}>
                     {mode.label}
-                  </button>
+                  </ToggleButton>
                 ))}
-              </div>
+              </ToggleButtonGroup>
             </div>
 
             <div className="workflow-card">
@@ -512,14 +523,14 @@ export default function PosterVideo() {
                       <Icon name="video" size={15} />
                       <span title={item.file.name}>{item.file.name}</span>
                       <small>{formatFileSize(item.file.size)}</small>
-                      <button className="text-button" type="button" onClick={() => removeVideo(item.id)}>
+                      <Button variant="text" size="small" type="button" onClick={() => removeVideo(item.id)}>
                         移除
-                      </button>
+                      </Button>
                     </div>
                   ))}
-                  <button className="text-button" type="button" onClick={clearVideos}>
+                  <Button variant="text" size="small" type="button" onClick={clearVideos}>
                     清空素材
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -535,85 +546,88 @@ export default function PosterVideo() {
                   <div className="poster-block-card" key={block.id}>
                     <div className="poster-block-heading">
                       <strong>文字块 {index + 1}</strong>
-                      <button className="text-button" type="button" onClick={() => removeBlock(block.id)}>
+                      <Button variant="text" size="small" type="button" onClick={() => removeBlock(block.id)}>
                         删除
-                      </button>
+                      </Button>
                     </div>
 
-                    <label className="field">
-                      <span className="field-label">内容</span>
-                      <textarea
-                        className="control textarea poster-block-text"
-                        rows={3}
-                        value={block.text}
-                        onChange={(event) => updateBlock(block.id, { text: event.target.value })}
-                      />
-                    </label>
+                    <TextField
+                      className="poster-block-text"
+                      label="内容"
+                      fullWidth
+                      multiline
+                      rows={3}
+                      size="small"
+                      value={block.text}
+                      onChange={(event) => updateBlock(block.id, { text: event.target.value })}
+                    />
 
                     <div className="poster-control-grid">
-                      <label className="field">
-                        <span className="field-label">字体</span>
-                        <select
-                          className="control"
-                          value={block.fontPath}
-                          onChange={(event) => updateBlock(block.id, { fontPath: event.target.value })}
-                        >
-                          {fonts.length === 0 && <option value="">系统默认字体</option>}
-                          {fonts.map((font) => (
-                            <option key={font.path} value={font.path}>
-                              {font.label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
+                      <TextField
+                        className="field"
+                        label="字体"
+                        fullWidth
+                        size="small"
+                        select
+                        value={block.fontPath}
+                        onChange={(event) => updateBlock(block.id, { fontPath: event.target.value })}
+                      >
+                        {fonts.length === 0 && <MenuItem value="">系统默认字体</MenuItem>}
+                        {fonts.map((font) => (
+                          <MenuItem key={font.path} value={font.path}>
+                            {font.label}
+                          </MenuItem>
+                        ))}
+                      </TextField>
 
-                      <label className="field">
-                        <span className="field-label">对齐</span>
-                        <select
-                          className="control"
-                          value={block.align}
-                          onChange={(event) => updateBlock(block.id, { align: event.target.value })}
-                        >
-                          <option value="left">左对齐</option>
-                          <option value="center">居中</option>
-                          <option value="right">右对齐</option>
-                        </select>
-                      </label>
+                      <TextField
+                        className="field"
+                        label="对齐"
+                        fullWidth
+                        size="small"
+                        select
+                        value={block.align}
+                        onChange={(event) => updateBlock(block.id, { align: event.target.value })}
+                      >
+                        <MenuItem value="left">左对齐</MenuItem>
+                        <MenuItem value="center">居中</MenuItem>
+                        <MenuItem value="right">右对齐</MenuItem>
+                      </TextField>
                     </div>
 
                     <div className="poster-control-grid three">
-                      <label className="field">
+                      <div className="field">
                         <span className="field-label with-inline-action">
                           <span>X {block.x}%</span>
-                          <button className="mini-text-action" type="button" onClick={() => centerBlockX(block)}>
+                          <Button variant="text" size="small" onClick={() => centerBlockX(block)}>
                             一键居中
-                          </button>
+                          </Button>
                         </span>
-                        <input className="speed-slider" type="range" min="0" max="90" value={block.x} onChange={(event) => updateBlock(block.id, { x: Number(event.target.value) })} />
-                      </label>
-                      <label className="field">
+                        <Slider size="small" min={0} max={90} value={block.x} onChange={(_, value) => updateBlock(block.id, { x: value })} />
+                      </div>
+                      <div className="field">
                         <span className="field-label">Y {block.y}%</span>
-                        <input className="speed-slider" type="range" min="0" max="92" value={block.y} onChange={(event) => updateBlock(block.id, { y: Number(event.target.value) })} />
-                      </label>
-                      <label className="field">
+                        <Slider size="small" min={0} max={92} value={block.y} onChange={(_, value) => updateBlock(block.id, { y: value })} />
+                      </div>
+                      <div className="field">
                         <span className="field-label">宽度 {block.width}%</span>
-                        <input className="speed-slider" type="range" min="20" max="100" value={block.width} onChange={(event) => updateBlock(block.id, { width: Number(event.target.value) })} />
-                      </label>
+                        <Slider size="small" min={20} max={100} value={block.width} onChange={(_, value) => updateBlock(block.id, { width: value })} />
+                      </div>
                     </div>
 
                     <div className="poster-control-grid three">
-                      <label className="field">
+                      <div className="field">
                         <span className="field-label">字号 {block.fontSize}</span>
-                        <input className="speed-slider" type="range" min="24" max="120" value={block.fontSize} onChange={(event) => updateBlock(block.id, { fontSize: Number(event.target.value) })} />
-                      </label>
-                      <label className="field">
+                        <Slider size="small" min={24} max={120} value={block.fontSize} onChange={(_, value) => updateBlock(block.id, { fontSize: value })} />
+                      </div>
+                      <div className="field">
                         <span className="field-label">描边 {block.strokeWidth}</span>
-                        <input className="speed-slider" type="range" min="0" max="12" value={block.strokeWidth} onChange={(event) => updateBlock(block.id, { strokeWidth: Number(event.target.value) })} />
-                      </label>
-                      <label className="field">
+                        <Slider size="small" min={0} max={12} value={block.strokeWidth} onChange={(_, value) => updateBlock(block.id, { strokeWidth: value })} />
+                      </div>
+                      <div className="field">
                         <span className="field-label">背景 {Math.round(block.backgroundOpacity * 100)}%</span>
-                        <input className="speed-slider" type="range" min="0" max="1" step="0.05" value={block.backgroundOpacity} onChange={(event) => updateBlock(block.id, { backgroundOpacity: Number(event.target.value) })} />
-                      </label>
+                        <Slider size="small" min={0} max={1} step={0.05} value={block.backgroundOpacity} onChange={(_, value) => updateBlock(block.id, { backgroundOpacity: value })} />
+                      </div>
                     </div>
 
                     <div className="poster-swatch-grid">
@@ -634,10 +648,9 @@ export default function PosterVideo() {
                 ))}
               </div>
 
-              <button className="secondary-action" type="button" onClick={addBlock}>
-                <Icon name="sparkles" size={16} />
+              <Button type="button" variant="outlined" onClick={addBlock} startIcon={<Icon name="sparkles" size={16} />}>
                 新增文字块
-              </button>
+              </Button>
             </div>
           </div>
 
@@ -671,10 +684,10 @@ export default function PosterVideo() {
                 </div>
               </div>
 
-              <button className="primary-action" type="button" disabled={!canGenerate} onClick={handleGenerate}>
-                <Icon name={generating ? "loading" : "wand"} size={16} />
+              <Button type="button" variant="contained" disabled={!canGenerate} onClick={handleGenerate}
+                startIcon={<Icon name={generating ? "loading" : "wand"} size={16} />}>
                 {generating ? "正在批量生成" : `生成${outputLabel}`}
-              </button>
+              </Button>
 
               {(taskStatus === "running" || taskStatus === "pending") && (
                 <div className="progress-area" aria-label="批量处理进度">
@@ -682,9 +695,7 @@ export default function PosterVideo() {
                     <span>{statusMsg}</span>
                     <strong>{progress}%</strong>
                   </div>
-                  <div className="progress-track">
-                    <div className="progress-fill" style={{ width: `${progress}%` }} />
-                  </div>
+                  <LinearProgress variant="determinate" value={progress} sx={{ mt: 0.5 }} />
                 </div>
               )}
 
@@ -697,37 +708,45 @@ export default function PosterVideo() {
       <section className="workspace-panel output-panel" aria-labelledby="poster-output-title">
         <div className="panel-heading">
           <div>
-            <span className="section-kicker">输出</span>
+            <Typography variant="kicker" component="span" className="section-kicker">输出</Typography>
             <h2 id="poster-output-title">批量生成结果</h2>
           </div>
-          <span className={`status-pill ${videoPanelStatus}`}>
-            <Icon
-              name={
-                ["failed", "partial_failed"].includes(videoPanelStatus)
-                  ? "alert"
-                  : videoPanelStatus === "completed"
-                    ? "check"
-                    : ["running", "pending"].includes(videoPanelStatus)
-                      ? "loading"
-                      : "gauge"
-              }
-              size={14}
-            />
-            {STATUS_LABELS[videoPanelStatus]}
-          </span>
+          <Chip
+            size="small"
+            icon={
+              <Icon
+                name={
+                  ["failed", "partial_failed"].includes(videoPanelStatus)
+                    ? "alert"
+                    : videoPanelStatus === "completed"
+                      ? "check"
+                      : ["running", "pending"].includes(videoPanelStatus)
+                        ? "loading"
+                        : "gauge"
+                }
+                size={14}
+              />
+            }
+            label={STATUS_LABELS[videoPanelStatus]}
+            sx={{
+              backgroundColor: statusChipColors[videoPanelStatus]?.bg || "#f3f1e9",
+              color: statusChipColors[videoPanelStatus]?.fg || "#68645b",
+              fontWeight: 600,
+              "& .vf-icon": { color: statusChipColors[videoPanelStatus]?.fg || "#68645b" },
+            }}
+          />
         </div>
 
         <div className="poster-result-shell">
           <div className="video-status-card poster-result-summary">
-            <span className="section-kicker with-icon">
+            <Typography variant="kicker" component="span" className="section-kicker with-icon">
               <Icon name="video" size={13} />
               Batch
-            </span>
+            </Typography>
             <h3>{STATUS_LABELS[videoPanelStatus]}</h3>
             <p>{statusMsg || `上传${mediaLabel}并确认模板后，可以开始本地批量生成。`}</p>
             {zipUrl && (
               <ProtectedDownloadButton
-                className="download-action"
                 path={zipUrl}
                 filename={isImageMode ? "poster_images.zip" : "poster_videos.zip"}
                 backendBaseUrl={backendBaseUrl}
@@ -758,7 +777,6 @@ export default function PosterVideo() {
                         alt={item.filename}
                       />
                       <ProtectedDownloadButton
-                        className="secondary-link-action"
                         path={item.asset_url || item.video_url || item.image_url}
                         filename={item.filename}
                         backendBaseUrl={backendBaseUrl}

@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Tooltip from "@mui/material/Tooltip";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
 import Alert from "./Alert";
 import { listUsers, resetUserPassword, updateUserRole } from "../lib/auth";
@@ -30,47 +40,105 @@ function UserRow({ user, currentUserId, onOpenReset, onRoleChange, resettingUser
   return (
     <tr>
       <td>
-        <div className="user-cell">
-          <strong>{user.display_name || user.username}</strong>
-          <span>{user.username}</span>
-        </div>
+        <strong className="user-name">{user.display_name || user.username}</strong>
       </td>
       <td>
-        <div className="role-cell">
-          <span className={`role-badge ${user.is_admin ? "admin" : "user"}`}>
-            <Icon name={user.is_admin ? "shield" : "user"} size={14} />
-            {user.is_admin ? "管理员" : "普通用户"}
-          </span>
-          <button
-            className="text-button role-action"
-            type="button"
-            onClick={handleRoleChange}
-            disabled={isUpdatingRole || isCurrentUser}
-          >
-            {isCurrentUser ? "当前账号" : isUpdatingRole ? "正在更新" : user.is_admin ? "设为普通用户" : "设为管理员"}
-          </button>
-        </div>
+        <span className="user-username">{user.username}</span>
+      </td>
+      <td>
+        <span className={`role-badge ${user.is_admin ? "admin" : "user"}`}>
+          <Icon name={user.is_admin ? "shield" : "user"} size={14} />
+          {user.is_admin ? "管理员" : "普通用户"}
+        </span>
       </td>
       <td>{formatDateTime(user.created_at)}</td>
       <td>
-        <button className="secondary-action inline-action" type="button" onClick={() => onOpenReset(user)} disabled={isResetting}>
-            <Icon name={isResetting ? "loading" : "key"} size={15} />
-            重置密码
-          </button>
+        <div className="user-row-actions">
+          <Tooltip title="权限管理" arrow>
+            <span>
+              <IconButton
+                type="button"
+                aria-label={`权限管理：${user.display_name || user.username}`}
+                onClick={() => openRoleDialog(user)}
+                disabled={isUpdatingRole || isCurrentUser}
+                size="small"
+              >
+                <Icon name={isUpdatingRole ? "loading" : "shield"} size={16} />
+              </IconButton>
+            </span>
+          </Tooltip>
+          <Tooltip title="重置密码" arrow>
+            <span>
+              <IconButton
+                type="button"
+                aria-label={`重置密码：${user.display_name || user.username}`}
+                onClick={() => onOpenReset(user)}
+                disabled={isResetting}
+                size="small"
+              >
+                <Icon name={isResetting ? "loading" : "key"} size={16} />
+              </IconButton>
+            </span>
+          </Tooltip>
+        </div>
       </td>
     </tr>
   );
 }
 
 export default function UserManagement({ currentUser }) {
+  const [filters, setFilters] = useState({ name: "", username: "" });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [page, setPage] = useState(1);
+  const [pages, setPages] = useState(1);
+  const [total, setTotal] = useState(0);
   const [resettingUserId, setResettingUserId] = useState("");
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState("");
   const [resetUser, setResetUser] = useState(null);
   const [resetPassword, setResetPassword] = useState("");
+  const [roleDialog, setRoleDialog] = useState(null);
+  const [roleDraft, setRoleDraft] = useState("user");
+
+  const openRoleDialog = useCallback((user) => {
+    setRoleDialog(user);
+    setRoleDraft(user.is_admin ? "admin" : "user");
+  }, []);
+
+  const updateFilter = useCallback((field, value) => {
+    setFilters((current) => ({ ...current, [field]: value }));
+    setPage(1);
+  }, []);
+
+  const loadUsers = useCallback(async (targetPage = 1) => {
+    setLoading(true);
+    setError("");
+    setNotice("");
+    try {
+      const data = await listUsers({
+        name: filters.name,
+        username: filters.username,
+        page: targetPage,
+        pageSize: 20,
+      });
+      setUsers(Array.isArray(data.users?.items) ? data.users.items : []);
+      setPage(data.users?.page || targetPage);
+      setPages(Math.max(1, data.users?.pages || 1));
+      setTotal(data.users?.total || 0);
+    } catch (err) {
+      setError(err.message || "读取用户列表失败");
+    } finally {
+      setLoading(false);
+    }
+  }, [filters]);
+
+  useEffect(() => {
+    // 文本筛选防抖后异步查询
+    const timer = window.setTimeout(() => loadUsers(1), 400);
+    return () => window.clearTimeout(timer);
+  }, [loadUsers]);
 
   const generatePassword = useCallback(() => {
     const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*";
@@ -91,25 +159,6 @@ export default function UserManagement({ currentUser }) {
     setResetUser(null);
     setResetPassword("");
   }, [resettingUserId]);
-
-  const loadUsers = useCallback(async () => {
-    setLoading(true);
-    setError("");
-    setNotice("");
-
-    try {
-      const data = await listUsers();
-      setUsers(Array.isArray(data.users) ? data.users : []);
-    } catch (err) {
-      setError(err.message || "读取用户列表失败");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
 
   const handlePasswordReset = useCallback(async () => {
       setError("");
@@ -148,29 +197,42 @@ export default function UserManagement({ currentUser }) {
   return (
     <section className="workspace-panel admin-panel" aria-label="用户管理工作区">
       <div className="admin-content">
-        <div className="settings-copy admin-copy">
-          <h3>
-            <Icon name="user" size={18} />
-            账号
-          </h3>
-          <p>
-            忘记密码时，由管理员在这里给用户设置一个新密码。系统不会读取或展示原密码，重置后会让该用户现有登录失效。
-            管理员也可以把其他用户设为管理员；系统会保留至少一个管理员账号。
-          </p>
+        <div className="task-filter-grid admin-filter-grid">
+          <TextField
+            className="field"
+            label="名称"
+            placeholder="按显示名称模糊搜索"
+            fullWidth
+            size="small"
+            value={filters.name}
+            onChange={(event) => updateFilter("name", event.target.value)}
+          />
+          <TextField
+            className="field"
+            label="用户名"
+            placeholder="按用户名模糊搜索"
+            fullWidth
+            size="small"
+            value={filters.username}
+            onChange={(event) => updateFilter("username", event.target.value)}
+          />
         </div>
 
         {loading && <div className="form-alert completed">正在读取用户列表...</div>}
         {notice && <Alert>{notice}</Alert>}
         {error && <Alert type="error">{error}</Alert>}
 
+        <div className="task-list-toolbar"><span>共 {total} 个用户</span></div>
+
         <div className="admin-table-wrap">
           <table className="admin-table">
             <thead>
               <tr>
-                <th>用户</th>
+                <th>名称</th>
+                <th>用户名</th>
                 <th>角色</th>
                 <th>创建时间</th>
-                <th>重置密码</th>
+                <th>操作</th>
               </tr>
             </thead>
             <tbody>
@@ -191,40 +253,104 @@ export default function UserManagement({ currentUser }) {
 
         {!loading && users.length === 0 && <div className="audio-empty">暂无用户</div>}
 
-        <div className="settings-actions admin-actions">
-          <button className="secondary-action" type="button" onClick={loadUsers} disabled={loading}>
-            <Icon name={loading ? "loading" : "refresh"} size={16} />
-            重新读取
-          </button>
+        <div className="task-pagination">
+          <Button type="button" variant="outlined" size="small" disabled={page <= 1 || loading} onClick={() => loadUsers(page - 1)}>
+            上一页
+          </Button>
+          <span>第 {page} / {pages} 页</span>
+          <Button type="button" variant="outlined" size="small" disabled={page >= pages || loading} onClick={() => loadUsers(page + 1)}>
+            下一页
+          </Button>
         </div>
       </div>
-      {resetUser ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeResetDialog(); }}>
-          <section className="modal-panel admin-reset-modal" role="dialog" aria-modal="true" aria-labelledby="admin-reset-title">
-            <div className="modal-heading">
-              <div>
-                <span className="section-kicker">Account security</span>
-                <h3 id="admin-reset-title">重置用户密码</h3>
-              </div>
-              <button className="icon-button" type="button" onClick={closeResetDialog} disabled={Boolean(resettingUserId)} aria-label="关闭" title="关闭">
-                <Icon name="x" size={17} />
-              </button>
-            </div>
-            <div className="modal-body">
-              <p className="admin-reset-target">正在为 <strong>{resetUser.display_name || resetUser.username}</strong> 设置新密码</p>
-              <div className="admin-reset-field">
-                <label className="field" htmlFor="admin-reset-password"><span className="field-label">新密码</span><input id="admin-reset-password" className="control" type="text" value={resetPassword} onChange={(event) => setResetPassword(event.target.value)} minLength="8" autoComplete="new-password" autoFocus /></label>
-                <button className="secondary-action" type="button" onClick={generatePassword}><Icon name="refresh" size={16} />随机密码</button>
-              </div>
-              <p className="field-help">密码至少 8 位。重置后，该用户的现有登录会话将立即失效。</p>
-            </div>
-            <div className="modal-actions">
-              <button className="secondary-action" type="button" onClick={closeResetDialog} disabled={Boolean(resettingUserId)}>取消</button>
-              <button className="primary-action" type="button" onClick={handlePasswordReset} disabled={resetPassword.length < 8 || Boolean(resettingUserId)}><Icon name={resettingUserId ? "loading" : "key"} size={16} />{resettingUserId ? "正在重置" : "确认重置"}</button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <Dialog
+        open={Boolean(roleDialog)}
+        onClose={() => setRoleDialog(null)}
+        aria-labelledby="user-role-title"
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle id="user-role-title">权限管理</DialogTitle>
+        <DialogContent>
+          <p className="admin-reset-target">
+            正在调整 <strong>{roleDialog?.display_name || roleDialog?.username}</strong> 的账号角色
+          </p>
+          <TextField
+            className="field"
+            label="账号角色"
+            fullWidth
+            size="small"
+            select
+            value={roleDraft}
+            onChange={(event) => setRoleDraft(event.target.value)}
+          >
+            <MenuItem value="admin">管理员</MenuItem>
+            <MenuItem value="user">普通用户</MenuItem>
+          </TextField>
+          <p className="field-help">系统会保留至少一个管理员账号。</p>
+        </DialogContent>
+        <DialogActions>
+          <Button type="button" onClick={() => setRoleDialog(null)}>取消</Button>
+          <Button
+            type="button"
+            variant="contained"
+            disabled={Boolean(updatingRoleUserId) || roleDraft === (roleDialog?.is_admin ? "admin" : "user")}
+            onClick={() => {
+              const target = roleDialog;
+              setRoleDialog(null);
+              if (target && roleDraft !== (target.is_admin ? "admin" : "user")) {
+                handleRoleChange(target.id, roleDraft);
+              }
+            }}
+          >
+            确认
+          </Button>
+        </DialogActions>
+      </Dialog>
+      <Dialog
+        open={Boolean(resetUser)}
+        onClose={() => { if (!resettingUserId) closeResetDialog(); }}
+        aria-labelledby="admin-reset-title"
+        fullWidth
+        maxWidth="xs"
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", pr: 1.5 }}>
+          <div>
+            <Typography variant="kicker" component="span" className="section-kicker">Account security</Typography>
+            <h3 id="admin-reset-title">重置用户密码</h3>
+          </div>
+          <IconButton onClick={closeResetDialog} disabled={Boolean(resettingUserId)} aria-label="关闭" title="关闭" size="small">
+            <Icon name="x" size={17} />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <p className="admin-reset-target">正在为 <strong>{resetUser?.display_name || resetUser?.username}</strong> 设置新密码</p>
+          <div className="admin-reset-field">
+            <TextField
+              id="admin-reset-password"
+              className="field"
+              label="新密码"
+              fullWidth
+              size="small"
+              type="text"
+              value={resetPassword}
+              onChange={(event) => setResetPassword(event.target.value)}
+              slotProps={{ htmlInput: { minLength: 8 } }}
+              autoComplete="new-password"
+              autoFocus
+            />
+            <Button type="button" variant="outlined" size="small" onClick={generatePassword} startIcon={<Icon name="refresh" size={16} />}>随机密码</Button>
+          </div>
+          <p className="field-help">密码至少 8 位。重置后，该用户的现有登录会话将立即失效。</p>
+        </DialogContent>
+        <DialogActions>
+          <Button type="button" onClick={closeResetDialog} disabled={Boolean(resettingUserId)}>取消</Button>
+          <Button type="button" variant="contained" onClick={handlePasswordReset} disabled={resetPassword.length < 8 || Boolean(resettingUserId)}
+            startIcon={<Icon name={resettingUserId ? "loading" : "key"} size={16} />}>
+            {resettingUserId ? "正在重置" : "确认重置"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </section>
   );
 }

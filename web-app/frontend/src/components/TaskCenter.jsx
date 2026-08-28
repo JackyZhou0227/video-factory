@@ -1,4 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Chip from "@mui/material/Chip";
+import LinearProgress from "@mui/material/LinearProgress";
+import Dialog from "@mui/material/Dialog";
+import Box from "@mui/material/Box";
+import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
@@ -30,6 +40,16 @@ const STATUS_LABELS = {
 };
 
 const FINAL_STATUSES = new Set(["submitted", "completed", "partial_failed", "failed", "cancelled"]);
+
+function statusChipSx(status) {
+  const colors = statusChipColors[status] || { bg: "#f3f1e9", fg: "#68645b" };
+  return {
+    backgroundColor: colors.bg,
+    color: colors.fg,
+    fontWeight: 600,
+    "& .vf-icon": { color: colors.fg },
+  };
+}
 
 function formatTime(value) {
   if (!value) return "—";
@@ -68,6 +88,17 @@ function statusIcon(status) {
   return "loading";
 }
 
+function StatusChip({ status, withIcon = false }) {
+  return (
+    <Chip
+      size="small"
+      label={STATUS_LABELS[status] || status}
+      icon={withIcon ? <Icon name={statusIcon(status)} size={14} /> : undefined}
+      sx={statusChipSx(status)}
+    />
+  );
+}
+
 function ArtifactCard({ artifact, backendBaseUrl }) {
   const isPreviewable = ["audio", "image", "video"].includes(artifact.kind);
   const isComplete = artifact.status === "completed";
@@ -99,10 +130,7 @@ function ArtifactCard({ artifact, backendBaseUrl }) {
             path={artifact.download_url}
             filename={artifact.name}
             backendBaseUrl={backendBaseUrl}
-            className="secondary-action compact-action"
-          >
-            <Icon name="download" size={14} />下载
-          </ProtectedDownloadButton>
+          />
         ) : null}
       </div>
     </article>
@@ -111,7 +139,11 @@ function ArtifactCard({ artifact, backendBaseUrl }) {
 
 function TaskDetail({ task, backendBaseUrl, loading, onClose }) {
   if (loading) {
-    return <section className="modal-panel task-detail-modal task-detail-loading"><Icon name="loading" size={18} />正在读取详情</section>;
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 4, px: 3 }}>
+        <Icon name="loading" size={18} />正在读取详情
+      </Box>
+    );
   }
   if (!task) return null;
 
@@ -121,26 +153,27 @@ function TaskDetail({ task, backendBaseUrl, loading, onClose }) {
     task.artifacts?.find((artifact) => artifact.kind === "archive" && artifact.status === "completed") ||
     (task.artifacts?.length === 1 && task.artifacts[0].status === "completed" ? task.artifacts[0] : null);
   return (
-    <section className="modal-panel task-detail-modal" role="dialog" aria-modal="true" aria-labelledby="task-detail-title">
+    <Box sx={{ p: 3 }} role="dialog" aria-labelledby="task-detail-title">
       <div className="panel-heading">
         <div>
-          <span className="section-kicker">Task Detail</span>
+          <Typography variant="kicker" component="span" className="section-kicker">Task Detail</Typography>
           <h2 id="task-detail-title">{taskSummary(task)}</h2>
           <p>{task.message || "暂无任务说明"}</p>
         </div>
-        <span className={`status-pill ${task.status}`}>
-          <Icon name={statusIcon(task.status)} size={14} />
-          {STATUS_LABELS[task.status] || task.status}
-        </span>
-        <button className="icon-button" type="button" onClick={onClose} aria-label="关闭任务详情" title="关闭">
+        <StatusChip status={task.status} withIcon />
+        <IconButton type="button" onClick={onClose} aria-label="关闭任务详情" title="关闭" size="small">
           <Icon name="x" size={17} />
-        </button>
+        </IconButton>
       </div>
 
-      <div className="task-progress-block">
+      <Box className="task-progress-block">
         <div className="task-progress-meta"><span>处理进度</span><strong>{task.progress || 0}%</strong></div>
-        <div className="task-progress-track"><span style={{ width: `${Math.max(0, Math.min(100, task.progress || 0))}%` }} /></div>
-      </div>
+        <LinearProgress
+          variant="determinate"
+          value={Math.max(0, Math.min(100, task.progress || 0))}
+          sx={{ mt: 0.5 }}
+        />
+      </Box>
 
       <div className="task-meta-grid">
         <div><span>生成数量</span><strong>{task.requested_count}</strong></div>
@@ -168,13 +201,12 @@ function TaskDetail({ task, backendBaseUrl, loading, onClose }) {
       ) : null}
 
       <div className="task-artifacts-heading">
-        <div><span className="section-kicker">Artifacts</span><h3>产物</h3></div>
+        <div><Typography variant="kicker" component="span" className="section-kicker">Artifacts</Typography><h3>产物</h3></div>
         {taskDownload ? (
           <ProtectedDownloadButton
             path={taskDownload}
             filename={taskDownloadArtifact?.name || `${task.id}.zip`}
             backendBaseUrl={backendBaseUrl}
-            className="secondary-action compact-action"
           >
             <Icon name="download" size={14} />下载任务文件
           </ProtectedDownloadButton>
@@ -187,9 +219,24 @@ function TaskDetail({ task, backendBaseUrl, loading, onClose }) {
       ) : (
         <div className="task-no-artifacts">当前任务没有本地文件产物。</div>
       )}
-    </section>
+    </Box>
   );
 }
+
+const FILTER_OPTIONS = {
+  task_type: [
+    { value: "digital_human", label: "数字人" },
+    { value: "voice_generation", label: "语音生成" },
+    { value: "poster_video", label: "大字报" },
+    { value: "template_production", label: "模板量产" },
+    { value: "smart_editing", label: "智能剪辑" },
+  ],
+  generation_type: [
+    { value: "voice", label: "语音" },
+    { value: "image", label: "图片" },
+    { value: "video", label: "视频" },
+  ],
+};
 
 export default function TaskCenter({ active = true }) {
   const backendBaseUrl = useBackendBaseUrl();
@@ -282,12 +329,21 @@ export default function TaskCenter({ active = true }) {
     <div className="task-center-layout">
       <section className="workspace-panel task-center-list-panel" aria-label="任务中心工作区">
         <div className="task-filter-grid">
-          <label className="field"><span className="field-label">任务类型</span><select className="control" name="task_type" value={filters.task_type} onChange={updateFilter}><option value="">全部</option><option value="digital_human">数字人</option><option value="voice_generation">语音生成</option><option value="poster_video">大字报</option><option value="template_production">模板量产</option><option value="smart_editing">智能剪辑</option></select></label>
-          <label className="field"><span className="field-label">生成类型</span><select className="control" name="generation_type" value={filters.generation_type} onChange={updateFilter}><option value="">全部</option><option value="voice">语音</option><option value="image">图片</option><option value="video">视频</option></select></label>
-          <label className="field"><span className="field-label">状态</span><select className="control" name="status" value={filters.status} onChange={updateFilter}><option value="">全部</option>{Object.entries(STATUS_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          <label className="field"><span className="field-label">开始日期</span><input className="control" type="date" name="created_from" value={filters.created_from} onChange={updateFilter} /></label>
-          <label className="field"><span className="field-label">结束日期</span><input className="control" type="date" name="created_to" value={filters.created_to} onChange={updateFilter} /></label>
-          <div className="task-filter-actions"><button className="secondary-action compact-action" type="button" onClick={resetFilters}>重置</button></div>
+          <TextField className="field" name="task_type" label="任务类型" fullWidth size="small" select value={filters.task_type} onChange={updateFilter}>
+            <MenuItem value="">全部</MenuItem>
+            {FILTER_OPTIONS.task_type.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
+          </TextField>
+          <TextField className="field" name="generation_type" label="生成类型" fullWidth size="small" select value={filters.generation_type} onChange={updateFilter}>
+            <MenuItem value="">全部</MenuItem>
+            {FILTER_OPTIONS.generation_type.map((item) => <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>)}
+          </TextField>
+          <TextField className="field" name="status" label="状态" fullWidth size="small" select value={filters.status} onChange={updateFilter}>
+            <MenuItem value="">全部</MenuItem>
+            {Object.entries(STATUS_LABELS).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
+          </TextField>
+          <TextField className="field" name="created_from" label="开始日期" fullWidth size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={filters.created_from} onChange={updateFilter} />
+          <TextField className="field" name="created_to" label="结束日期" fullWidth size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={filters.created_to} onChange={updateFilter} />
+          <div className="task-filter-actions"><Button type="button" variant="outlined" size="small" onClick={resetFilters}>重置</Button></div>
         </div>
 
         <div className="task-list-toolbar"><span>共 {total} 条任务</span>{activeCount ? <span className="task-live-note"><Icon name="loading" size={13} />{activeCount} 条处理中</span> : null}</div>
@@ -308,21 +364,25 @@ export default function TaskCenter({ active = true }) {
                 <span className="task-row-time">{formatTime(task.created_at)}</span>
                 <span className="task-row-creator">{task.creator_display_name || task.creator_username || "—"}</span>
                 <span className="task-row-count">{task.success_count}/{task.requested_count}</span>
-                <span className={`status-pill ${task.status}`}>{STATUS_LABELS[task.status] || task.status}</span>
-                <button className="secondary-action compact-action task-detail-action" type="button" onClick={() => loadDetail(task.id)}>
-                  <Icon name="file" size={14} />查看详情
-                </button>
+                <StatusChip status={task.status} />
+                <Button className="task-detail-action" type="button" variant="outlined" size="small" onClick={() => loadDetail(task.id)} startIcon={<Icon name="file" size={14} />}>
+                  查看详情
+                </Button>
               </div>
             ))}
           </div>
         ) : <div className="task-list-state"><Icon name="history" size={22} /><strong>还没有任务记录</strong><span>完成一次语音、图片或视频生成后，任务会出现在这里。</span></div>}
-        <div className="task-pagination"><button className="secondary-action compact-action" type="button" disabled={page <= 1 || loading} onClick={() => loadTasks(page - 1)}>上一页</button><span>第 {page} / {pages} 页</span><button className="secondary-action compact-action" type="button" disabled={page >= pages || loading} onClick={() => loadTasks(page + 1)}>下一页</button></div>
+        <div className="task-pagination"><Button type="button" variant="outlined" size="small" disabled={page <= 1 || loading} onClick={() => loadTasks(page - 1)}>上一页</Button><span>第 {page} / {pages} 页</span><Button type="button" variant="outlined" size="small" disabled={page >= pages || loading} onClick={() => loadTasks(page + 1)}>下一页</Button></div>
       </section>
-      {selectedId ? (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeDetail(); }}>
-          <TaskDetail task={selectedTask} loading={detailLoading} backendBaseUrl={backendBaseUrl} onClose={closeDetail} />
-        </div>
-      ) : null}
+      <Dialog
+        open={Boolean(selectedId)}
+        onClose={closeDetail}
+        aria-labelledby="task-detail-title"
+        maxWidth="md"
+        fullWidth
+      >
+        <TaskDetail task={selectedTask} loading={detailLoading} backendBaseUrl={backendBaseUrl} onClose={closeDetail} />
+      </Dialog>
     </div>
   );
 }

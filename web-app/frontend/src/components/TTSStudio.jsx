@@ -1,4 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Chip from "@mui/material/Chip";
+import Slider from "@mui/material/Slider";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
+import ToggleButton from "@mui/material/ToggleButton";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
@@ -613,20 +627,20 @@ export default function TTSStudio({ active = false }) {
                 </div>
               </div>
 
-              <label className="field" htmlFor="tts-studio-text">
-                <span className="field-label">合成文本</span>
-                <textarea
-                  id="tts-studio-text"
-                  className="control textarea tts-studio-textarea"
-                  rows={11}
-                  placeholder="请输入需要生成的语音内容"
-                  value={text}
-                  onChange={(event) => {
-                    setText(event.target.value);
-                    markPreviewStale();
-                  }}
-                />
-              </label>
+              <TextField
+                id="tts-studio-text"
+                className="tts-studio-textarea"
+                label="合成文本"
+                fullWidth
+                multiline
+                rows={11}
+                placeholder="请输入需要生成的语音内容"
+                value={text}
+                onChange={(event) => {
+                  setText(event.target.value);
+                  markPreviewStale();
+                }}
+              />
             </section>
 
             <section className="tts-studio-step" aria-labelledby="tts-studio-step-voice">
@@ -640,9 +654,21 @@ export default function TTSStudio({ active = false }) {
                 </div>
               </div>
 
-              <div className="field">
-                <span className="field-label">合成方式</span>
-                <div className="segmented-control tts-studio-mode-control" role="tablist" aria-label="合成方式">
+                <div className="field">
+                  <span className="field-label">合成方式</span>
+                  <ToggleButtonGroup
+                    className="tts-studio-mode-control"
+                    exclusive
+                    fullWidth
+                    value={ttsMode}
+                    role="tablist"
+                    aria-label="合成方式"
+                    onChange={(_, nextMode) => {
+                      if (!nextMode) return;
+                      setTtsMode(nextMode);
+                      markPreviewStale();
+                    }}
+                  >
                   {TTS_MODE_OPTIONS.map((option) => {
                     const providerStatus = providerStatusById.get(option.providerId) ?? (option.value === "edge-tts" ? EDGE_TTS_STATIC_STATUS : null);
                     const isChecking = option.value === "base" && providerStatusesLoading && !providerStatus;
@@ -658,20 +684,13 @@ export default function TTSStudio({ active = false }) {
                             : "待确认";
                     const statusTitle = option.value === "base" && qwenProviderReason ? qwenProviderReason : undefined;
                     return (
-                      <button
-                        className={`segment ${ttsMode === option.value ? "is-active" : ""}`}
+                      <ToggleButton
                         key={option.value}
-                        type="button"
+                        value={option.value}
                         role="tab"
-                        aria-disabled={isDisabled}
+                        disabled={isDisabled}
                         aria-selected={ttsMode === option.value}
-                        tabIndex={isDisabled ? -1 : undefined}
                         title={statusTitle}
-                        onClick={() => {
-                          if (isDisabled) return;
-                          setTtsMode(option.value);
-                          markPreviewStale();
-                        }}
                       >
                         <span className="tts-studio-mode-heading">
                           <span className="tts-studio-mode-label">{option.label}</span>
@@ -680,46 +699,47 @@ export default function TTSStudio({ active = false }) {
                           </span>
                         </span>
                         <span className="tts-studio-mode-detail">{option.detail}</span>
-                      </button>
+                      </ToggleButton>
                     );
                   })}
+                  </ToggleButtonGroup>
+                  <p className="tts-studio-mode-description">
+                    {TTS_MODE_OPTIONS.find((option) => option.value === ttsMode)?.description}
+                  </p>
                 </div>
-                <p className="tts-studio-mode-description">
-                  {TTS_MODE_OPTIONS.find((option) => option.value === ttsMode)?.description}
-                </p>
-              </div>
 
               {ttsMode === "base" ? (
                 <div className="tts-studio-mode-block">
                   <div className="tts-studio-clone-select">
-                    <label className="field" htmlFor="tts-studio-voice-profile">
-                      <span className="field-label">克隆音色</span>
-                      <select
-                        id="tts-studio-voice-profile"
-                        className="control"
-                        value={voiceProfileId}
-                        disabled={voiceProfilesLoading || voiceProfiles.length === 0}
-                        onChange={(event) => {
-                          setVoiceProfileId(event.target.value);
-                          markPreviewStale();
-                        }}
-                      >
-                        {voiceProfiles.length === 0 ? (
-                          <option value="">请先新增一个音色档案</option>
-                        ) : (
-                          voiceProfiles.map((profile) => (
-                            <option key={profile.id} value={profile.id}>
-                              {profile.name}
-                            </option>
-                          ))
-                        )}
-                      </select>
-                    </label>
+                    <TextField
+                      id="tts-studio-voice-profile"
+                      className="field"
+                      label="克隆音色"
+                      fullWidth
+                      size="small"
+                      select
+                      value={voiceProfileId}
+                      disabled={voiceProfilesLoading || voiceProfiles.length === 0}
+                      onChange={(event) => {
+                        setVoiceProfileId(event.target.value);
+                        markPreviewStale();
+                      }}
+                    >
+                      {voiceProfiles.length === 0 ? (
+                        <MenuItem value="">请先新增一个音色档案</MenuItem>
+                      ) : (
+                        voiceProfiles.map((profile) => (
+                          <MenuItem key={profile.id} value={profile.id}>
+                            {profile.name}
+                          </MenuItem>
+                        ))
+                      )}
+                    </TextField>
 
-                    <button className="secondary-action compact-action" type="button" onClick={openCreateVoiceProfile}>
-                      <Icon name="plus" size={15} />
+                    <Button type="button" variant="outlined" size="small" onClick={openCreateVoiceProfile}
+                      startIcon={<Icon name="plus" size={15} />}>
                       新增音色
-                    </button>
+                    </Button>
 
                     {selectedVoiceProfile ? (
                       <div className="voice-summary tts-studio-selected-profile">
@@ -728,15 +748,15 @@ export default function TTSStudio({ active = false }) {
                             <strong>{selectedVoiceProfile.name}</strong>
                             <span>{selectedVoiceProfile.ref_text}</span>
                           </div>
-                          <button
-                            className="icon-button"
+                          <IconButton
                             type="button"
                             aria-label={`编辑音色档案：${selectedVoiceProfile.name}`}
                             title="编辑音色档案"
                             onClick={() => openEditVoiceProfile(selectedVoiceProfile)}
+                            size="small"
                           >
                             <Icon name="edit" size={15} />
-                          </button>
+                          </IconButton>
                         </div>
                         <audio
                           className="audio-player"
@@ -759,12 +779,19 @@ export default function TTSStudio({ active = false }) {
                       <span className="field-label">语言</span>
                       <div className="control tts-studio-static-language">中文</div>
                     </div>
-                    <label className="field" htmlFor="tts-studio-edge-voice">
-                      <span className="field-label">音色</span>
-                      <select id="tts-studio-edge-voice" className="control" value={edgeVoice} disabled={edgeVoicesLoading || filteredEdgeVoices.length === 0} onChange={(event) => { setEdgeVoice(event.target.value); markPreviewStale(); }}>
-                        {filteredEdgeVoices.length === 0 ? <option value="">{edgeVoicesLoading ? "加载中" : "暂无可用音色"}</option> : filteredEdgeVoices.map((voice) => <option key={voice.id} value={voice.id}>{voice.name || voice.id}{voice.description ? ` · ${voice.description}` : ""}</option>)}
-                      </select>
-                    </label>
+                    <TextField
+                      id="tts-studio-edge-voice"
+                      className="field"
+                      label="音色"
+                      fullWidth
+                      size="small"
+                      select
+                      value={edgeVoice}
+                      disabled={edgeVoicesLoading || filteredEdgeVoices.length === 0}
+                      onChange={(event) => { setEdgeVoice(event.target.value); markPreviewStale(); }}
+                    >
+                      {filteredEdgeVoices.length === 0 ? <MenuItem value="">{edgeVoicesLoading ? "加载中" : "暂无可用音色"}</MenuItem> : filteredEdgeVoices.map((voice) => <MenuItem key={voice.id} value={voice.id}>{voice.name || voice.id}{voice.description ? ` · ${voice.description}` : ""}</MenuItem>)}
+                    </TextField>
                   </div>
                 </div>
               )}
@@ -781,10 +808,10 @@ export default function TTSStudio({ active = false }) {
                 </div>
               </div>
 
-              <button className="primary-action tts-studio-generate-action" type="button" disabled={!canGenerate} onClick={handleGeneratePreview}>
-                <Icon name={generating ? "loading" : "play"} size={16} />
+              <Button className="tts-studio-generate-action" type="button" variant="contained" size="large" disabled={!canGenerate} onClick={handleGeneratePreview}
+                startIcon={<Icon name={generating ? "loading" : "play"} size={16} />}>
                 {generating ? "正在生成语音" : "生成语音"}
-              </button>
+              </Button>
 
               {error && <div className="form-alert failed">{error}</div>}
             </section>
@@ -792,10 +819,10 @@ export default function TTSStudio({ active = false }) {
 
           <aside className="tts-studio-preview" aria-label="试听与交付">
             <div className="tts-studio-preview-heading">
-              <span className="section-kicker with-icon">
+              <Typography variant="kicker" component="span" className="section-kicker with-icon">
                 <Icon name="audio" size={13} />
                 Audio
-              </span>
+              </Typography>
               <h3>试听与交付</h3>
               <p>原速音频、加速版本与下载入口统一保留在这里。</p>
             </div>
@@ -806,10 +833,17 @@ export default function TTSStudio({ active = false }) {
                 <strong>{previewTitle}</strong>
                 <p>{previewDescription}</p>
               </div>
-              <span className={`status-pill ${status}`}>
-                <Icon name={status === "previewing" ? "loading" : status === "completed" ? "check" : "waves"} size={14} />
-                {statusLabel}
-              </span>
+              <Chip
+                size="small"
+                icon={<Icon name={status === "previewing" ? "loading" : status === "completed" ? "check" : "waves"} size={14} />}
+                label={statusLabel}
+                sx={{
+                  backgroundColor: statusChipColors[status]?.bg || "#f3f1e9",
+                  color: statusChipColors[status]?.fg || "#68645b",
+                  fontWeight: 600,
+                  "& .vf-icon": { color: statusChipColors[status]?.fg || "#68645b" },
+                }}
+              />
             </div>
 
             <div className={`audio-preview-block ${preview ? "has-results" : "is-empty"}`}>
@@ -823,7 +857,6 @@ export default function TTSStudio({ active = false }) {
                           <span className="tts-studio-audio-result-rate">1.0x</span>
                         </div>
                         <ProtectedDownloadButton
-                          className={`download-action compact-action ${previewStale ? "is-disabled" : ""}`}
                           path={originalAudioUrl}
                           filename={originalAudioFilename}
                           backendBaseUrl={backendBaseUrl}
@@ -851,7 +884,6 @@ export default function TTSStudio({ active = false }) {
                             <span className="tts-studio-audio-result-rate">{adjustedSpeechRate?.toFixed(1) || "1.0"}x</span>
                           </div>
                           <ProtectedDownloadButton
-                            className={`download-action compact-action ${previewStale ? "is-disabled" : ""}`}
                             path={adjustedAudioUrl}
                             filename={adjustedAudioFilename}
                             backendBaseUrl={backendBaseUrl}
@@ -886,29 +918,29 @@ export default function TTSStudio({ active = false }) {
                       </div>
                       <strong>{speechRate.toFixed(1)}x</strong>
                     </div>
-                    <input
-                      className="speed-slider"
-                      type="range"
-                      min="1.0"
-                      max="1.5"
-                      step="0.1"
+                    <Slider
+                      min={1.0}
+                      max={1.5}
+                      step={0.1}
                       value={speechRate}
                       disabled={!preview || previewStale || generating || applyingSpeechRate}
                       aria-label="调速倍率"
-                      onChange={(event) => setSpeechRate(Number(event.target.value))}
+                      marks
+                      onChange={(_, value) => setSpeechRate(value)}
                     />
                   </div>
 
                   <div className="tts-studio-preview-actions">
-                    <button
-                      className="secondary-action compact-action"
+                    <Button
                       type="button"
+                      variant="outlined"
+                      size="small"
                       disabled={previewStale || applyingSpeechRate || !hasPendingRate}
                       onClick={handleApplySpeechRate}
+                      startIcon={<Icon name={applyingSpeechRate ? "loading" : "refresh"} size={15} />}
                     >
-                      <Icon name={applyingSpeechRate ? "loading" : "refresh"} size={15} />
                       {applyingSpeechRate ? "正在生成调速版" : "生成调速版"}
-                    </button>
+                    </Button>
                   </div>
                 </>
               ) : (
@@ -934,13 +966,13 @@ export default function TTSStudio({ active = false }) {
       <section className="workspace-panel tts-studio-library" aria-labelledby="tts-studio-library-title">
         <div className="panel-heading tts-studio-library-heading">
           <div>
-            <span className="section-kicker">Voice Library</span>
+            <Typography variant="kicker" component="span" className="section-kicker">Voice Library</Typography>
             <h2 id="tts-studio-library-title">共享克隆音色库</h2>
           </div>
-          <button className="secondary-action compact-action" type="button" onClick={openCreateVoiceProfile}>
-            <Icon name="plus" size={15} />
+          <Button type="button" variant="outlined" size="small" onClick={openCreateVoiceProfile}
+            startIcon={<Icon name="plus" size={15} />}>
             新增音色
-          </button>
+          </Button>
         </div>
 
         <p className="tts-studio-library-note">这里保留所有共享音色档案，用于快速切换、试听和维护已有克隆音色。</p>
@@ -971,9 +1003,10 @@ export default function TTSStudio({ active = false }) {
                 />
 
                 <div className="tts-studio-profile-actions">
-                  <button
-                    className="secondary-action compact-action"
+                  <Button
                     type="button"
+                    variant="outlined"
+                    size="small"
                     disabled={!qwenProviderAvailable}
                     title={qwenProviderAvailable ? "使用这个克隆音色" : qwenProviderReason || "本地音色克隆当前不可用"}
                     onClick={() => {
@@ -982,19 +1015,19 @@ export default function TTSStudio({ active = false }) {
                       setVoiceProfileId(profile.id);
                       markPreviewStale();
                     }}
+                    startIcon={<Icon name="check" size={15} />}
                   >
-                    <Icon name="check" size={15} />
                     使用音色
-                  </button>
-                  <button
-                    className="icon-button"
+                  </Button>
+                  <IconButton
                     type="button"
                     aria-label={`编辑音色：${profile.name}`}
                     title="编辑音色"
                     onClick={() => openEditVoiceProfile(profile)}
+                    size="small"
                   >
                     <Icon name="edit" size={16} />
-                  </button>
+                  </IconButton>
                 </div>
               </article>
             ))}
@@ -1007,157 +1040,161 @@ export default function TTSStudio({ active = false }) {
         )}
       </section>
 
-      {profileDialog && (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal-panel" role="dialog" aria-modal="true" aria-labelledby="tts-voice-dialog-title">
-            <div className="modal-heading">
-              <div>
-                <span className="section-kicker">Voice Library</span>
-                <h3 id="tts-voice-dialog-title">{isEditingVoiceProfile ? "编辑克隆音色" : "新增克隆音色"}</h3>
+      <Dialog
+        open={Boolean(profileDialog)}
+        onClose={closeVoiceProfileDialog}
+        aria-labelledby="tts-voice-dialog-title"
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", pr: 1.5 }}>
+          <div>
+            <Typography variant="kicker" component="span" className="section-kicker">Voice Library</Typography>
+            <h3 id="tts-voice-dialog-title">{isEditingVoiceProfile ? "编辑克隆音色" : "新增克隆音色"}</h3>
+          </div>
+          <IconButton type="button" aria-label="关闭音色档案弹窗" onClick={closeVoiceProfileDialog} size="small">
+            <Icon name="x" size={17} />
+          </IconButton>
+        </DialogTitle>
+        <DialogContent>
+          <div className="modal-body">
+            <TextField
+              id="tts-voice-profile-name"
+              className="field"
+              label="音色名称"
+              fullWidth
+              size="small"
+              type="text"
+              placeholder="例如：中年男声"
+              value={profileName}
+              onChange={(event) => setProfileName(event.target.value)}
+            />
+
+            <TextField
+              id="tts-voice-profile-language"
+              className="field"
+              label="语言"
+              fullWidth
+              size="small"
+              select
+              value={language}
+              onChange={(event) => setLanguage(event.target.value)}
+            >
+              {languages.map((item) => (
+                <MenuItem key={item.id} value={item.id}>
+                  {item.label}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <span className="field-label">参考音频{isEditingVoiceProfile ? "" : "*"}</span>
+            <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
+              <span className="upload-placeholder">
+                <Icon name={refAudioFile ? "audio" : "upload"} size={22} />
+                <strong>{refAudioFile ? refAudioFile.name : "上传参考音频"}</strong>
+                <small>
+                  {refAudioFile
+                    ? formatFileSize(refAudioFile.size)
+                    : isEditingVoiceProfile
+                      ? "不上传则继续保留当前参考音频"
+                      : "用于保存新的克隆音色"}
+                </small>
+              </span>
+              <input ref={refAudioInputRef} type="file" accept="audio/*" onChange={handleReferenceAudioChange} />
+            </label>
+
+            {refAudioFile && (
+              <div className="file-row">
+                <span>{refAudioFile.name}</span>
+                <Button variant="text" size="small" type="button" onClick={clearReferenceAudio}>
+                  移除
+                </Button>
               </div>
-              <button className="icon-button" type="button" aria-label="关闭音色档案弹窗" onClick={closeVoiceProfileDialog}>
-                <Icon name="x" size={17} />
-              </button>
-            </div>
+            )}
 
-            <div className="modal-body">
-              <label className="field" htmlFor="tts-voice-profile-name">
-                <span className="field-label">音色名称</span>
-                <input
-                  id="tts-voice-profile-name"
-                  className="control"
-                  type="text"
-                  placeholder="例如：中年男声"
-                  value={profileName}
-                  onChange={(event) => setProfileName(event.target.value)}
+            {refAudioUrl ? (
+              <audio className="audio-player" controls src={refAudioUrl} />
+            ) : (
+              isEditingVoiceProfile &&
+              editingVoiceProfile && (
+                <audio
+                  className="audio-player"
+                  controls
+                  crossOrigin="use-credentials"
+                  src={resolveBackendAssetUrl(editingVoiceProfile.audio_url, backendBaseUrl)}
                 />
-              </label>
+              )
+            )}
 
-              <label className="field" htmlFor="tts-voice-profile-language">
-                <span className="field-label">语言</span>
-                <select
-                  id="tts-voice-profile-language"
-                  className="control"
-                  value={language}
-                  onChange={(event) => setLanguage(event.target.value)}
-                >
-                  {languages.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <TextField
+              id="tts-voice-profile-ref-text"
+              className="field"
+              label="参考文本"
+              fullWidth
+              size="small"
+              multiline
+              rows={4}
+              placeholder="写下参考音频中实际说出的内容"
+              value={refText}
+              onChange={(event) => setRefText(event.target.value)}
+            />
 
-              <span className="field-label">参考音频{isEditingVoiceProfile ? "" : "*"}</span>
-              <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
-                <span className="upload-placeholder">
-                  <Icon name={refAudioFile ? "audio" : "upload"} size={22} />
-                  <strong>{refAudioFile ? refAudioFile.name : "上传参考音频"}</strong>
-                  <small>
-                    {refAudioFile
-                      ? formatFileSize(refAudioFile.size)
-                      : isEditingVoiceProfile
-                        ? "不上传则继续保留当前参考音频"
-                        : "用于保存新的克隆音色"}
-                  </small>
-                </span>
-                <input ref={refAudioInputRef} type="file" accept="audio/*" onChange={handleReferenceAudioChange} />
-              </label>
+            {profileError && <div className="form-alert failed">{profileError}</div>}
 
-              {refAudioFile && (
-                <div className="file-row">
-                  <span>{refAudioFile.name}</span>
-                  <button className="text-button" type="button" onClick={clearReferenceAudio}>
-                    移除
-                  </button>
+            {deleteConfirmation && (
+              <div className="delete-confirm-panel" role="alertdialog" aria-labelledby="tts-voice-delete-title">
+                <strong id="tts-voice-delete-title">确认删除这个共享音色？</strong>
+                <span>删除后会移除参考音频和档案记录，无法恢复。</span>
+                <div className="delete-confirm-actions">
+                  <Button
+                    type="button"
+                    variant="outlined"
+                    disabled={deletingProfile}
+                    onClick={() => setDeleteConfirmation(false)}
+                  >
+                    取消
+                  </Button>
+                  <Button type="button" color="error" variant="contained" disabled={deletingProfile} onClick={handleDeleteVoiceProfile}
+                    startIcon={<Icon name={deletingProfile ? "loading" : "trash"} size={16} />}>
+                    {deletingProfile ? "正在删除" : "确认删除"}
+                  </Button>
                 </div>
-              )}
-
-              {refAudioUrl ? (
-                <audio className="audio-player" controls src={refAudioUrl} />
-              ) : (
-                isEditingVoiceProfile &&
-                editingVoiceProfile && (
-                  <audio
-                    className="audio-player"
-                    controls
-                    crossOrigin="use-credentials"
-                    src={resolveBackendAssetUrl(editingVoiceProfile.audio_url, backendBaseUrl)}
-                  />
-                )
-              )}
-
-              <label className="field" htmlFor="tts-voice-profile-ref-text">
-                <span className="field-label">参考文本*</span>
-                <textarea
-                  id="tts-voice-profile-ref-text"
-                  className="control textarea"
-                  rows={4}
-                  placeholder="写下参考音频中实际说出的内容"
-                  value={refText}
-                  onChange={(event) => setRefText(event.target.value)}
-                />
-              </label>
-
-              {profileError && <div className="form-alert failed">{profileError}</div>}
-
-              {deleteConfirmation && (
-                <div className="delete-confirm-panel" role="alertdialog" aria-labelledby="tts-voice-delete-title">
-                  <strong id="tts-voice-delete-title">确认删除这个共享音色？</strong>
-                  <span>删除后会移除参考音频和档案记录，无法恢复。</span>
-                  <div className="delete-confirm-actions">
-                    <button
-                      className="secondary-action"
-                      type="button"
-                      disabled={deletingProfile}
-                      onClick={() => setDeleteConfirmation(false)}
-                    >
-                      取消
-                    </button>
-                    <button className="danger-action" type="button" disabled={deletingProfile} onClick={handleDeleteVoiceProfile}>
-                      <Icon name={deletingProfile ? "loading" : "trash"} size={16} />
-                      {deletingProfile ? "正在删除" : "确认删除"}
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className={`modal-actions ${isEditingVoiceProfile ? "with-delete" : ""}`}>
-              {isEditingVoiceProfile && (
-                <button
-                  className="danger-action"
-                  type="button"
-                  disabled={savingProfile || deletingProfile}
-                  onClick={() => setDeleteConfirmation(true)}
-                >
-                  <Icon name="trash" size={16} />
-                  删除
-                </button>
-              )}
-              <button className="secondary-action" type="button" onClick={closeVoiceProfileDialog}>
-                取消
-              </button>
-              <button
-                className="primary-action"
-                type="button"
-                disabled={
-                  savingProfile ||
-                  deletingProfile ||
-                  !profileName.trim() ||
-                  !refText.trim() ||
-                  (!isEditingVoiceProfile && !refAudioFile)
-                }
-                onClick={handleSaveVoiceProfile}
-              >
-                <Icon name={savingProfile ? "loading" : "save"} size={16} />
-                {savingProfile ? "正在保存" : isEditingVoiceProfile ? "保存修改" : "保存音色"}
-              </button>
-            </div>
-          </section>
-        </div>
-      )}
+              </div>
+            )}
+          </div>
+        </DialogContent>
+        <DialogActions className={`modal-actions ${isEditingVoiceProfile ? "with-delete" : ""}`}>
+          {isEditingVoiceProfile && (
+            <Button
+              type="button"
+              color="error"
+              disabled={savingProfile || deletingProfile}
+              onClick={() => setDeleteConfirmation(true)}
+              startIcon={<Icon name="trash" size={16} />}
+            >
+              删除
+            </Button>
+          )}
+          <Button type="button" onClick={closeVoiceProfileDialog}>
+            取消
+          </Button>
+          <Button
+            type="button"
+            variant="contained"
+            disabled={
+              savingProfile ||
+              deletingProfile ||
+              !profileName.trim() ||
+              !refText.trim() ||
+              (!isEditingVoiceProfile && !refAudioFile)
+            }
+            onClick={handleSaveVoiceProfile}
+            startIcon={<Icon name={savingProfile ? "loading" : "save"} size={16} />}
+          >
+            {savingProfile ? "正在保存" : isEditingVoiceProfile ? "保存修改" : "保存音色"}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

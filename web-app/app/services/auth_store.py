@@ -484,15 +484,39 @@ def update_user_profile(user_id: str, display_name: str) -> dict[str, Any]:
     return _public_user(user)
 
 
-def list_users() -> list[dict[str, Any]]:
+def list_users(
+    name: str = "",
+    username: str = "",
+    page: int = 1,
+    page_size: int = 20,
+) -> dict[str, Any]:
     init_auth_schema()
+    page = max(1, int(page or 1))
+    page_size = min(100, max(1, int(page_size or 20)))
+
+    conditions = [User.password_hash != ""]
+    name = (name or "").strip()
+    username = (username or "").strip()
+    if name:
+        conditions.append(User.display_name.ilike(f"%{name}%"))
+    if username:
+        conditions.append(User.username.ilike(f"%{username}%"))
+
     with _orm_session() as session:
+        total = session.scalar(select(func.count()).select_from(User).where(*conditions)) or 0
         users = session.scalars(
             select(User)
-            .where(User.password_hash != "")
+            .where(*conditions)
             .order_by(User.created_at.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
         ).all()
-    return [_public_user(user) for user in users]
+    return {
+        "items": [_public_user(user) for user in users],
+        "total": int(total),
+        "page": page,
+        "pages": max(1, (int(total) + page_size - 1) // page_size),
+    }
 
 
 def update_user_password(user_id: str, password: str) -> dict[str, Any]:

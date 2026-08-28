@@ -1,4 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import Chip from "@mui/material/Chip";
+import LinearProgress from "@mui/material/LinearProgress";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
+import { statusChipColors } from "../theme";
 import BgmManager from "./BgmManager";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
@@ -410,7 +421,7 @@ export default function SmartEditing({ currentUser }) {
           <small>请与您当前使用的下载文件名或 <code>skill.json</code> 手动对比版本。</small>
         </div>
         <a
-          className="download-action compact-action smart-skill-download"
+          className="smart-skill-download"
           href={SMART_EDITING_SKILL_DOWNLOAD_URL}
           download={SMART_EDITING_SKILL_FILENAME}
         >
@@ -425,18 +436,18 @@ export default function SmartEditing({ currentUser }) {
               <span><Icon name="file" size={17} /></span>
               <div><strong id="smart-script-title">文案</strong><small>10-5000 字，敏感词替换不会修改原文或配音</small></div>
             </div>
-            <label className="field">
-              <span className="field-label">最终文案</span>
-              <textarea
-                className="control smart-script-input"
-                rows={10}
-                value={script}
-                maxLength={5000}
-                placeholder="粘贴 Agent 仿写后的完整文案"
-                onChange={(event) => setScript(event.target.value)}
-              />
-              <small className="field-help">{cleanScript.length}/5000 字符</small>
-            </label>
+            <TextField
+              className="smart-script-input"
+              label="最终文案"
+              fullWidth
+              multiline
+              rows={10}
+              value={script}
+              slotProps={{ htmlInput: { maxLength: 5000 } }}
+              placeholder="粘贴 Agent 仿写后的完整文案"
+              onChange={(event) => setScript(event.target.value)}
+              helperText={`${cleanScript.length}/5000 字符`}
+            />
             {scriptChangedAfterKeywords ? (
               <div className="smart-inline-warning"><Icon name="alert" size={14} />文案已修改，请确认 Agent 关键词仍然适用。</div>
             ) : null}
@@ -447,15 +458,18 @@ export default function SmartEditing({ currentUser }) {
               <span><Icon name="list" size={17} /></span>
               <div><strong id="smart-keywords-title">有序关键词</strong><small>支持逗号、分号和换行，顺序不可拖动</small></div>
               {!editingKeywords && keywordGroups.length ? (
-                <button className="secondary-action compact-action" type="button" onClick={beginKeywordEdit}>
-                  <Icon name="edit" size={14} />重新编辑关键词
-                </button>
+                <Button type="button" variant="outlined" size="small" onClick={beginKeywordEdit}
+                  startIcon={<Icon name="edit" size={14} />}>
+                  重新编辑关键词
+                </Button>
               ) : null}
             </div>
             {editingKeywords ? (
               <div className="smart-keyword-editor">
-                <textarea
-                  className="control"
+                <TextField
+                  className="smart-keyword-textarea"
+                  fullWidth
+                  multiline
                   rows={7}
                   value={keywordDraft}
                   placeholder={'例如：\n医院\n医生\n问诊'}
@@ -463,9 +477,10 @@ export default function SmartEditing({ currentUser }) {
                   onPaste={handleKeywordPaste}
                   onBlur={() => keywordDraftRef.current.trim() && parseKeywordDraft()}
                 />
-                <button className="primary-action compact-action" type="button" onClick={() => parseKeywordDraft()}>
-                  <Icon name="check" size={14} />解析并确认顺序
-                </button>
+                <Button type="button" variant="contained" size="small" onClick={() => parseKeywordDraft()}
+                  startIcon={<Icon name="check" size={14} />}>
+                  解析并确认顺序
+                </Button>
               </div>
             ) : (
               <ol className="smart-keyword-list">
@@ -495,18 +510,16 @@ export default function SmartEditing({ currentUser }) {
                 </label>
               ))}
             </div>
-            <label className="field smart-count-field">
-              <span className="field-label">生成数量</span>
-              <input
-                className="control"
-                type="number"
-                min="1"
-                max="10"
-                value={generateCount}
-                onChange={(event) => setGenerateCount(Math.max(1, Math.min(10, Number(event.target.value) || 1)))}
-              />
-              <small className="field-help">同一配音生成 1-10 个不同画面版本</small>
-            </label>
+            <TextField
+              className="smart-count-field"
+              label="生成数量"
+              size="small"
+              type="number"
+              slotProps={{ htmlInput: { min: 1, max: 10 } }}
+              value={generateCount}
+              onChange={(event) => setGenerateCount(Math.max(1, Math.min(10, Number(event.target.value) || 1)))}
+              helperText="同一配音生成 1-10 个不同画面版本"
+            />
           </section>
 
           <BgmManager
@@ -568,15 +581,15 @@ export default function SmartEditing({ currentUser }) {
                                 <strong>{item.file.name}</strong>
                                 <small>{formatFileSize(item.file.size)} · {item.mediaType === "image" ? "图片" : "视频"}</small>
                               </span>
-                              <button
-                                className="material-preview-remove"
+                              <IconButton
                                 type="button"
                                 title={`删除 ${item.file.name}`}
                                 aria-label={`删除 ${item.file.name}`}
                                 onClick={() => removeMaterial(groupIndex, item.id)}
+                                size="small"
                               >
                                 <Icon name="trash" size={14} />
-                              </button>
+                              </IconButton>
                             </div>
                           </div>
                         ))}
@@ -584,7 +597,7 @@ export default function SmartEditing({ currentUser }) {
                     ) : (
                       <div className="material-empty">该关键词还没有素材，提交前必须上传。</div>
                     )}
-                    <label className="secondary-action compact-action smart-material-upload">
+                    <Button component="label" variant="outlined" size="small" className="smart-material-upload">
                       <Icon name="plus" size={14} />添加图片或视频
                       <input
                         hidden
@@ -596,7 +609,7 @@ export default function SmartEditing({ currentUser }) {
                           event.target.value = "";
                         }}
                       />
-                    </label>
+                    </Button>
                   </article>
                 ))}
               </div>
@@ -616,10 +629,10 @@ export default function SmartEditing({ currentUser }) {
             </div>
             {error ? <div className="form-alert failed">{error}</div> : null}
             {notice ? <div className="form-alert completed">{notice}</div> : null}
-            <button className="primary-action smart-submit-action" type="button" onClick={submitTask} disabled={!canSubmit}>
-              <Icon name={submitting ? "loading" : "wand"} size={17} />
+            <Button className="smart-submit-action" type="button" variant="contained" size="large" onClick={submitTask} disabled={!canSubmit}
+              startIcon={<Icon name={submitting ? "loading" : "wand"} size={17} />}>
               {submitting ? "正在智能剪辑" : `生成 ${generateCount} 条视频`}
-            </button>
+            </Button>
           </section>
 
           {task ? (
@@ -630,11 +643,19 @@ export default function SmartEditing({ currentUser }) {
                   <strong id="smart-task-title">任务结果</strong>
                   <small>{task.message || statusLabel(task.status)} · {task.bgm_name ? `BGM：${task.bgm_name}` : "无 BGM"}</small>
                 </div>
-                <span className={`status-pill ${task.status}`}>{statusLabel(task.status)}</span>
+                <Chip
+                  size="small"
+                  label={statusLabel(task.status)}
+                  sx={{
+                    backgroundColor: statusChipColors[task.status]?.bg || "#f3f1e9",
+                    color: statusChipColors[task.status]?.fg || "#68645b",
+                    fontWeight: 600,
+                  }}
+                />
               </div>
               <div className="task-progress-block">
                 <div className="task-progress-meta"><span>处理进度</span><strong>{task.progress || 0}%</strong></div>
-                <div className="task-progress-track"><span style={{ width: `${Math.max(0, Math.min(100, task.progress || 0))}%` }} /></div>
+                <LinearProgress variant="determinate" value={Math.max(0, Math.min(100, task.progress || 0))} sx={{ mt: 0.5 }} />
               </div>
               {task.error ? <div className="form-alert failed">{task.error}</div> : null}
               {task.items?.length ? (
@@ -662,7 +683,6 @@ export default function SmartEditing({ currentUser }) {
                             path={item.download_url}
                             filename={`smart_edit_video_${String(item.index).padStart(3, "0")}.mp4`}
                             backendBaseUrl={backendBaseUrl}
-                            className="secondary-action compact-action"
                           >
                             <Icon name="download" size={14} />下载
                           </ProtectedDownloadButton>
@@ -677,7 +697,6 @@ export default function SmartEditing({ currentUser }) {
                   path={task.zip_url}
                   filename="smart_edit_videos.zip"
                   backendBaseUrl={backendBaseUrl}
-                  className="secondary-action smart-zip-action"
                 >
                   <Icon name="download" size={15} />下载全部成片
                 </ProtectedDownloadButton>
@@ -687,36 +706,36 @@ export default function SmartEditing({ currentUser }) {
         </div>
       </div>
 
-      {pendingKeywordChange ? (
-        <div className="modal-backdrop" role="presentation">
-          <section className="modal-panel" role="alertdialog" aria-modal="true" aria-labelledby="keyword-change-title">
-            <div className="modal-heading">
-              <div>
-                <span className="section-kicker">Keyword Update</span>
-                <h3 id="keyword-change-title">确认重新解析关键词？</h3>
-              </div>
-            </div>
-            <div className="modal-body">
-              <p>以下关键词已被删除或重命名，其已上传素材将不再保留：</p>
-              <strong>{pendingKeywordChange.removedGroups.map((group) => `${group.keyword}（${group.materials.length} 个）`).join("、")}</strong>
-              <small>名称完全相同的关键词仍会自动保留原素材。</small>
-            </div>
-            <div className="delete-confirm-actions">
-              <button className="secondary-action" type="button" onClick={() => setPendingKeywordChange(null)}>取消</button>
-              <button
-                className="danger-action"
-                type="button"
-                onClick={() => applyKeywordChange(
-                  pendingKeywordChange.nextGroups,
-                  pendingKeywordChange.duplicateKeywords
-                )}
-              >
-                <Icon name="refresh" size={15} />确认重新解析
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+      <Dialog
+        open={Boolean(pendingKeywordChange)}
+        onClose={() => setPendingKeywordChange(null)}
+        aria-labelledby="keyword-change-title"
+      >
+        <DialogTitle>
+          <Typography variant="kicker" component="span" className="section-kicker">Keyword Update</Typography>
+          <h3 id="keyword-change-title">确认重新解析关键词？</h3>
+        </DialogTitle>
+        <DialogContent>
+          <p>以下关键词已被删除或重命名，其已上传素材将不再保留：</p>
+          <strong>{pendingKeywordChange?.removedGroups.map((group) => `${group.keyword}（${group.materials.length} 个）`).join("、")}</strong>
+          <small>名称完全相同的关键词仍会自动保留原素材。</small>
+        </DialogContent>
+        <DialogActions>
+          <Button type="button" onClick={() => setPendingKeywordChange(null)}>取消</Button>
+          <Button
+            type="button"
+            color="error"
+            variant="contained"
+            onClick={() => applyKeywordChange(
+              pendingKeywordChange?.nextGroups || [],
+              pendingKeywordChange?.duplicateKeywords || []
+            )}
+            startIcon={<Icon name="refresh" size={15} />}
+          >
+            确认重新解析
+          </Button>
+        </DialogActions>
+      </Dialog>
     </section>
   );
 }

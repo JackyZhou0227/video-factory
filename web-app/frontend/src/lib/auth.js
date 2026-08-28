@@ -65,8 +65,11 @@ export async function updateProfile(displayName) {
   return response.json();
 }
 
-export async function listUsers() {
-  const response = await apiFetch("/api/admin/users");
+export async function listUsers({ name = "", username = "", page = 1, pageSize = 20 } = {}) {
+  const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
+  if (name.trim()) params.set("name", name.trim());
+  if (username.trim()) params.set("username", username.trim());
+  const response = await apiFetch(`/api/admin/users?${params.toString()}`);
   if (!response.ok) throw new Error(await readApiError(response, "读取用户列表失败"));
   return response.json();
 }

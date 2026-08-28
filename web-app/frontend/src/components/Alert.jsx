@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import Icon from "./Icon";
+import MuiAlert from "@mui/material/Alert";
 
 export default function Alert({ type = "info", children }) {
   const isError = type === "error";
@@ -13,9 +13,13 @@ export default function Alert({ type = "info", children }) {
   if (!visible) return null;
 
   return (
-    <div className={`app-alert ${isError ? "failed" : "completed"}`} role={isError ? "alert" : "status"}>
-      <Icon name={isError ? "alert" : "check"} size={15} />
-      <span>{children}</span>
-    </div>
+    <MuiAlert
+      severity={isError ? "error" : "success"}
+      variant="outlined"
+      role={isError ? "alert" : "status"}
+      sx={{ gap: 1 }}
+    >
+      {children}
+    </MuiAlert>
   );
 }

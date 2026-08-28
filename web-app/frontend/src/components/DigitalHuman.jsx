@@ -1,4 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import Chip from "@mui/material/Chip";
+import LinearProgress from "@mui/material/LinearProgress";
+import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
@@ -343,9 +348,9 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
               {imageFile && (
                 <div className="file-row">
                   <span>{imageFile.name}</span>
-                  <button type="button" className="text-button" onClick={removeImage}>
+                  <Button type="button" variant="text" size="small" onClick={removeImage}>
                     移除
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -355,10 +360,10 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
             <div className="control-section-heading digital-human-audio-heading">
               <span>02</span>
               <strong>口播音频</strong>
-              <button className="text-button digital-human-tts-link" type="button" onClick={onOpenTtsStudio}>
+              <Button className="digital-human-tts-link" type="button" variant="text" size="small" onClick={onOpenTtsStudio}>
                 前往语音合成
                 <Icon name="arrowRight" size={14} />
-              </button>
+              </Button>
             </div>
             <div className="field">
               <label className="field-label" htmlFor="digital-human-audio-file">
@@ -382,9 +387,9 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
                 <>
                   <div className="file-row">
                     <span>{audioFile.name}</span>
-                    <button type="button" className="text-button" onClick={removeAudio}>
+                    <Button type="button" variant="text" size="small" onClick={removeAudio}>
                       移除
-                    </button>
+                    </Button>
                   </div>
                   <audio className="audio-player" src={audioLocalUrl} controls />
                 </>
@@ -397,47 +402,54 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
       <section className="workspace-panel output-panel" aria-labelledby="output-title">
         <div className="panel-heading">
           <div>
-            <span className="section-kicker">输出</span>
+            <Typography variant="kicker" component="span" className="section-kicker">输出</Typography>
             <h2 id="output-title">生成数字人视频</h2>
           </div>
-          <span className={`status-pill ${videoPanelStatus}`}>
-            <Icon
-              name={
-                videoPanelStatus === "failed"
-                  ? "alert"
-                  : videoPanelStatus === "completed" || videoPanelStatus === "submitted"
-                    ? "check"
-                    : ["running", "pending"].includes(videoPanelStatus)
-                      ? "loading"
-                      : "gauge"
-              }
-              size={14}
-            />
-            {VIDEO_STEP_LABELS[videoPanelStatus]}
-          </span>
+          <Chip
+            size="small"
+            icon={
+              <Icon
+                name={
+                  videoPanelStatus === "failed"
+                    ? "alert"
+                    : videoPanelStatus === "completed" || videoPanelStatus === "submitted"
+                      ? "check"
+                      : ["running", "pending"].includes(videoPanelStatus)
+                        ? "loading"
+                        : "gauge"
+                }
+                size={14}
+              />
+            }
+            label={VIDEO_STEP_LABELS[videoPanelStatus]}
+            sx={{
+              backgroundColor: statusChipColors[videoPanelStatus]?.bg || "#f3f1e9",
+              color: statusChipColors[videoPanelStatus]?.fg || "#68645b",
+              fontWeight: 600,
+              "& .vf-icon": { color: statusChipColors[videoPanelStatus]?.fg || "#68645b" },
+            }}
+          />
         </div>
 
         <div className="video-workflow">
           <div className="video-status-card">
-            <span className="section-kicker with-icon">
+            <Typography variant="kicker" component="span" className="section-kicker with-icon">
               <Icon name="cloud" size={13} />
               Video
-            </span>
+            </Typography>
             <h3>提交生成任务</h3>
             <p>{detailMessage}</p>
-            <button className="primary-action" type="button" disabled={!canGenerateVideo} onClick={handleGenerateVideo}>
-              <Icon name={generating ? "loading" : "wand"} size={16} />
+            <Button type="button" variant="contained" disabled={!canGenerateVideo} onClick={handleGenerateVideo}
+              startIcon={<Icon name={generating ? "loading" : "wand"} size={16} />}>
               {taskStatus === "submitted" ? "任务已提交" : generating ? "正在生成视频" : "生成数字人视频"}
-            </button>
+            </Button>
             {(["pending", "running"].includes(taskStatus) || progress > 0) && taskStatus !== "submitted" && (
               <div className="progress-area" aria-label="生成进度">
                 <div className="progress-meta">
                   <span>{detailMessage}</span>
                   <strong>{progress}%</strong>
                 </div>
-                <div className="progress-track">
-                  <div className="progress-fill" style={{ width: `${progress}%` }} />
-                </div>
+                <LinearProgress variant="determinate" value={progress} sx={{ mt: 0.5 }} />
               </div>
             )}
             {error && taskStatus === "failed" && <div className="form-alert failed">{error}</div>}
@@ -477,7 +489,6 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
                   backendBaseUrl={backendBaseUrl}
                 />
                 <ProtectedDownloadButton
-                  className="download-action"
                   path={videoUrl}
                   filename="digital_human.mp4"
                   backendBaseUrl={backendBaseUrl}

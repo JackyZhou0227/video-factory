@@ -1,4 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Button from "@mui/material/Button";
+import Typography from "@mui/material/Typography";
+import IconButton from "@mui/material/IconButton";
+import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
+import Dialog from "@mui/material/Dialog";
+import DialogTitle from "@mui/material/DialogTitle";
+import DialogContent from "@mui/material/DialogContent";
+import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
 import { ProtectedMedia } from "./ProtectedAsset";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
@@ -149,50 +158,52 @@ export default function BgmManager({
             accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac"
             onChange={uploadBgm}
           />
-          <button
-            className="secondary-action compact-action"
+          <Button
             type="button"
+            variant="outlined"
+            size="small"
             onClick={() => bgmFileInputRef.current?.click()}
             disabled={disabled || uploadingBgm}
             title="上传背景音乐"
+            startIcon={<Icon name={uploadingBgm ? "loading" : "upload"} size={15} />}
           >
-            <Icon name={uploadingBgm ? "loading" : "upload"} size={15} />
             {uploadingBgm ? "上传中" : "上传"}
-          </button>
+          </Button>
         </div>
         <div className="bgm-control-row">
-          <label className="field bgm-select-field" htmlFor={selectId}>
-            <span className="field-label">选择背景音乐</span>
-            <select
-              id={selectId}
-              className="control"
-              value={selectedBgmId}
-              onChange={(event) => {
-                onSelectionChange(event.target.value);
-                setBgmNotice("");
-                setBgmError("");
-              }}
-              disabled={disabled || uploadingBgm || bgmLoading}
-            >
-              <option value="">不使用背景音乐</option>
-              {bgmTracks.map((track) => (
-                <option key={track.id} value={track.id}>
-                  {track.name}（{formatDuration(track.duration)}）
-                </option>
-              ))}
-            </select>
-          </label>
+          <TextField
+            id={selectId}
+            className="bgm-select-field"
+            label="选择背景音乐"
+            fullWidth
+            size="small"
+            select
+            value={selectedBgmId}
+            onChange={(event) => {
+              onSelectionChange(event.target.value);
+              setBgmNotice("");
+              setBgmError("");
+            }}
+            disabled={disabled || uploadingBgm || bgmLoading}
+          >
+            <MenuItem value="">不使用背景音乐</MenuItem>
+            {bgmTracks.map((track) => (
+              <MenuItem key={track.id} value={track.id}>
+                {track.name}（{formatDuration(track.duration)}）
+              </MenuItem>
+            ))}
+          </TextField>
           {selectedBgmTrack ? (
-            <button
-              className="bgm-delete-button"
+            <IconButton
               type="button"
               title={`删除背景音乐“${selectedBgmTrack.name}”`}
               aria-label={`删除背景音乐“${selectedBgmTrack.name}”`}
               onClick={() => setPendingBgmDelete(selectedBgmTrack)}
               disabled={disabled || uploadingBgm || deletingBgmId === selectedBgmTrack.id}
+              size="small"
             >
               <Icon name={deletingBgmId === selectedBgmTrack.id ? "loading" : "trash"} size={15} />
-            </button>
+            </IconButton>
           ) : null}
         </div>
         {selectedBgmTrack ? (
@@ -220,42 +231,32 @@ export default function BgmManager({
         ) : null}
       </section>
 
-      {pendingBgmDelete ? (
-        <div className="modal-backdrop" role="presentation">
-          <section
-            className="modal-panel"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby={deleteTitleId}
+      <Dialog
+        open={Boolean(pendingBgmDelete)}
+        onClose={() => setPendingBgmDelete(null)}
+        aria-labelledby={deleteTitleId}
+      >
+        <DialogTitle>
+          <Typography variant="kicker" component="span" className="section-kicker">BGM</Typography>
+          <h3 id={deleteTitleId}>确认删除背景音乐？</h3>
+        </DialogTitle>
+        <DialogContent>
+          <p>“{pendingBgmDelete?.name}”将被永久删除，无法恢复。</p>
+        </DialogContent>
+        <DialogActions>
+          <Button type="button" onClick={() => setPendingBgmDelete(null)}>取消</Button>
+          <Button
+            type="button"
+            color="error"
+            variant="contained"
+            onClick={confirmBgmDelete}
+            disabled={deletingBgmId === pendingBgmDelete?.id}
+            startIcon={<Icon name={deletingBgmId === pendingBgmDelete?.id ? "loading" : "trash"} size={15} />}
           >
-            <div className="modal-heading">
-              <div>
-                <span className="section-kicker">BGM</span>
-                <h3 id={deleteTitleId}>确认删除背景音乐？</h3>
-              </div>
-            </div>
-            <div className="modal-body">
-              <p>“{pendingBgmDelete.name}”将被永久删除，无法恢复。</p>
-            </div>
-            <div className="delete-confirm-actions">
-              <button
-                className="secondary-action"
-                type="button"
-                onClick={() => setPendingBgmDelete(null)}
-              >取消</button>
-              <button
-                className="danger-action"
-                type="button"
-                onClick={confirmBgmDelete}
-                disabled={deletingBgmId === pendingBgmDelete.id}
-              >
-                <Icon name={deletingBgmId === pendingBgmDelete.id ? "loading" : "trash"} size={15} />
-                确认删除
-              </button>
-            </div>
-          </section>
-        </div>
-      ) : null}
+            确认删除
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }
