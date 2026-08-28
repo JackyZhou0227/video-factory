@@ -4,7 +4,6 @@ import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
-import { PAGE_NAMES } from "../lib/pageNames";
 
 const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
 const SUBTITLE_PREVIEW_TEXT = "这是一段用于查看字幕样式的预览内容";
@@ -706,12 +705,8 @@ export default function TemplateProduction({ currentUser }) {
   ]);
 
   return (
-    <section className="workspace-panel template-production-panel" aria-labelledby="template-production-title">
+    <section className="workspace-panel template-production-panel" aria-label="模板量产工作区">
       <div className="panel-heading">
-        <div>
-          <span className="section-kicker">{PAGE_NAMES.templateProduction}</span>
-          <h2 id="template-production-title">模板量产</h2>
-        </div>
         <div className="template-heading-actions">
           <input
             ref={templateFileInputRef}

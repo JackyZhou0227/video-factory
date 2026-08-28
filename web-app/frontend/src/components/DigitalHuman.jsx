@@ -294,15 +294,7 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
 
   return (
     <>
-      <section className="workspace-panel production-panel" aria-labelledby="production-title">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">制作</span>
-            <h2 id="production-title">人物素材与音频</h2>
-          </div>
-          <span className="required-note">音频请在语音合成页面生成并下载后上传</span>
-        </div>
-
+      <section className="workspace-panel production-panel" aria-label="素材上传工作区">
         <div className="pipeline-strip" aria-label="生产管线状态">
           {pipelineItems.map((item, index) => (
             <div key={item.label} className={`pipeline-step ${item.state}`}>

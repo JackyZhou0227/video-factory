@@ -584,18 +584,7 @@ export default function TTSStudio({ active = false }) {
 
   return (
     <>
-      <section className="workspace-panel tts-studio-panel" aria-labelledby="tts-studio-title">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">{PAGE_NAMES.ttsStudio}</span>
-            <h2 id="tts-studio-title">独立语音合成</h2>
-          </div>
-          <span className={`status-pill ${status}`}>
-            <Icon name={status === "previewing" ? "loading" : status === "completed" ? "check" : "waves"} size={14} />
-            {statusLabel}
-          </span>
-        </div>
-
+      <section className="workspace-panel tts-studio-panel" aria-label="独立语音合成工作区">
         <div className="pipeline-strip tts-studio-pipeline" aria-label="语音合成流程">
           {pipelineItems.map((item, index) => (
             <div key={item.label} className={`pipeline-step ${item.state}`}>

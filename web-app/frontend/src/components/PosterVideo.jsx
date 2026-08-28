@@ -442,15 +442,7 @@ export default function PosterVideo() {
 
   return (
     <>
-      <section className="workspace-panel production-panel" aria-labelledby="poster-production-title">
-        <div className="panel-heading">
-          <div>
-            <span className="section-kicker">制作</span>
-            <h2 id="poster-production-title">大字报视频批量生成</h2>
-          </div>
-          <span className="required-note">本地 FFmpeg 批处理</span>
-        </div>
-
+      <section className="workspace-panel production-panel" aria-label="大字报视频制作工作区">
         <div className="pipeline-strip poster-video-pipeline" aria-label="大字报视频流程状态">
           {pipelineItems.map((item, index) => (
             <div key={item.label} className={`pipeline-step ${item.state}`}>

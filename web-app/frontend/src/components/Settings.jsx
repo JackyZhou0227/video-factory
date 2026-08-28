@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
 import { apiFetch, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
-import { PAGE_NAMES } from "../lib/pageNames";
 import { maskApiKey } from "../lib/runninghubSettings";
 import { changePassword } from "../lib/auth";
 
@@ -50,7 +49,6 @@ export default function Settings({ onLoggedOut }) {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [changingPassword, setChangingPassword] = useState(false);
 
-  const runningHubConfigured = Boolean(runningHubKey.trim()) || runninghub.api_key_configured;
   const llmReady = Boolean(llmBaseUrl.trim() && llmModel.trim());
   const llmTestPassed = testedLlmVersion !== null && testedLlmVersion === llmFormVersion;
 
@@ -231,14 +229,7 @@ export default function Settings({ onLoggedOut }) {
   }, [confirmPassword, currentPassword, newPassword, onLoggedOut]);
 
   return (
-    <section className="workspace-panel settings-panel" aria-labelledby="settings-title">
-      <div className="panel-heading settings-heading">
-        <div><span className="section-kicker">{PAGE_NAMES.settings}</span><h2 id="settings-title">设置</h2></div>
-        <span className={`status-pill ${runningHubConfigured && llmReady ? "completed" : "pending"}`}>
-          <Icon name={loading ? "loading" : "settings"} size={14} />{loading ? "读取中" : "按用户保存"}
-        </span>
-      </div>
-
+    <section className="workspace-panel settings-panel" aria-label="设置工作区">
       <div className="settings-backend-bar">
         <div className="settings-backend-copy">
           <h3><Icon name="serverCog" size={18} />后端服务</h3>

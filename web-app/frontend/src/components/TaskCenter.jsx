@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
-import { PAGE_NAMES } from "../lib/pageNames";
 
 const TASK_LABELS = {
   digital_human: "数字人",
@@ -277,13 +276,8 @@ export default function TaskCenter({ active = true }) {
 
   return (
     <div className="task-center-layout">
-      <section className="workspace-panel task-center-list-panel" aria-labelledby="task-center-title">
+      <section className="workspace-panel task-center-list-panel" aria-label="任务中心工作区">
         <div className="panel-heading">
-          <div>
-            <span className="section-kicker">{PAGE_NAMES.taskCenter}</span>
-            <h2 id="task-center-title">任务中心</h2>
-            <p>统一查看五类生成任务、进度和可下载产物。</p>
-          </div>
           <button className="icon-button" type="button" onClick={() => loadTasks(page)} aria-label="刷新任务列表" title="刷新">
             <Icon name="refresh" size={16} />
           </button>

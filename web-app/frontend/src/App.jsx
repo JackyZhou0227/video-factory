@@ -68,57 +68,41 @@ const PAGE_META = {
     eyebrow: PAGE_NAMES.digitalHuman,
     title: "数字人口播视频",
     description: "上传人物图片与已生成的口播音频，提交 RunningHub 生成数字人口播视频。",
-    badge: "本地工作台",
-    badgeIcon: "monitorCog",
   },
   "tts-studio": {
     eyebrow: PAGE_NAMES.ttsStudio,
     title: "独立语音合成",
     description: "使用共享克隆音色库或 edge-tts 在线音色生成语音，试听并下载音频文件。",
-    badge: "本地音频生成",
-    badgeIcon: "waves",
   },
   "poster-video": {
     eyebrow: PAGE_NAMES.posterVideo,
     title: "大字报视频",
     description: "批量上传视频素材，统一转成 9:16 竖屏并叠加可编辑的大字报文字模板。",
-    badge: "本地批处理",
-    badgeIcon: "wand",
   },
   "template-production": {
     eyebrow: PAGE_NAMES.templateProduction,
     title: "模板量产",
     description: "按固定业务模板组织素材与文案，使用 Edge-TTS 和 FFmpeg 批量生成短视频。",
-    badge: "本地批量生成",
-    badgeIcon: "template",
   },
   "smart-editing": {
     eyebrow: PAGE_NAMES.smartEditing,
     title: "智能剪辑",
     description: "粘贴文案和 Agent 生成的有序关键词，为每个关键词上传素材后自动轮询拼接成片。",
-    badge: "智能素材编排",
-    badgeIcon: "smartEdit",
   },
   "task-center": {
     eyebrow: PAGE_NAMES.taskCenter,
     title: "任务中心",
     description: "统一查看生成任务状态、产物预览和安全下载入口。",
-    badge: "任务记录",
-    badgeIcon: "history",
   },
   settings: {
     eyebrow: PAGE_NAMES.settings,
-    title: "系统设置",
+    title: "设置",
     description: "管理当前用户的 RunningHub 和 LLM 服务配置。",
-    badge: "配置",
-    badgeIcon: "serverCog",
   },
   users: {
     eyebrow: PAGE_NAMES.userManagement,
     title: "用户管理",
     description: "查看账号列表，并为忘记密码的用户重置登录密码。",
-    badge: "管理员",
-    badgeIcon: "shield",
   },
 };
 
@@ -379,12 +363,6 @@ export default function App() {
             <p className="eyebrow">{pageMeta.eyebrow}</p>
             <h1>{pageMeta.title}</h1>
             <p className="app-description">{pageMeta.description}</p>
-          </div>
-          <div className="header-actions">
-            <div className="header-badge">
-              <Icon name={pageMeta.badgeIcon} size={15} />
-              {pageMeta.badge}
-            </div>
           </div>
         </header>
 

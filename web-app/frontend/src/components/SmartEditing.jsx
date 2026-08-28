@@ -4,7 +4,6 @@ import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import { apiFetch, useBackendBaseUrl } from "../lib/backend";
-import { PAGE_NAMES } from "../lib/pageNames";
 import smartEditingSkill from "../../skills/generate-smart-edit-copy/skill.json";
 
 const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
@@ -399,16 +398,7 @@ export default function SmartEditing({ currentUser }) {
   ]);
 
   return (
-    <section className="workspace-panel smart-editing-panel" aria-labelledby="smart-editing-title">
-      <div className="panel-heading">
-        <div>
-          <span className="section-kicker">{PAGE_NAMES.smartEditing}</span>
-          <h2 id="smart-editing-title">智能剪辑</h2>
-          <p>文案和关键词由外部 Agent 生成；系统按关键词原顺序轮询素材并生成多个画面版本。</p>
-        </div>
-        <span className="smart-default-badge"><Icon name="lock" size={14} />9:16 · 云健男声 · BGM 可选</span>
-      </div>
-
+    <section className="workspace-panel smart-editing-panel" aria-label="智能剪辑工作区">
       <section className="smart-skill-card" aria-labelledby="smart-skill-title">
         <span className="smart-skill-icon" aria-hidden="true"><Icon name="wand" size={21} /></span>
         <div className="smart-skill-content">

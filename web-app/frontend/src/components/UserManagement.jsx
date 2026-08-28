@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Icon from "./Icon";
 import { listUsers, resetUserPassword, updateUserRole } from "../lib/auth";
-import { PAGE_NAMES } from "../lib/pageNames";
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -91,8 +90,6 @@ export default function UserManagement({ currentUser }) {
   const [resettingUserId, setResettingUserId] = useState("");
   const [updatingRoleUserId, setUpdatingRoleUserId] = useState("");
 
-  const adminCount = useMemo(() => users.filter((user) => user.is_admin).length, [users]);
-
   const loadUsers = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -148,18 +145,7 @@ export default function UserManagement({ currentUser }) {
   }, []);
 
   return (
-    <section className="workspace-panel admin-panel" aria-labelledby="admin-title">
-      <div className="panel-heading settings-heading">
-        <div>
-          <span className="section-kicker">{PAGE_NAMES.userManagement}</span>
-          <h2 id="admin-title">用户管理</h2>
-        </div>
-        <span className="status-pill completed">
-          <Icon name="shield" size={14} />
-          {adminCount} 个管理员
-        </span>
-      </div>
-
+    <section className="workspace-panel admin-panel" aria-label="用户管理工作区">
       <div className="admin-content">
         <div className="settings-copy admin-copy">
           <h3>
