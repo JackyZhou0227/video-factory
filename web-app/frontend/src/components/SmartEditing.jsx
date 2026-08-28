@@ -14,7 +14,8 @@ import BgmManager from "./BgmManager";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
-import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { apiJson, useBackendBaseUrl } from "../lib/backend";
+import { useGlobalMessage } from "./GlobalMessageProvider";
 import smartEditingSkill from "../../skills/generate-smart-edit-copy/skill.json";
 
 const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
@@ -68,11 +69,6 @@ function statusLabel(status) {
   }[status] || "准备中";
 }
 
-async function responseError(response, fallback) {
-  const data = await response.json().catch(() => ({}));
-  return data.detail || data.message || fallback || `HTTP ${response.status}`;
-}
-
 function MaterialPreview({ file, mediaType, label }) {
   const [previewUrl, setPreviewUrl] = useState("");
 
@@ -99,6 +95,7 @@ function MaterialPreview({ file, mediaType, label }) {
 
 export default function SmartEditing({ currentUser }) {
   const backendBaseUrl = useBackendBaseUrl();
+  const { showSuccess } = useGlobalMessage();
   const [script, setScript] = useState("");
   const [keywordDraft, setKeywordDraft] = useState("");
   const [keywordGroups, setKeywordGroups] = useState([]);
@@ -119,7 +116,6 @@ export default function SmartEditing({ currentUser }) {
   const [missingKeywordIndex, setMissingKeywordIndex] = useState(-1);
   const [task, setTask] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const keywordDraftRef = useRef("");
   const pollRef = useRef(null);
@@ -154,27 +150,24 @@ export default function SmartEditing({ currentUser }) {
 
   const pollTask = useCallback(async (taskId) => {
     try {
-      const response = await apiFetch(
+      const nextTask = await apiJson(
         `/api/smart-editing/tasks/${encodeURIComponent(taskId)}`,
-        undefined,
+        { silentError: true },
         backendBaseUrl
       );
-      if (response.status === 404) {
-        localStorage.removeItem(taskStorageKey);
-        setTask(null);
-        setError("上一次智能剪辑任务已失效，可能是后端服务已经重启。");
-        setSubmitting(false);
-        return;
-      }
-      if (!response.ok) throw new Error(await responseError(response, "读取智能剪辑任务失败"));
-      const nextTask = await response.json();
       setTask(nextTask);
       setSubmitting(!FINAL_STATUSES.has(nextTask.status));
       if (!FINAL_STATUSES.has(nextTask.status)) {
         pollRef.current = window.setTimeout(() => pollTask(taskId), 1500);
       }
     } catch (pollError) {
-      setError(pollError.message || "读取智能剪辑任务失败");
+      if (pollError?.status === 404) {
+        localStorage.removeItem(taskStorageKey);
+        setTask(null);
+        setError("上一次智能剪辑任务已失效，可能是后端服务已经重启。");
+      } else {
+        setError(pollError.message || "读取智能剪辑任务失败");
+      }
       setSubmitting(false);
     }
   }, [backendBaseUrl, taskStorageKey]);
@@ -326,7 +319,6 @@ export default function SmartEditing({ currentUser }) {
 
   const submitTask = useCallback(async () => {
     setError("");
-    setNotice("");
     if (scriptIssue) {
       setError(scriptIssue);
       return;
@@ -376,15 +368,13 @@ export default function SmartEditing({ currentUser }) {
       form.append("material_manifest", JSON.stringify(manifest));
       if (selectedBgmId) form.append("bgm_id", selectedBgmId);
 
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/smart-editing/tasks",
-        { method: "POST", body: form },
+        { method: "POST", body: form, silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "创建智能剪辑任务失败"));
-      const data = await response.json();
       localStorage.setItem(taskStorageKey, data.task_id);
-      setNotice("任务已创建，配音只生成一次，多个画面版本将复用同一音频。");
+      showSuccess("任务已创建，配音只生成一次，多个画面版本将复用同一音频。");
       pollTask(data.task_id);
     } catch (submitError) {
       setError(submitError.message || "创建智能剪辑任务失败");
@@ -628,7 +618,6 @@ export default function SmartEditing({ currentUser }) {
               <div><strong id="smart-submit-title">创建任务</strong><small>硬切、轻微图片放大、最终严格裁剪到配音时长</small></div>
             </div>
             {error ? <div className="form-alert failed">{error}</div> : null}
-            {notice ? <div className="form-alert completed">{notice}</div> : null}
             <Button className="smart-submit-action" type="button" variant="contained" size="large" onClick={submitTask} disabled={!canSubmit}
               startIcon={<Icon name={submitting ? "loading" : "wand"} size={17} />}>
               {submitting ? "正在智能剪辑" : `生成 ${generateCount} 条视频`}

@@ -161,7 +161,7 @@ function AuthScreen({ onAuthenticated }) {
           : await login(username.trim(), password);
         onAuthenticated(data.user);
       } catch (err) {
-        setError(err.message || `${actionLabel}失败`);
+        setError(err.message);
       } finally {
         setSubmitting(false);
       }
@@ -311,7 +311,7 @@ export default function App() {
       })
       .catch((err) => {
         if (cancelled) return;
-        setAuthError(err.message || "登录状态验证失败");
+        setAuthError(err.message);
         setCurrentUser(null);
       })
       .finally(() => {
@@ -332,11 +332,10 @@ export default function App() {
   }, [authChecking, currentUser, navigate, routePage]);
 
   const handleLogout = useCallback(async () => {
-    setAuthError("");
     try {
       await logout();
-    } catch (err) {
-      setAuthError(err.message || "退出登录失败");
+    } catch {
+      // 错误已由全局提示展示
     } finally {
       setCurrentUser(null);
       navigate(`/${DEFAULT_PAGE}`, { replace: true });
@@ -419,8 +418,6 @@ export default function App() {
             <p className="app-description">{pageMeta.description}</p>
           </div>
         </header>
-
-        {authError && <div className="form-alert failed auth-page-error">{authError}</div>}
 
         <div className="page-stack">
           <div className={`app-main page-panel ${activePage === "digital-human" ? "is-active" : ""}`}>

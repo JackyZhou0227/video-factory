@@ -3,7 +3,9 @@ from __future__ import annotations
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
@@ -47,6 +49,20 @@ def create_app() -> FastAPI:
     )
 
     install_security_middleware(application, app_config)
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+        parts = []
+        for error in exc.errors():
+            loc = ".".join(str(item) for item in error.get("loc", []) if item != "body")
+            message = error.get("msg", "参数校验失败")
+            parts.append(f"{loc}: {message}" if loc else message)
+        return JSONResponse(status_code=422, content={"detail": "；".join(parts) or "请求参数校验失败"})
+
+    @application.exception_handler(Exception)
+    async def unhandled_exception_handler(_request: Request, exc: Exception):
+        logger.exception("Unhandled server error", exc_info=exc)
+        return JSONResponse(status_code=500, content={"detail": "服务器内部错误，请稍后重试"})
 
     application.include_router(auth_router, prefix="/api")
     application.include_router(admin_router, prefix="/api")

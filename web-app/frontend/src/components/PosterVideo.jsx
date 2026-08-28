@@ -11,7 +11,7 @@ import ToggleButton from "@mui/material/ToggleButton";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
-import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
 const PREVIEW_SCALE = 0.3;
 const MAX_BATCH_SIZE = 50;
@@ -130,10 +130,7 @@ function isMediaFile(file, outputMode) {
 }
 
 function pollTask(taskId, signal, backendBaseUrl) {
-  return apiFetch(`/api/poster-videos/task/${taskId}`, { signal }, backendBaseUrl).then((response) => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-  });
+  return apiJson(`/api/poster-videos/task/${taskId}`, { signal, silentError: true }, backendBaseUrl);
 }
 
 function blockPreviewStyle(block) {
@@ -187,11 +184,7 @@ export default function PosterVideo() {
 
   useEffect(() => {
     let cancelled = false;
-    apiFetch("/api/poster-videos/fonts", undefined, backendBaseUrl)
-      .then((response) => {
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        return response.json();
-      })
+    apiJson("/api/poster-videos/fonts", { silentError: true }, backendBaseUrl)
       .then((list) => {
         if (cancelled) return;
         const nextFonts = Array.isArray(list) ? list : [];
@@ -399,21 +392,17 @@ export default function PosterVideo() {
       formData.append("media_type", outputMode);
       formData.append("template", JSON.stringify({ blocks }));
 
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/poster-videos/generate",
         {
           method: "POST",
           body: formData,
+          silentError: true,
         },
         backendBaseUrl
       );
 
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || `HTTP ${response.status}`);
-      }
-
-      const { task_id: taskId } = await response.json();
+      const { task_id: taskId } = data;
       setTaskStatus("running");
       setStatusMsg(`${mediaLabel}已上传，正在本地处理...`);
 

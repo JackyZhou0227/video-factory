@@ -14,7 +14,8 @@ import BgmManager from "./BgmManager";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
-import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { apiFetch, apiJson, useBackendBaseUrl } from "../lib/backend";
+import { useGlobalMessage } from "./GlobalMessageProvider";
 
 const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
 const SUBTITLE_PREVIEW_TEXT = "这是一段用于查看字幕样式的预览内容";
@@ -109,11 +110,6 @@ function templateDefaultBatchSize(template) {
 
 function templateCandidateCount(template) {
   return Math.max(1, Number(template?.script_generation?.default_candidate_count) || 3);
-}
-
-async function responseError(response, fallback) {
-  const data = await response.json().catch(() => ({}));
-  return data.detail || data.message || fallback || `HTTP ${response.status}`;
 }
 
 function exportFilename(response, templateId) {
@@ -224,10 +220,10 @@ function ContentFieldControl({ field, value, onChange }) {
 
 export default function TemplateProduction({ currentUser }) {
   const backendBaseUrl = useBackendBaseUrl();
+  const { showSuccess } = useGlobalMessage();
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(true);
   const [templateError, setTemplateError] = useState("");
-  const [templateNotice, setTemplateNotice] = useState("");
   const [importingTemplate, setImportingTemplate] = useState(false);
   const [exportingTemplate, setExportingTemplate] = useState(false);
   const [templateId, setTemplateId] = useState("");
@@ -249,7 +245,6 @@ export default function TemplateProduction({ currentUser }) {
   const [generatingScripts, setGeneratingScripts] = useState(false);
   const [task, setTask] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
   const [selectedBgmId, setSelectedBgmId] = useState("");
   const pollRef = useRef(null);
@@ -269,13 +264,11 @@ export default function TemplateProduction({ currentUser }) {
     setTemplatesLoading(true);
     setTemplateError("");
     try {
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/templates",
-        signal ? { signal } : undefined,
+        { ...(signal ? { signal } : {}), silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "读取模板列表失败"));
-      const data = await response.json();
       const nextTemplates = Array.isArray(data.templates) ? data.templates : [];
       setTemplates(nextTemplates);
       setTemplateId((currentId) => {
@@ -361,7 +354,6 @@ export default function TemplateProduction({ currentUser }) {
     setRewritingCandidateId("");
     setGenerateCount(templateDefaultBatchSize(selectedTemplate));
     setError("");
-    setNotice("");
 
     if (previousTemplateId) {
       stopPolling();
@@ -394,23 +386,24 @@ export default function TemplateProduction({ currentUser }) {
   const pollTask = useCallback(
     async (taskId) => {
       try {
-        const response = await apiFetch(`/api/template-production/tasks/${taskId}`, undefined, backendBaseUrl);
-        if (response.status === 404) {
-          localStorage.removeItem(taskStorageKey);
-          setTask(null);
-          setError("上一次任务已失效，可能是后端服务已经重启。");
-          setSubmitting(false);
-          return;
-        }
-        if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        const nextTask = await response.json();
+        const nextTask = await apiJson(
+          `/api/template-production/tasks/${taskId}`,
+          { silentError: true },
+          backendBaseUrl
+        );
         setTask(nextTask);
         setSubmitting(!FINAL_STATUSES.has(nextTask.status));
         if (!FINAL_STATUSES.has(nextTask.status)) {
           pollRef.current = setTimeout(() => pollTask(taskId), 1500);
         }
       } catch (err) {
-        setError(err.message || "读取模板任务失败");
+        if (err?.status === 404) {
+          localStorage.removeItem(taskStorageKey);
+          setTask(null);
+          setError("上一次任务已失效，可能是后端服务已经重启。");
+        } else {
+          setError(err.message || "读取模板任务失败");
+        }
         setSubmitting(false);
       }
     },
@@ -427,7 +420,6 @@ export default function TemplateProduction({ currentUser }) {
     (nextTemplate) => {
       if (submitting) return;
       setTemplateId(nextTemplate.id);
-      setTemplateNotice("");
     },
     [submitting]
   );
@@ -438,24 +430,20 @@ export default function TemplateProduction({ currentUser }) {
     if (!file) return;
     if (file.size > 128 * 1024) {
       setTemplateError("模板 JSON 不能超过 128 KiB");
-      setTemplateNotice("");
       return;
     }
 
     setImportingTemplate(true);
     setTemplateError("");
-    setTemplateNotice("");
     const knownIds = new Set(templates.map((item) => item.id));
     try {
       const form = new FormData();
       form.append("file", file, file.name);
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/templates/import",
-        { method: "POST", body: form },
+        { method: "POST", body: form, silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "导入模板失败"));
-      const data = await response.json().catch(() => ({}));
       const importedId = data.template?.id || data.id || data.template_id || "";
       const nextTemplates = await loadTemplates({ selectId: importedId });
       if (!nextTemplates) return;
@@ -463,26 +451,29 @@ export default function TemplateProduction({ currentUser }) {
         ? nextTemplates.find((item) => item.id === importedId)
         : nextTemplates.find((item) => !knownIds.has(item.id));
       if (inferredTemplate) setTemplateId(inferredTemplate.id);
-      setTemplateNotice(`模板“${inferredTemplate?.name || importedId || file.name}”已导入`);
+      showSuccess(`模板“${inferredTemplate?.name || importedId || file.name}”已导入`);
     } catch (err) {
       setTemplateError(err.message || "导入模板失败");
     } finally {
       setImportingTemplate(false);
     }
-  }, [backendBaseUrl, loadTemplates, templates]);
+  }, [backendBaseUrl, loadTemplates, showSuccess, templates]);
 
   const exportTemplate = useCallback(async () => {
     if (!selectedTemplate) return;
     setExportingTemplate(true);
     setTemplateError("");
-    setTemplateNotice("");
     try {
       const response = await apiFetch(
         `/api/template-production/templates/${encodeURIComponent(selectedTemplate.id)}/export`,
         undefined,
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "导出模板失败"));
+      if (!response.ok) {
+        // 导出接口返回二进制文件，无法使用 apiJson，这里就地解析错误 detail
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.detail || data.message || "导出模板失败");
+      }
       const blob = await response.blob();
       const objectUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
@@ -492,13 +483,13 @@ export default function TemplateProduction({ currentUser }) {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-      setTemplateNotice(`模板“${selectedTemplate.name}”已导出`);
+      showSuccess(`模板“${selectedTemplate.name}”已导出`);
     } catch (err) {
       setTemplateError(err.message || "导出模板失败");
     } finally {
       setExportingTemplate(false);
     }
-  }, [backendBaseUrl, selectedTemplate]);
+  }, [backendBaseUrl, selectedTemplate, showSuccess]);
 
   const addMaterialFiles = useCallback((requirement, fileList) => {
     const acceptedPrefix = requirement.media_type === "image" ? "image/" : "video/";
@@ -522,7 +513,6 @@ export default function TemplateProduction({ currentUser }) {
 
   const generateAiScripts = useCallback(async () => {
     setError("");
-    setNotice("");
     if (!variablesReady) {
       setError(contentIssues[0] || "请先填写模板的必填信息。");
       return;
@@ -535,7 +525,7 @@ export default function TemplateProduction({ currentUser }) {
           materials[requirement.key]?.length || 0,
         ])
       );
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/scripts/generate",
         {
           method: "POST",
@@ -546,18 +536,17 @@ export default function TemplateProduction({ currentUser }) {
             count: defaultCandidateCount,
             material_context: materialContext,
           }),
+          silentError: true,
         },
         backendBaseUrl
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       const nextScripts = Array.isArray(data.scripts) ? data.scripts : [];
       if (!nextScripts.length) throw new Error("LLM 没有返回可用候选文案");
       const nextCandidates = nextScripts.map((content) => ({ id: makeId(), content }));
       setScriptCandidates(nextCandidates);
       setSelectedCandidateId(nextCandidates[0].id);
       setFinalScript(nextCandidates[0].content);
-      setNotice(`已生成 ${nextCandidates.length} 条候选文案，已选择第 1 条。`);
+      showSuccess(`已生成 ${nextCandidates.length} 条候选文案，已选择第 1 条。`);
     } catch (err) {
       setError(err.message || "AI 文案生成失败");
     } finally {
@@ -569,6 +558,7 @@ export default function TemplateProduction({ currentUser }) {
     defaultCandidateCount,
     materials,
     selectedTemplate,
+    showSuccess,
     templateId,
     variables,
     variablesReady,
@@ -578,25 +568,22 @@ export default function TemplateProduction({ currentUser }) {
     setSelectedCandidateId(candidate.id);
     setFinalScript(candidate.content);
     setError("");
-    setNotice("已将候选文案填入最终文案。");
+    showSuccess("已将候选文案填入最终文案。");
   }, []);
 
   const updateSubtitleStyle = useCallback((field, value) => {
     setSubtitleStyle((current) => ({ ...current, [field]: value }));
     setError("");
-    setNotice("");
   }, []);
 
   const resetSubtitleStyle = useCallback(() => {
     setSubtitleStyle(cloneDefaultSubtitleStyle());
     setError("");
-    setNotice("");
   }, []);
 
   const rewriteCandidate = useCallback(async (candidate) => {
     setRewritingCandidateId(candidate.id);
     setError("");
-    setNotice("");
     try {
       const materialContext = Object.fromEntries(
         selectedTemplate.material_requirements.map((requirement) => [
@@ -604,7 +591,7 @@ export default function TemplateProduction({ currentUser }) {
           materials[requirement.key]?.length || 0,
         ])
       );
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/scripts/rewrite",
         {
           method: "POST",
@@ -615,11 +602,10 @@ export default function TemplateProduction({ currentUser }) {
             original_script: candidate.content,
             material_context: materialContext,
           }),
+          silentError: true,
         },
         backendBaseUrl
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       const nextContent = String(data.script || "").trim();
       if (!nextContent) throw new Error("LLM 没有返回可用候选文案");
       setScriptCandidates((current) =>
@@ -628,17 +614,16 @@ export default function TemplateProduction({ currentUser }) {
       if (selectedCandidateId === candidate.id && finalScript.trim() === candidate.content.trim()) {
         setFinalScript(nextContent);
       }
-      setNotice("候选文案已重写。");
+      showSuccess("候选文案已重写。");
     } catch (err) {
       setError(err.message || "候选文案重写失败");
     } finally {
       setRewritingCandidateId("");
     }
-  }, [backendBaseUrl, finalScript, materials, selectedCandidateId, selectedTemplate, templateId, variables]);
+  }, [backendBaseUrl, finalScript, materials, selectedCandidateId, selectedTemplate, showSuccess, templateId, variables]);
 
   const submitTask = useCallback(async () => {
     setError("");
-    setNotice("");
     if (!canSubmit) {
       setError(
         contentIssues[0]
@@ -681,13 +666,11 @@ export default function TemplateProduction({ currentUser }) {
       form.append("material_manifest", JSON.stringify(manifest));
       if (selectedBgmId) form.append("bgm_id", selectedBgmId);
 
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/tasks",
-        { method: "POST", body: form },
+        { method: "POST", body: form, silentError: true },
         backendBaseUrl
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       localStorage.setItem(taskStorageKey, data.task_id);
       pollTask(data.task_id);
     } catch (err) {
@@ -819,7 +802,6 @@ export default function TemplateProduction({ currentUser }) {
       </div>
 
       {templateError && templates.length ? <div className="form-alert failed">{templateError}</div> : null}
-      {templateNotice ? <div className="form-alert completed">{templateNotice}</div> : null}
 
       {selectedTemplate ? <div className="template-production-grid">
         <div className="template-production-column">
@@ -973,7 +955,6 @@ export default function TemplateProduction({ currentUser }) {
               onChange={(event) => {
                 setFinalScript(event.target.value);
                 setSelectedCandidateId("");
-                setNotice("");
               }}
             />
             <div className="subtitle-style-launcher">
@@ -1172,7 +1153,6 @@ export default function TemplateProduction({ currentUser }) {
           />
 
           {error ? <div className="form-alert failed">{error}</div> : null}
-          {notice ? <div className="form-alert completed">{notice}</div> : null}
           {materialIssues.length && finalScript.trim() ? <div className="template-inline-warning">{materialIssues[0]}</div> : null}
 
           <div className="template-submit-row">

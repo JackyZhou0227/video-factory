@@ -10,8 +10,8 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
-import Alert from "./Alert";
 import { listUsers, resetUserPassword, updateUserRole } from "../lib/auth";
+import { useGlobalMessage } from "./GlobalMessageProvider";
 
 function formatDateTime(value) {
   if (!value) return "-";
@@ -27,7 +27,7 @@ function formatDateTime(value) {
   }).format(date);
 }
 
-function UserRow({ user, currentUserId, onOpenReset, onRoleChange, resettingUserId, updatingRoleUserId }) {
+function UserRow({ user, currentUserId, onOpenReset, onOpenRole, onRoleChange, resettingUserId, updatingRoleUserId }) {
   const isResetting = resettingUserId === user.id;
   const isUpdatingRole = updatingRoleUserId === user.id;
   const nextRole = user.is_admin ? "user" : "admin";
@@ -59,7 +59,7 @@ function UserRow({ user, currentUserId, onOpenReset, onRoleChange, resettingUser
               <IconButton
                 type="button"
                 aria-label={`权限管理：${user.display_name || user.username}`}
-                onClick={() => openRoleDialog(user)}
+                onClick={() => onOpenRole(user)}
                 disabled={isUpdatingRole || isCurrentUser}
                 size="small"
               >
@@ -90,8 +90,6 @@ export default function UserManagement({ currentUser }) {
   const [filters, setFilters] = useState({ name: "", username: "" });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [total, setTotal] = useState(0);
@@ -101,6 +99,7 @@ export default function UserManagement({ currentUser }) {
   const [resetPassword, setResetPassword] = useState("");
   const [roleDialog, setRoleDialog] = useState(null);
   const [roleDraft, setRoleDraft] = useState("user");
+  const { showSuccess } = useGlobalMessage();
 
   const openRoleDialog = useCallback((user) => {
     setRoleDialog(user);
@@ -114,8 +113,6 @@ export default function UserManagement({ currentUser }) {
 
   const loadUsers = useCallback(async (targetPage = 1) => {
     setLoading(true);
-    setError("");
-    setNotice("");
     try {
       const data = await listUsers({
         name: filters.name,
@@ -127,8 +124,8 @@ export default function UserManagement({ currentUser }) {
       setPage(data.users?.page || targetPage);
       setPages(Math.max(1, data.users?.pages || 1));
       setTotal(data.users?.total || 0);
-    } catch (err) {
-      setError(err.message || "读取用户列表失败");
+    } catch {
+      // 错误已由全局提示展示
     } finally {
       setLoading(false);
     }
@@ -145,13 +142,11 @@ export default function UserManagement({ currentUser }) {
     const values = new Uint32Array(14);
     crypto.getRandomValues(values);
     setResetPassword(Array.from(values, (value) => alphabet[value % alphabet.length]).join(""));
-    setError("");
   }, []);
 
   const openResetDialog = useCallback((user) => {
     setResetUser(user);
     setResetPassword("");
-    setError("");
   }, []);
 
   const closeResetDialog = useCallback(() => {
@@ -161,38 +156,34 @@ export default function UserManagement({ currentUser }) {
   }, [resettingUserId]);
 
   const handlePasswordReset = useCallback(async () => {
-      setError("");
-      setNotice("");
       setResettingUserId(resetUser.id);
 
       try {
         const data = await resetUserPassword(resetUser.id, resetPassword);
         setUsers((current) => current.map((user) => (user.id === data.user.id ? data.user : user)));
-        setNotice("密码已重置，该用户的现有登录已作废，需要使用新密码重新登录。");
+        showSuccess("密码已重置，该用户的现有登录已作废，需要使用新密码重新登录。");
         setResetUser(null);
         setResetPassword("");
-      } catch (err) {
-        setError(err.message || "重置密码失败");
+      } catch {
+        // 错误已由全局提示展示
       } finally {
         setResettingUserId("");
       }
-    }, [resetPassword, resetUser]);
+    }, [resetPassword, resetUser, showSuccess]);
 
   const handleRoleChange = useCallback(async (userId, role) => {
-    setError("");
-    setNotice("");
     setUpdatingRoleUserId(userId);
 
     try {
       const data = await updateUserRole(userId, role);
       setUsers((current) => current.map((user) => (user.id === data.user.id ? data.user : user)));
-      setNotice(role === "admin" ? "用户已设为管理员。" : "用户已设为普通用户。");
-    } catch (err) {
-      setError(err.message || "更新用户角色失败");
+      showSuccess(role === "admin" ? "用户已设为管理员。" : "用户已设为普通用户。");
+    } catch {
+      // 错误已由全局提示展示
     } finally {
       setUpdatingRoleUserId("");
     }
-  }, []);
+  }, [showSuccess]);
 
   return (
     <section className="workspace-panel admin-panel" aria-label="用户管理工作区">
@@ -219,8 +210,6 @@ export default function UserManagement({ currentUser }) {
         </div>
 
         {loading && <div className="form-alert completed">正在读取用户列表...</div>}
-        {notice && <Alert>{notice}</Alert>}
-        {error && <Alert type="error">{error}</Alert>}
 
         <div className="task-list-toolbar"><span>共 {total} 个用户</span></div>
 
@@ -242,6 +231,7 @@ export default function UserManagement({ currentUser }) {
                   user={user}
                   currentUserId={currentUser?.id}
                   onOpenReset={openResetDialog}
+                  onOpenRole={openRoleDialog}
                   onRoleChange={handleRoleChange}
                   resettingUserId={resettingUserId}
                   updatingRoleUserId={updatingRoleUserId}

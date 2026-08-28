@@ -9,6 +9,7 @@ import DialogContent from "@mui/material/DialogContent";
 import Icon from "./Icon";
 import Alert from "./Alert";
 import { changePassword, updateProfile } from "../lib/auth";
+import { useGlobalMessage } from "./GlobalMessageProvider";
 
 export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut }) {
   const [passwordView, setPasswordView] = useState(false);
@@ -18,24 +19,22 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [changingPassword, setChangingPassword] = useState(false);
-  const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const { showSuccess } = useGlobalMessage();
 
   const saveProfile = useCallback(async (event) => {
     event.preventDefault();
     setSavingProfile(true);
-    setNotice("");
-    setError("");
     try {
       const data = await updateProfile(displayName.trim());
       onUserUpdated?.(data.user);
-      setNotice("个人资料已保存。");
-    } catch (err) {
-      setError(err.message || "保存个人资料失败");
+      showSuccess("个人资料已保存。");
+    } catch {
+      // 错误已由全局提示展示
     } finally {
       setSavingProfile(false);
     }
-  }, [displayName, onUserUpdated]);
+  }, [displayName, onUserUpdated, showSuccess]);
 
   const submitPasswordChange = useCallback(async (event) => {
     event.preventDefault();
@@ -44,25 +43,22 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
       return;
     }
     setChangingPassword(true);
-    setNotice("");
-    setError("");
     try {
       await changePassword(currentPassword, newPassword);
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
-      setNotice("密码已修改，请重新登录。");
+      showSuccess("密码已修改，请重新登录。");
       window.setTimeout(() => onLoggedOut?.(), 500);
-    } catch (err) {
-      setError(err.message || "修改密码失败");
+    } catch {
+      // 错误已由全局提示展示
     } finally {
       setChangingPassword(false);
     }
-  }, [confirmPassword, currentPassword, newPassword, onLoggedOut]);
+  }, [confirmPassword, currentPassword, newPassword, onLoggedOut, showSuccess]);
 
   const switchView = useCallback((nextView) => {
     setPasswordView(nextView);
-    setNotice("");
     setError("");
   }, []);
 
@@ -80,8 +76,6 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
           <Button type="button" variant="outlined" size="small" onClick={() => switchView(true)} startIcon={<Icon name="lock" size={16} />}>修改密码</Button>
         </div>
       </div>
-      {error && !passwordView ? <Alert type="error">{error}</Alert> : null}
-      {notice && !passwordView ? <Alert>{notice}</Alert> : null}
       <Dialog
         open={passwordView}
         onClose={() => { if (!changingPassword) switchView(false); }}
@@ -110,7 +104,6 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
             </div>
           </form>
           {error ? <Alert type="error">{error}</Alert> : null}
-          {notice ? <Alert>{notice}</Alert> : null}
         </DialogContent>
       </Dialog>
     </section>

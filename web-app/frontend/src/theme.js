@@ -27,6 +27,8 @@ const tokens = {
   sidebarAccent: "#e9e6dc",
 };
 
+export const designTokens = tokens;
+
 export const statusChipColors = {
   running: { bg: tokens.infoSoft, fg: "#3d678c" },
   pending: { bg: tokens.muted, fg: tokens.textMuted },

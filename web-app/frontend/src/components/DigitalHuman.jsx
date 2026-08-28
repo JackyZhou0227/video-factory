@@ -6,7 +6,7 @@ import LinearProgress from "@mui/material/LinearProgress";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
-import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
 const VIDEO_STEP_LABELS = {
   idle: "等待素材",
@@ -22,10 +22,7 @@ const RUNNINGHUB_TASKS_URL = "https://www.runninghub.cn/bill-task";
 const RUNNINGHUB_WORKS_URL = "https://www.runninghub.cn/user-center";
 
 function pollTask(taskId, signal, backendBaseUrl) {
-  return apiFetch(`/api/task/${taskId}`, { signal }, backendBaseUrl).then((response) => {
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return response.json();
-  });
+  return apiJson(`/api/task/${taskId}`, { signal, silentError: true }, backendBaseUrl);
 }
 
 function formatFileSize(size) {
@@ -215,17 +212,13 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
       formData.append("image", imageFile);
       formData.append("audio", audioFile);
 
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/generate-video",
-        { method: "POST", body: formData },
+        { method: "POST", body: formData, silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) {
-        const payload = await response.json().catch(() => ({}));
-        throw new Error(payload.detail || `HTTP ${response.status}`);
-      }
 
-      const { task_id: taskId } = await response.json();
+      const { task_id: taskId } = data;
       if (!taskId) throw new Error("后端没有返回视频任务 ID。");
 
       const controller = new AbortController();

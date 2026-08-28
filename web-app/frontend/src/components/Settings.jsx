@@ -6,9 +6,9 @@ import TextField from "@mui/material/TextField";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
-import MuiAlert from "@mui/material/Alert";
 import Icon from "./Icon";
-import { apiFetch, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
+import { useGlobalMessage } from "./GlobalMessageProvider";
+import { apiJson, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
 import { maskApiKey } from "../lib/runninghubSettings";
 
 const DEFAULT_INSTANCE_TYPE = "plus";
@@ -40,8 +40,6 @@ export default function Settings() {
   const [savingRunningHub, setSavingRunningHub] = useState(false);
   const [savingLlm, setSavingLlm] = useState(false);
   const [testingLlm, setTestingLlm] = useState(false);
-  const [notice, setNotice] = useState("");
-  const [error, setError] = useState("");
   const [runninghub, setRunninghub] = useState(EMPTY_RUNNINGHUB);
   const [runningHubKey, setRunningHubKey] = useState("");
   const [concurrentLimit, setConcurrentLimit] = useState(1);
@@ -56,14 +54,13 @@ export default function Settings() {
   const [runningHubGuideOpen, setRunningHubGuideOpen] = useState(false);
   const llmReady = Boolean(llmBaseUrl.trim() && llmModel.trim());
   const llmTestPassed = testedLlmVersion !== null && testedLlmVersion === llmFormVersion;
+  const { showError, showSuccess } = useGlobalMessage();
 
   const updateLlmField = useCallback((setter, value) => {
     setter(value);
     setLlmFormVersion((version) => version + 1);
     setTestedLlmVersion(null);
     setLlmSaved(false);
-    setNotice("");
-    setError("");
   }, []);
 
   const applySettings = useCallback((data) => {
@@ -84,13 +81,10 @@ export default function Settings() {
 
   const loadSettings = useCallback(async () => {
     setLoading(true);
-    setError("");
     try {
-      const response = await apiFetch("/api/settings", undefined, backendBaseUrl);
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      applySettings(await response.json());
-    } catch (err) {
-      setError(err.message || "读取设置失败");
+      applySettings(await apiJson("/api/settings", undefined, backendBaseUrl));
+    } catch {
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       setLoading(false);
     }
@@ -102,65 +96,55 @@ export default function Settings() {
 
   const saveRunningHub = useCallback(async () => {
     setSavingRunningHub(true);
-    setNotice("");
-    setError("");
     const payload = { concurrent_limit: Number(concurrentLimit || 1), instance_type: instanceType };
     if (runningHubKey.trim()) payload.api_key = runningHubKey.trim();
     try {
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/settings/runninghub",
         { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         backendBaseUrl
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       setRunninghub({ ...EMPTY_RUNNINGHUB, ...data });
       setRunningHubKey("");
-      setNotice("RunningHub 设置已保存。");
-    } catch (err) {
-      setError(err.message || "保存 RunningHub 设置失败");
+      showSuccess("RunningHub 设置已保存。");
+    } catch {
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       setSavingRunningHub(false);
     }
-  }, [backendBaseUrl, concurrentLimit, instanceType, runningHubKey]);
+  }, [backendBaseUrl, concurrentLimit, instanceType, runningHubKey, showSuccess]);
 
   const saveLlm = useCallback(async () => {
     if (!llmTestPassed) {
-      setError("请先测试当前 LLM 配置，连接成功后再保存。");
+      showError("请先测试当前 LLM 配置，连接成功后再保存。");
       return;
     }
     setSavingLlm(true);
-    setNotice("");
-    setError("");
     const payload = { base_url: llmBaseUrl.trim(), model: llmModel.trim() };
     if (llmApiKey.trim()) payload.api_key = llmApiKey.trim();
     try {
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/settings/llm",
         { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         backendBaseUrl
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       setLlm({ ...EMPTY_LLM, ...data });
       setLlmApiKey("");
       setLlmFormVersion((version) => version + 1);
       setTestedLlmVersion(null);
       setLlmSaved(true);
-      setNotice("LLM 服务配置已保存。");
-    } catch (err) {
-      setError(err.message || "保存 LLM 服务配置失败");
+      showSuccess("LLM 服务配置已保存。");
+    } catch {
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       setSavingLlm(false);
     }
-  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmModel, llmTestPassed]);
+  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmModel, llmTestPassed, showError, showSuccess]);
 
   const clearLlmKey = useCallback(async () => {
     setSavingLlm(true);
-    setNotice("");
-    setError("");
     try {
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/settings/llm",
         {
           method: "PUT",
@@ -169,46 +153,40 @@ export default function Settings() {
         },
         backendBaseUrl
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       setLlm({ ...EMPTY_LLM, ...data });
       setLlmApiKey("");
       setLlmFormVersion((version) => version + 1);
       setTestedLlmVersion(null);
       setLlmSaved(true);
-      setNotice("LLM API Key 已清除。");
-    } catch (err) {
-      setError(err.message || "清除 LLM API Key 失败");
+      showSuccess("LLM API Key 已清除。");
+    } catch {
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       setSavingLlm(false);
     }
-  }, [backendBaseUrl, llmBaseUrl, llmModel]);
+  }, [backendBaseUrl, llmBaseUrl, llmModel, showSuccess]);
 
   const testLlm = useCallback(async () => {
     const versionUnderTest = llmFormVersion;
     setTestingLlm(true);
     setTestedLlmVersion(null);
     setLlmSaved(false);
-    setNotice("");
-    setError("");
     const payload = { base_url: llmBaseUrl.trim(), model: llmModel.trim() };
     if (llmApiKey.trim()) payload.api_key = llmApiKey.trim();
     try {
-      const response = await apiFetch(
+      await apiJson(
         "/api/settings/llm/test",
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
         backendBaseUrl
       );
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
       setTestedLlmVersion(versionUnderTest);
-      setNotice("LLM 连接测试成功，可以保存当前配置。");
-    } catch (err) {
-      setError(err.message || "LLM 连接测试失败");
+      showSuccess("LLM 连接测试成功，可以保存当前配置。");
+    } catch {
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       setTestingLlm(false);
     }
-  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmFormVersion, llmModel]);
+  }, [backendBaseUrl, llmApiKey, llmBaseUrl, llmFormVersion, llmModel, showSuccess]);
 
   return (
     <section className="workspace-panel settings-panel" aria-label="设置工作区">
@@ -279,8 +257,6 @@ export default function Settings() {
         </section>
       </div>
 
-      {error ? <MuiAlert severity="error" variant="outlined" sx={{ mt: 2 }}>{error}</MuiAlert> : null}
-      {notice ? <MuiAlert severity="success" variant="outlined" sx={{ mt: 2 }}>{notice}</MuiAlert> : null}
       <Dialog
         open={runningHubGuideOpen}
         onClose={() => setRunningHubGuideOpen(false)}

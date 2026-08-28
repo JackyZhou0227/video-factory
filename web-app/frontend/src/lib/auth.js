@@ -1,95 +1,88 @@
-import { apiFetch } from "./backend";
+import { apiJson } from "./backend";
 
-async function readApiError(response, fallback) {
-  const data = await response.json().catch(() => ({}));
-  const message = data.detail || fallback || `HTTP ${response.status}`;
-  const retryAfter = Number.parseInt(response.headers.get("Retry-After") || "", 10);
-  if (response.status === 429 && Number.isFinite(retryAfter) && retryAfter > 0) {
-    return `${message}（约 ${retryAfter} 秒后可重试）`;
-  }
-  return message;
-}
-
+// 认证类错误由调用方就地展示（登录表单、页面横幅等），不走全局 Snackbar
 export async function getCurrentUser() {
-  const response = await apiFetch("/api/auth/me");
-  if (!response.ok) throw new Error(await readApiError(response, "读取登录状态失败"));
-  return response.json();
+  return apiJson("/api/auth/me", { silentError: true });
 }
 
 export async function login(username, password) {
-  const response = await apiFetch("/api/auth/login", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-  if (!response.ok) throw new Error(await readApiError(response, "登录失败"));
-  return response.json();
+  return apiJson(
+    "/api/auth/login",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+      silentError: true,
+    }
+  );
 }
 
 export async function register(username, password, displayName) {
   const payload = { username, password };
   if (displayName.trim()) payload.display_name = displayName.trim();
 
-  const response = await apiFetch("/api/auth/register", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-  if (!response.ok) throw new Error(await readApiError(response, "注册失败"));
-  return response.json();
+  return apiJson(
+    "/api/auth/register",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      silentError: true,
+    }
+  );
 }
 
 export async function logout() {
-  const response = await apiFetch("/api/auth/logout", { method: "POST" });
-  if (!response.ok) throw new Error(await readApiError(response, "退出登录失败"));
-  return response.json();
+  return apiJson("/api/auth/logout", { method: "POST" });
 }
 
 export async function changePassword(currentPassword, newPassword) {
-  const response = await apiFetch("/api/auth/password", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
-  });
-  if (!response.ok) throw new Error(await readApiError(response, "修改密码失败"));
-  return response.json();
+  return apiJson(
+    "/api/auth/password",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    }
+  );
 }
 
 export async function updateProfile(displayName) {
-  const response = await apiFetch("/api/auth/profile", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ display_name: displayName }),
-  });
-  if (!response.ok) throw new Error(await readApiError(response, "保存个人资料失败"));
-  return response.json();
+  return apiJson(
+    "/api/auth/profile",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ display_name: displayName }),
+    }
+  );
 }
 
 export async function listUsers({ name = "", username = "", page = 1, pageSize = 20 } = {}) {
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
   if (name.trim()) params.set("name", name.trim());
   if (username.trim()) params.set("username", username.trim());
-  const response = await apiFetch(`/api/admin/users?${params.toString()}`);
-  if (!response.ok) throw new Error(await readApiError(response, "读取用户列表失败"));
-  return response.json();
+  return apiJson(`/api/admin/users?${params.toString()}`);
 }
 
 export async function resetUserPassword(userId, password) {
-  const response = await apiFetch(`/api/admin/users/${userId}/password`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
-  });
-  if (!response.ok) throw new Error(await readApiError(response, "重置密码失败"));
-  return response.json();
+  return apiJson(
+    `/api/admin/users/${userId}/password`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password }),
+    }
+  );
 }
 
 export async function updateUserRole(userId, role) {
-  const response = await apiFetch(`/api/admin/users/${userId}/role`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ role }),
-  });
-  if (!response.ok) throw new Error(await readApiError(response, "更新用户角色失败"));
-  return response.json();
+  return apiJson(
+    `/api/admin/users/${userId}/role`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role }),
+    }
+  );
 }

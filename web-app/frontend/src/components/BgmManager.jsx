@@ -9,8 +9,9 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
+import { useGlobalMessage } from "./GlobalMessageProvider";
 import { ProtectedMedia } from "./ProtectedAsset";
-import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
 function formatFileSize(size) {
   const value = Number(size) || 0;
@@ -24,11 +25,6 @@ function formatDuration(seconds) {
   return `${minutes}:${String(value % 60).padStart(2, "0")}`;
 }
 
-async function responseError(response, fallback) {
-  const data = await response.json().catch(() => ({}));
-  return data.detail || data.message || fallback || `HTTP ${response.status}`;
-}
-
 export default function BgmManager({
   currentUserId,
   selectedBgmId,
@@ -37,10 +33,9 @@ export default function BgmManager({
   idPrefix = "shared",
 }) {
   const backendBaseUrl = useBackendBaseUrl();
+  const { showSuccess } = useGlobalMessage();
   const [bgmTracks, setBgmTracks] = useState([]);
   const [bgmLoading, setBgmLoading] = useState(true);
-  const [bgmError, setBgmError] = useState("");
-  const [bgmNotice, setBgmNotice] = useState("");
   const [uploadingBgm, setUploadingBgm] = useState(false);
   const [deletingBgmId, setDeletingBgmId] = useState(null);
   const [pendingBgmDelete, setPendingBgmDelete] = useState(null);
@@ -51,21 +46,16 @@ export default function BgmManager({
 
   const loadBgmTracks = useCallback(async ({ signal } = {}) => {
     setBgmLoading(true);
-    setBgmError("");
-    setBgmNotice("");
     try {
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/bgm",
         signal ? { signal } : undefined,
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "读取背景音乐列表失败"));
-      const data = await response.json();
       setBgmTracks(Array.isArray(data.bgm_tracks) ? data.bgm_tracks : []);
     } catch (error) {
-      if (error?.name !== "AbortError") {
-        setBgmError(error.message || "读取背景音乐列表失败");
-      }
+      if (error?.name === "AbortError") return;
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       if (!signal?.aborted) setBgmLoading(false);
     }
@@ -93,52 +83,45 @@ export default function BgmManager({
     if (!file) return;
 
     setUploadingBgm(true);
-    setBgmError("");
-    setBgmNotice("");
     try {
       const form = new FormData();
       form.append("file", file, file.name);
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/bgm",
         { method: "POST", body: form },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "上传背景音乐失败"));
-      const data = await response.json();
       const track = data.bgm_track;
       setBgmTracks((current) => [...current, track]);
       onSelectionChange(track.id);
-      setBgmNotice(`已上传背景音乐“${track.name}”。`);
-    } catch (error) {
-      setBgmError(error.message || "上传背景音乐失败");
+      showSuccess(`已上传背景音乐“${track.name}”。`);
+    } catch {
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       setUploadingBgm(false);
     }
-  }, [backendBaseUrl, onSelectionChange]);
+  }, [backendBaseUrl, onSelectionChange, showSuccess]);
 
   const confirmBgmDelete = useCallback(async () => {
     if (!pendingBgmDelete) return;
     const trackId = pendingBgmDelete.id;
     setDeletingBgmId(trackId);
-    setBgmError("");
-    setBgmNotice("");
     try {
-      const response = await apiFetch(
+      await apiJson(
         `/api/template-production/bgm/${encodeURIComponent(trackId)}`,
         { method: "DELETE" },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "删除背景音乐失败"));
       setBgmTracks((current) => current.filter((track) => track.id !== trackId));
       if (selectedBgmId === trackId) onSelectionChange("");
-      setBgmNotice("背景音乐已删除。");
+      showSuccess("背景音乐已删除。");
       setPendingBgmDelete(null);
-    } catch (error) {
-      setBgmError(error.message || "删除背景音乐失败");
+    } catch {
+      // 错误已由 apiJson 弹出全局提示
     } finally {
       setDeletingBgmId(null);
     }
-  }, [backendBaseUrl, onSelectionChange, pendingBgmDelete, selectedBgmId]);
+  }, [backendBaseUrl, onSelectionChange, pendingBgmDelete, selectedBgmId, showSuccess]);
 
   const selectedBgmTrack = useMemo(
     () => bgmTracks.find((track) => track.id === selectedBgmId) || null,
@@ -181,8 +164,6 @@ export default function BgmManager({
             value={selectedBgmId}
             onChange={(event) => {
               onSelectionChange(event.target.value);
-              setBgmNotice("");
-              setBgmError("");
             }}
             disabled={disabled || uploadingBgm || bgmLoading}
           >
@@ -222,12 +203,6 @@ export default function BgmManager({
         ) : null}
         {bgmLoading ? (
           <div className="bgm-status-line"><Icon name="loading" size={14} />正在加载背景音乐</div>
-        ) : null}
-        {bgmError ? (
-          <div className="bgm-status-line is-error"><Icon name="alert" size={14} />{bgmError}</div>
-        ) : null}
-        {bgmNotice ? (
-          <div className="bgm-status-line is-success"><Icon name="check" size={14} />{bgmNotice}</div>
         ) : null}
       </section>
 

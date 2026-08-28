@@ -11,7 +11,7 @@ import Box from "@mui/material/Box";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
-import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
 const TASK_LABELS = {
   digital_human: "数字人",
@@ -70,11 +70,6 @@ function formatSize(value) {
   if (!size) return "—";
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
-async function readApiError(response) {
-  const payload = await response.json().catch(() => ({}));
-  return payload.detail || `HTTP ${response.status}`;
 }
 
 function taskSummary(task) {
@@ -249,23 +244,23 @@ export default function TaskCenter({ active = true }) {
   const [selectedTask, setSelectedTask] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [error, setError] = useState("");
 
   const loadTasks = useCallback(async (targetPage = 1, silent = false) => {
     if (!silent) setLoading(true);
-    setError("");
     const params = new URLSearchParams({ page: String(targetPage), page_size: "12" });
     Object.entries(filters).forEach(([key, value]) => { if (value) params.set(key, value); });
     try {
-      const response = await apiFetch(`/api/tasks?${params.toString()}`, undefined, backendBaseUrl);
-      if (!response.ok) throw new Error(await readApiError(response));
-      const payload = await response.json();
+      const payload = await apiJson(
+        `/api/tasks?${params.toString()}`,
+        silent ? { silentError: true } : undefined,
+        backendBaseUrl
+      );
       setItems(Array.isArray(payload.items) ? payload.items : []);
       setPage(payload.page || targetPage);
       setPages(Math.max(1, payload.pages || 1));
       setTotal(payload.total || 0);
-    } catch (loadError) {
-      if (!silent) setError(loadError.message || "读取任务列表失败");
+    } catch {
+      // 手动加载失败时由 apiJson 弹出全局提示；静默轮询时忽略错误
     } finally {
       if (!silent) setLoading(false);
     }
@@ -275,13 +270,15 @@ export default function TaskCenter({ active = true }) {
     if (!taskId) return;
     setSelectedId(taskId);
     if (!silent) setDetailLoading(true);
-    setError("");
     try {
-      const response = await apiFetch(`/api/tasks/${encodeURIComponent(taskId)}`, undefined, backendBaseUrl);
-      if (!response.ok) throw new Error(await readApiError(response));
-      setSelectedTask(await response.json());
-    } catch (detailError) {
-      setError(detailError.message || "读取任务详情失败");
+      const task = await apiJson(
+        `/api/tasks/${encodeURIComponent(taskId)}`,
+        silent ? { silentError: true } : undefined,
+        backendBaseUrl
+      );
+      setSelectedTask(task);
+    } catch {
+      // 手动加载失败时由 apiJson 弹出全局提示；静默轮询时忽略错误
     } finally {
       if (!silent) setDetailLoading(false);
     }
@@ -347,7 +344,6 @@ export default function TaskCenter({ active = true }) {
         </div>
 
         <div className="task-list-toolbar"><span>共 {total} 条任务</span>{activeCount ? <span className="task-live-note"><Icon name="loading" size={13} />{activeCount} 条处理中</span> : null}</div>
-        {error ? <div className="form-alert failed">{error}</div> : null}
         {loading ? <div className="task-list-state"><Icon name="loading" size={18} />正在加载任务</div> : items.length ? (
           <div className="task-list">
             <div className="task-list-header" aria-hidden="true">

@@ -4,6 +4,7 @@ import { ThemeProvider } from "@mui/material/styles";
 import CssBaseline from "@mui/material/CssBaseline";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
+import GlobalMessageProvider from "./components/GlobalMessageProvider";
 import theme from "./theme";
 import "./App.css";
 
@@ -12,7 +13,9 @@ ReactDOM.createRoot(document.getElementById("root")).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <HashRouter>
-        <App />
+        <GlobalMessageProvider>
+          <App />
+        </GlobalMessageProvider>
       </HashRouter>
     </ThemeProvider>
   </React.StrictMode>

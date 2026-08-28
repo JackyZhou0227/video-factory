@@ -15,7 +15,7 @@ import DialogActions from "@mui/material/DialogActions";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
-import { apiFetch, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
+import { apiJson, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
 import { PAGE_NAMES } from "../lib/pageNames";
 
 const TTS_MODE_OPTIONS = [
@@ -75,13 +75,6 @@ function edgeVoiceLocale(voice) {
   return match?.[1] || "";
 }
 
-async function readApiError(response) {
-  const payload = await response.json().catch(() => null);
-  if (typeof payload?.detail === "string") return payload.detail;
-  if (typeof payload?.message === "string") return payload.message;
-  return `请求失败（HTTP ${response.status}）`;
-}
-
 export default function TTSStudio({ active = false }) {
   const backendBaseUrl = useBackendBaseUrl();
   const refAudioInputRef = useRef(null);
@@ -104,7 +97,6 @@ export default function TTSStudio({ active = false }) {
   const [previewStale, setPreviewStale] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [applyingSpeechRate, setApplyingSpeechRate] = useState(false);
-  const [error, setError] = useState("");
   const [profileDialog, setProfileDialog] = useState(null);
   const [profileName, setProfileName] = useState("");
   const [refAudioFile, setRefAudioFile] = useState(null);
@@ -158,25 +150,21 @@ export default function TTSStudio({ active = false }) {
 
   const markPreviewStale = useCallback(() => {
     setPreviewStale((wasStale) => (preview ? true : wasStale));
-    setError("");
   }, [preview]);
 
   const refreshVoiceProfiles = useCallback(async () => {
     setVoiceProfilesLoading(true);
     try {
-      const response = await apiFetch("/api/tts-studio/voice-profiles", undefined, backendBaseUrl);
-      if (!response.ok) throw new Error(await readApiError(response));
-      const list = await response.json();
+      const list = await apiJson("/api/tts-studio/voice-profiles", undefined, backendBaseUrl);
       const nextProfiles = Array.isArray(list) ? list : [];
       setVoiceProfiles(nextProfiles);
       setVoiceProfileId((current) => {
         if (current && nextProfiles.some((item) => item.id === current)) return current;
         return nextProfiles[0]?.id || "";
       });
-    } catch (err) {
+    } catch {
       setVoiceProfiles([]);
       setVoiceProfileId("");
-      setError(err.message || "加载音色档案失败");
     } finally {
       setVoiceProfilesLoading(false);
     }
@@ -187,11 +175,7 @@ export default function TTSStudio({ active = false }) {
     let cancelled = false;
     setProviderStatusesLoading(true);
     setProviderStatusError("");
-    apiFetch("/api/tts-studio/providers", undefined, backendBaseUrl)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await readApiError(response));
-        return response.json();
-      })
+    apiJson("/api/tts-studio/providers", { silentError: true }, backendBaseUrl)
       .then((list) => {
         if (cancelled) return;
         const remoteStatuses = Array.isArray(list) ? list : [];
@@ -215,11 +199,7 @@ export default function TTSStudio({ active = false }) {
     if (!active) return undefined;
     let cancelled = false;
     setEdgeVoicesLoading(true);
-    apiFetch("/api/tts-studio/edge-tts/voices", undefined, backendBaseUrl)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await readApiError(response));
-        return response.json();
-      })
+    apiJson("/api/tts-studio/edge-tts/voices", { silentError: true }, backendBaseUrl)
       .then((list) => {
         if (cancelled) return;
         const nextVoices = Array.isArray(list) ? list : [];
@@ -247,11 +227,7 @@ export default function TTSStudio({ active = false }) {
   useEffect(() => {
     if (!active) return undefined;
     let cancelled = false;
-    apiFetch("/api/tts-studio/languages", undefined, backendBaseUrl)
-      .then(async (response) => {
-        if (!response.ok) throw new Error(await readApiError(response));
-        return response.json();
-      })
+    apiJson("/api/tts-studio/languages", { silentError: true }, backendBaseUrl)
       .then((list) => {
         if (cancelled) return;
         const nextLanguages = Array.isArray(list) && list.length ? list : DEFAULT_LANGUAGES;
@@ -355,13 +331,11 @@ export default function TTSStudio({ active = false }) {
       const endpoint = isEditingVoiceProfile
         ? `/api/tts-studio/voice-profiles/${editingVoiceProfile.id}`
         : "/api/tts-studio/voice-profiles";
-      const response = await apiFetch(
+      const saved = await apiJson(
         endpoint,
-        { method: isEditingVoiceProfile ? "PUT" : "POST", body: formData },
+        { method: isEditingVoiceProfile ? "PUT" : "POST", body: formData, silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await readApiError(response));
-      const saved = await response.json();
       await refreshVoiceProfiles();
       setVoiceProfileId(saved.id || "");
       markPreviewStale();
@@ -389,12 +363,11 @@ export default function TTSStudio({ active = false }) {
     setDeletingProfile(true);
     setProfileError("");
     try {
-      const response = await apiFetch(
+      await apiJson(
         `/api/tts-studio/voice-profiles/${editingVoiceProfile.id}`,
-        { method: "DELETE" },
+        { method: "DELETE", silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await readApiError(response));
       await refreshVoiceProfiles();
       markPreviewStale();
       closeVoiceProfileDialog();
@@ -411,7 +384,6 @@ export default function TTSStudio({ active = false }) {
     if (ttsMode === "edge-tts" && !edgeVoice) return;
 
     setGenerating(true);
-    setError("");
     try {
       const formData = new FormData();
       formData.append("text", text.trim());
@@ -427,9 +399,7 @@ export default function TTSStudio({ active = false }) {
         formData.append("voice_profile_id", voiceProfileId);
       }
 
-      const response = await apiFetch(endpoint, { method: "POST", body: formData }, backendBaseUrl);
-      if (!response.ok) throw new Error(await readApiError(response));
-      const generated = await response.json();
+      const generated = await apiJson(endpoint, { method: "POST", body: formData }, backendBaseUrl);
       const originalAudioUrl = generated.original_audio_url || generated.audio_url;
       setSpeechRate(1);
       setPreview({
@@ -442,8 +412,8 @@ export default function TTSStudio({ active = false }) {
         speech_rate: 1,
       });
       setPreviewStale(false);
-    } catch (err) {
-      setError(err.message || "生成语音失败");
+    } catch {
+      // apiJson 已弹全局错误提示
     } finally {
       setGenerating(false);
     }
@@ -452,7 +422,6 @@ export default function TTSStudio({ active = false }) {
   const handleApplySpeechRate = useCallback(async () => {
     if (!preview?.original_audio_url) return;
     setApplyingSpeechRate(true);
-    setError("");
     try {
       const formData = new FormData();
       if (preview.task_id && preview.artifact_id) {
@@ -462,13 +431,11 @@ export default function TTSStudio({ active = false }) {
         formData.append("audio_url", preview.original_audio_url);
       }
       formData.append("speech_rate", String(speechRate));
-      const response = await apiFetch(
+      const updated = await apiJson(
         "/api/tts-studio/preview/speech-rate",
         { method: "POST", body: formData },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await readApiError(response));
-      const updated = await response.json();
       setPreview((current) => {
         if (!current) return current;
         const originalAudioUrl = current.original_audio_url || updated.original_audio_url || current.audio_url;
@@ -484,8 +451,8 @@ export default function TTSStudio({ active = false }) {
         };
       });
       setPreviewStale(false);
-    } catch (err) {
-      setError(err.message || "调整语速失败");
+    } catch {
+      // apiJson 已弹全局错误提示
     } finally {
       setApplyingSpeechRate(false);
     }
@@ -812,8 +779,6 @@ export default function TTSStudio({ active = false }) {
                 startIcon={<Icon name={generating ? "loading" : "play"} size={16} />}>
                 {generating ? "正在生成语音" : "生成语音"}
               </Button>
-
-              {error && <div className="form-alert failed">{error}</div>}
             </section>
           </div>
 

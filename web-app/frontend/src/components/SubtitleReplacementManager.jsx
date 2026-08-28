@@ -8,24 +8,20 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
-import { apiFetch, useBackendBaseUrl } from "../lib/backend";
+import { useGlobalMessage } from "./GlobalMessageProvider";
+import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
 
 function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-async function responseError(response, fallback) {
-  const data = await response.json().catch(() => ({}));
-  return data.detail || data.message || fallback || `HTTP ${response.status}`;
-}
-
 export default function SubtitleReplacementManager({ currentUserId = "", onStatusChange }) {
   const backendBaseUrl = useBackendBaseUrl();
+  const { showSuccess } = useGlobalMessage();
   const [replacements, setReplacements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
   const [savingIds, setSavingIds] = useState(() => new Set());
   const [dirtyIds, setDirtyIds] = useState(() => new Set());
   const [savedIds, setSavedIds] = useState(() => new Set());
@@ -58,15 +54,12 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
   const loadReplacements = useCallback(async ({ signal } = {}) => {
     setLoading(true);
     setError("");
-    setNotice("");
     try {
-      const response = await apiFetch(
+      const data = await apiJson(
         "/api/template-production/subtitle-replacements",
-        signal ? { signal } : undefined,
+        signal ? { signal, silentError: true } : { silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "读取个人敏感词替换失败"));
-      const data = await response.json();
       setReplacements(Array.isArray(data.replacements) ? data.replacements : []);
       setDirtyIds(new Set());
       setSavedIds(new Set());
@@ -90,8 +83,6 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
     setReplacements((current) => {
       return [...current, { id, source: "", replacement: "" }];
     });
-    setNotice("");
-    setError("");
   }, []);
 
   const updateReplacement = useCallback((id, field, value) => {
@@ -104,8 +95,6 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
       next.delete(id);
       return next;
     });
-    setNotice("");
-    setError("");
   }, []);
 
   const saveReplacement = useCallback(async (id) => {
@@ -119,7 +108,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
     setError("");
     try {
       const isDraft = typeof id === "string";
-      const response = await apiFetch(
+      const data = await apiJson(
         isDraft
           ? "/api/template-production/subtitle-replacements"
           : `/api/template-production/subtitle-replacements/${id}`,
@@ -127,11 +116,10 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
           method: isDraft ? "POST" : "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ source, replacement }),
+          silentError: true,
         },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "保存个人敏感词替换失败"));
-      const data = await response.json();
       setReplacements((current) => current.map((currentItem) => (
         currentItem.id === id ? data.replacement : currentItem
       )));
@@ -141,7 +129,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         return next;
       });
       setSavedIds((current) => new Set(current).add(data.replacement.id));
-      setNotice("个人敏感词替换已保存。");
+      showSuccess("个人敏感词替换已保存。");
     } catch (saveError) {
       setError(saveError.message || "保存个人敏感词替换失败");
     } finally {
@@ -151,7 +139,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         return next;
       });
     }
-  }, [backendBaseUrl, replacements]);
+  }, [backendBaseUrl, replacements, showSuccess]);
 
   const removeReplacement = useCallback(async (id) => {
     if (typeof id === "string") {
@@ -166,19 +154,18 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         next.delete(id);
         return next;
       });
-      setNotice("个人敏感词替换已删除。");
+      showSuccess("个人敏感词替换已删除。");
       return true;
     }
 
     setSavingIds((current) => new Set(current).add(id));
     setError("");
     try {
-      const response = await apiFetch(
+      await apiJson(
         `/api/template-production/subtitle-replacements/${id}`,
-        { method: "DELETE" },
+        { method: "DELETE", silentError: true },
         backendBaseUrl
       );
-      if (!response.ok) throw new Error(await responseError(response, "删除个人敏感词替换失败"));
       setReplacements((current) => current.filter((item) => item.id !== id));
       setDirtyIds((current) => {
         const next = new Set(current);
@@ -190,7 +177,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         next.delete(id);
         return next;
       });
-      setNotice("个人敏感词替换已删除。");
+      showSuccess("个人敏感词替换已删除。");
       return true;
     } catch (removeError) {
       setError(removeError.message || "删除当前用户的敏感词替换失败");
@@ -202,7 +189,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         return next;
       });
     }
-  }, [backendBaseUrl]);
+  }, [backendBaseUrl, showSuccess]);
 
   const confirmDelete = useCallback(async () => {
     if (!pendingDelete) return;
@@ -312,9 +299,6 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
         ) : null}
         {error ? (
           <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{error}</div>
-        ) : null}
-        {notice ? (
-          <div className="subtitle-replacement-notice"><Icon name="check" size={14} />{notice}</div>
         ) : null}
       </div>
 

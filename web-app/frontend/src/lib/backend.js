@@ -87,6 +87,67 @@ function withCsrfHeader(options) {
   };
 }
 
+export class ApiError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
+function extractDetailMessage(data, response) {
+  const detail = data?.detail;
+  if (typeof detail === "string" && detail.trim()) return detail;
+  if (Array.isArray(detail) && detail.length) {
+    return detail
+      .map((item) => {
+        const loc = Array.isArray(item?.loc)
+          ? item.loc.filter((part) => part !== "body").join(".")
+          : "";
+        return loc ? `${loc}: ${item?.msg ?? ""}` : String(item?.msg ?? "");
+      })
+      .filter(Boolean)
+      .join("；");
+  }
+  if (typeof data?.message === "string" && data.message.trim()) return data.message;
+  return `请求失败（HTTP ${response.status}）`;
+}
+
+let globalErrorHandler = null;
+
+export function setGlobalErrorHandler(handler) {
+  globalErrorHandler = typeof handler === "function" ? handler : null;
+}
+
+function notifyGlobalError(error) {
+  if (globalErrorHandler) globalErrorHandler(error);
+}
+
+// 非静默模式下，非 2xx 响应会自动触发全局错误提示；需要就地展示错误的调用方
+// 传入 { silentError: true }，拿到 ApiError 后自行处理
+export async function apiJson(path, options, baseUrl = getBackendBaseUrl()) {
+  const { silentError, ...fetchOptions } = options || {};
+  const response = await apiFetch(path, fetchOptions, baseUrl);
+
+  let data = null;
+  const contentType = response.headers.get("content-type") || "";
+  if (contentType.includes("application/json")) {
+    try {
+      data = await response.json();
+    } catch {
+      data = null;
+    }
+  }
+
+  if (!response.ok) {
+    const error = new ApiError(extractDetailMessage(data, response), response.status);
+    if (!silentError) notifyGlobalError(error);
+    throw error;
+  }
+
+  return data;
+}
+
 export async function apiFetch(path, options, baseUrl = getBackendBaseUrl()) {
   let requestUrl = "";
 
