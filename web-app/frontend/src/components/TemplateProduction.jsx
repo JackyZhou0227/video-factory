@@ -1178,7 +1178,6 @@ export default function TemplateProduction({ currentUser }) {
         <section className="template-results" aria-labelledby="template-results-title">
           <div className="template-results-heading">
             <div>
-              <Typography variant="kicker" component="span" className="section-kicker">Output</Typography>
               <h3 id="template-results-title">生成结果</h3>
               <p>{task.message}</p>
             </div>

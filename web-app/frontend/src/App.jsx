@@ -15,6 +15,7 @@ import TaskCenter from "./components/TaskCenter";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
 import UserProfile from "./components/UserProfile";
+import SmartSkillHeaderCard from "./components/SmartSkillHeaderCard";
 import { getCurrentUser, login, logout, register } from "./lib/auth";
 import { PAGE_NAMES, PROJECT_NAME } from "./lib/pageNames";
 
@@ -417,6 +418,7 @@ export default function App() {
             <h1>{pageMeta.title}</h1>
             <p className="app-description">{pageMeta.description}</p>
           </div>
+          {activePage === "smart-editing" ? <SmartSkillHeaderCard /> : null}
         </header>
 
         <div className="page-stack">

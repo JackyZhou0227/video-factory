@@ -741,10 +741,15 @@ export default function TTSStudio({ active = false }) {
               ) : (
                 <div className="tts-studio-mode-block tts-studio-edge-config">
                   <div className="tts-studio-edge-fields">
-                    <div className="field">
-                      <span className="field-label">语言</span>
-                      <div className="control tts-studio-static-language">中文</div>
-                    </div>
+                    <TextField
+                      className="field"
+                      label="语言"
+                      fullWidth
+                      size="small"
+                      value="中文"
+                      slotProps={{ input: { readOnly: true } }}
+                      sx={{ "& .MuiOutlinedInput-root": { backgroundColor: "var(--surface-muted)" } }}
+                    />
                     <TextField
                       id="tts-studio-edge-voice"
                       className="field"

@@ -697,7 +697,6 @@ export default function PosterVideo() {
       <section className="workspace-panel output-panel" aria-labelledby="poster-output-title">
         <div className="panel-heading">
           <div>
-            <Typography variant="kicker" component="span" className="section-kicker">输出</Typography>
             <h2 id="poster-output-title">批量生成结果</h2>
           </div>
           <Chip

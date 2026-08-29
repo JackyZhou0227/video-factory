@@ -395,7 +395,6 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
       <section className="workspace-panel output-panel" aria-labelledby="output-title">
         <div className="panel-heading">
           <div>
-            <Typography variant="kicker" component="span" className="section-kicker">输出</Typography>
             <h2 id="output-title">生成数字人视频</h2>
           </div>
           <Chip
