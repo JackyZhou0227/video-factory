@@ -9,6 +9,9 @@ import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
+import Radio from "@mui/material/Radio";
+import RadioGroup from "@mui/material/RadioGroup";
+import FormControlLabel from "@mui/material/FormControlLabel";
 import { statusChipColors } from "../theme";
 import BgmManager from "./BgmManager";
 import Icon from "./Icon";
@@ -410,13 +413,16 @@ export default function SmartEditing({ currentUser }) {
           <p>配套 Skill：{smartEditingSkill.summary}。</p>
           <small>请与您当前使用的下载文件名或 <code>skill.json</code> 手动对比版本。</small>
         </div>
-        <a
+        <Button
           className="smart-skill-download"
           href={SMART_EDITING_SKILL_DOWNLOAD_URL}
           download={SMART_EDITING_SKILL_FILENAME}
+          variant="contained"
+          size="small"
+          startIcon={<Icon name="download" size={15} />}
         >
-          <Icon name="download" size={15} />下载 Skill v{smartEditingSkill.version}
-        </a>
+          下载 Skill v{smartEditingSkill.version}
+        </Button>
       </section>
 
       <div className="smart-editing-grid">
@@ -428,7 +434,7 @@ export default function SmartEditing({ currentUser }) {
             </div>
             <TextField
               className="smart-script-input"
-              label="最终文案"
+              placeholder="粘贴 Agent 仿写后的完整文案"
               fullWidth
               multiline
               rows={10}
@@ -460,7 +466,7 @@ export default function SmartEditing({ currentUser }) {
                   className="smart-keyword-textarea"
                   fullWidth
                   multiline
-                  rows={7}
+                  rows={4}
                   value={keywordDraft}
                   placeholder={'例如：\n医院\n医生\n问诊'}
                   onChange={(event) => updateKeywordDraft(event.target.value)}
@@ -487,18 +493,43 @@ export default function SmartEditing({ currentUser }) {
               <div><strong id="smart-settings-title">生成设置</strong><small>V1 开放剪辑节奏、生成数量和可选 BGM</small></div>
             </div>
             <div className="smart-pacing-grid">
-              {PACING_OPTIONS.map((option) => (
-                <label className={`smart-pacing-option ${pacing === option.value ? "is-active" : ""}`} key={option.value}>
-                  <input
-                    type="radio"
-                    name="smart-pacing"
+              <RadioGroup
+                row
+                aria-labelledby="smart-settings-title"
+                name="smart-pacing"
+                value={pacing}
+                onChange={(event) => setPacing(event.target.value)}
+                sx={{ gridColumn: "1 / -1", display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 1.5 }}
+              >
+                {PACING_OPTIONS.map((option) => (
+                  <FormControlLabel
+                    key={option.value}
                     value={option.value}
-                    checked={pacing === option.value}
-                    onChange={(event) => setPacing(event.target.value)}
+                    control={<Radio size="small" sx={{ display: "none" }} />}
+                    label={
+                      <span>
+                        <strong>{option.label}</strong>
+                        <small>{option.description}</small>
+                      </span>
+                    }
+                    sx={{
+                      m: 0,
+                      minWidth: 0,
+                      display: "grid",
+                      gap: "3px",
+                      padding: "11px 12px",
+                      border: "1px solid",
+                      borderRadius: "8px",
+                      cursor: "pointer",
+                      borderColor: pacing === option.value ? "primary.main" : "divider",
+                      backgroundColor: pacing === option.value ? "var(--accent-soft)" : "var(--surface-muted)",
+                      "&:hover": { borderColor: "primary.main" },
+                      "& span strong": { fontSize: 13, display: "block" },
+                      "& span small": { color: "text.secondary", fontSize: 11 },
+                    }}
                   />
-                  <span><strong>{option.label}</strong><small>{option.description}</small></span>
-                </label>
-              ))}
+                ))}
+              </RadioGroup>
             </div>
             <TextField
               className="smart-count-field"

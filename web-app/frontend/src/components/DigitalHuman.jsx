@@ -463,14 +463,26 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
                   </div>
                 )}
                 <div className="runninghub-link-row">
-                  <a className="download-action" href={runningHubResult?.taskUrl || RUNNINGHUB_TASKS_URL} target="_blank" rel="noreferrer">
-                    <Icon name="external" size={16} />
+                  <Button
+                    href={runningHubResult?.taskUrl || RUNNINGHUB_TASKS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    variant="outlined"
+                    size="small"
+                    startIcon={<Icon name="external" size={16} />}
+                  >
                     查看任务进度
-                  </a>
-                  <a className="secondary-link-action" href={runningHubResult?.worksUrl || RUNNINGHUB_WORKS_URL} target="_blank" rel="noreferrer">
-                    <Icon name="external" size={16} />
+                  </Button>
+                  <Button
+                    href={runningHubResult?.worksUrl || RUNNINGHUB_WORKS_URL}
+                    target="_blank"
+                    rel="noreferrer"
+                    variant="text"
+                    size="small"
+                    startIcon={<Icon name="external" size={16} />}
+                  >
                     查看我的作品
-                  </a>
+                  </Button>
                 </div>
               </div>
             ) : taskStatus === "completed" && videoUrl ? (

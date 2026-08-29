@@ -3,6 +3,7 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
+import Chip from "@mui/material/Chip";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
@@ -66,9 +67,35 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
     <section className="workspace-panel profile-panel" aria-label="个人资料工作区">
       <div className="profile-content">
         <form className="profile-form" onSubmit={saveProfile}>
-          <div className="field"><span className="field-label">用户名</span><div className="profile-readonly-value" aria-readonly="true">{currentUser?.username || ""}</div></div>
-          <TextField className="field" label="显示名称" fullWidth size="small" slotProps={{ htmlInput: { maxLength: 64 } }} value={displayName} onChange={(event) => setDisplayName(event.target.value)} required />
-          <div className="profile-role"><span className="field-label">账号角色</span><span className="role-badge"><Icon name={currentUser?.is_admin ? "shield" : "user"} size={14} />{currentUser?.is_admin ? "管理员" : "普通用户"}</span></div>
+          <TextField
+            className="field"
+            label="用户名"
+            fullWidth
+            size="small"
+            value={currentUser?.username || ""}
+            slotProps={{ input: { readOnly: true } }}
+            sx={{ "& .MuiOutlinedInput-root": { backgroundColor: "var(--surface-muted)" } }}
+          />
+          <TextField className="field" label="显示名称" fullWidth size="small" slotProps={{ htmlInput: { maxLength: 64 } }} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+          <div className="profile-role">
+            <span className="field-label">账号角色</span>
+            <Chip
+              icon={<Icon name={currentUser?.is_admin ? "shield" : "user"} size={14} />}
+              label={currentUser?.is_admin ? "管理员" : "普通用户"}
+              sx={{
+                justifyContent: "center",
+                justifySelf: "start",
+                minHeight: 32,
+                padding: "0 14px",
+                borderRadius: "16px",
+                fontSize: 12,
+                fontWeight: 600,
+                backgroundColor: currentUser?.is_admin ? "#f0f3ea" : "var(--surface-muted)",
+                color: currentUser?.is_admin ? "#4f5d3a" : "var(--text-muted)",
+                "& .MuiChip-icon": { color: "inherit" },
+              }}
+            />
+          </div>
           <Button type="submit" variant="contained" disabled={savingProfile} startIcon={<Icon name={savingProfile ? "loading" : "save"} size={16} />}>{savingProfile ? "正在保存" : "保存资料"}</Button>
         </form>
         <div className="profile-security-row">

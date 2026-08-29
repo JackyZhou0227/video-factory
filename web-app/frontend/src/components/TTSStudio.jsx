@@ -597,7 +597,6 @@ export default function TTSStudio({ active = false }) {
               <TextField
                 id="tts-studio-text"
                 className="tts-studio-textarea"
-                label="合成文本"
                 fullWidth
                 multiline
                 rows={11}

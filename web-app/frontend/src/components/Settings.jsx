@@ -35,7 +35,6 @@ const RUNNINGHUB_GUIDE_IMAGES = [1, 2, 3].map((step) => `/runninghub-key-guide/$
 
 export default function Settings() {
   const backendBaseUrl = useBackendBaseUrl();
-  const backendDisplayUrl = useMemo(() => getBackendDisplayUrl(backendBaseUrl), [backendBaseUrl]);
   const [loading, setLoading] = useState(true);
   const [savingRunningHub, setSavingRunningHub] = useState(false);
   const [savingLlm, setSavingLlm] = useState(false);
@@ -190,22 +189,9 @@ export default function Settings() {
 
   return (
     <section className="workspace-panel settings-panel" aria-label="设置工作区">
-      <div className="settings-backend-bar">
-        <div className="settings-backend-copy">
-          <h3><Icon name="serverCog" size={18} />后端服务</h3>
-          <p>当前页面连接到 <strong>{backendDisplayUrl}</strong></p>
-        </div>
-        <Button type="button" variant="outlined" size="small" onClick={loadSettings} disabled={loading}
-          sx={{ alignSelf: "center", flexShrink: 0 }}
-          startIcon={<Icon name={loading ? "loading" : "refresh"} size={15} />}>
-          刷新配置
-        </Button>
-      </div>
-
       <div className="settings-service-list">
         <section className="settings-service-section" aria-labelledby="runninghub-settings-title">
           <div className="settings-service-copy">
-            <Typography variant="kicker" component="span" className="section-kicker">RunningHub</Typography>
             <h3 id="runninghub-settings-title"><Icon name="cloud" size={19} />RunningHub 配置</h3>
             <p>保存当前用户的 RunningHub API Key，并配置任务并发和机器规格。</p>
             <dl className="settings-summary">
@@ -213,10 +199,16 @@ export default function Settings() {
             </dl>
             <div className="runninghub-key-link-slot">
               <div className="runninghub-key-actions">
-                <a className="runninghub-key-link" href="https://www.runninghub.cn/?inviteCode=kwqbktmi" rel="noreferrer" target="_blank">
+                <Button
+                  className="runninghub-key-link"
+                  href="https://www.runninghub.cn/?inviteCode=kwqbktmi"
+                  target="_blank"
+                  rel="noreferrer"
+                  variant="text"
+                >
                   <span className="runninghub-key-link-copy"><strong>前往RunningHub</strong></span>
                   <Icon name="external" size={15} />
-                </a>
+                </Button>
                 <Button className="runninghub-key-link" type="button" variant="text" onClick={() => setRunningHubGuideOpen(true)}>
                   <span className="runninghub-key-link-copy"><strong>获取教程</strong></span>
                   <Icon name="book" size={15} />
@@ -236,7 +228,6 @@ export default function Settings() {
 
         <section className="settings-service-section" aria-labelledby="llm-settings-title">
           <div className="settings-service-copy">
-            <Typography variant="kicker" component="span" className="section-kicker">LLM Service</Typography>
             <h3 id="llm-settings-title"><Icon name="sparkles" size={19} />LLM 服务配置</h3>
             <p>保存当前用户的接口地址、模型名称和 API Key，供项目内需要大语言模型的功能统一调用。接口需兼容 OpenAI Chat Completions 协议。</p>
             <dl className="settings-summary">

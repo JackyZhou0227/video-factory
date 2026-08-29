@@ -5,56 +5,171 @@
 }
 
 :root {
-  /* Claude 设计系统 token（example/Claude/colors_and_type.css 亮色模式） */
-  color: #3d3929; /* text-800 */
-  background: #faf9f5; /* bg-100 */
-  --bg: #faf9f5;
-  --surface: #f5f4ef; /* bg-200 card */
-  --surface-muted: #ede9de; /* bg-300 */
-  --surface-strong: #e3e0d4; /* bg-400 */
-  --text: #3d3929; /* text-800 */
-  --text-muted: #6e6d68; /* text-500 */
-  --text-soft: #9b988c; /* text-400 */
-  --border: #dad9d4; /* border-300 */
-  --border-strong: #cdcabf; /* border-400 */
-  --accent: #c96442; /* brand-500 terra-cotta */
-  --accent-dark: #b0562f; /* brand-600 */
-  --accent-soft: #fbf2ed; /* brand-50 */
+  /* ==========================================================
+     旧名 token 垫片：全部映射到 src/styles/claude/design-tokens.css
+     的官方 token（该文件由 main.jsx 先于本文件引入）。
+     改主题请改 design-tokens.css / theme.js，不要在这里写死色值。
+     ========================================================== */
+  --bg: var(--background);
+  --surface: var(--card);
+  --surface-muted: var(--muted);
+  --surface-strong: var(--bg-400);
+  --text: var(--text-800);
+  --text-muted: var(--text-500);
+  --text-soft: var(--text-400);
+  --border: var(--border-300);
+  --border-strong: var(--border-400);
+  --accent: var(--brand-500);
+  --accent-dark: var(--brand-600);
+  --accent-soft: var(--brand-50);
+  --green: var(--success-500);
+  --green-soft: var(--success-50);
+  --danger: var(--error-500);
+  --danger-soft: var(--error-50);
+  --shadow: var(--shadow-lg);
+  --shadow-tight: var(--shadow-xs);
+  --voice-chip-bg: var(--success-50);
+  --voice-chip-text: var(--success-700);
+  /* 项目扩展色（Claude token 之外的补充） */
   --blue: #6a9bcc;
   --blue-soft: #e5edf4;
-  --green: #788c5d; /* success-500 */
-  --green-soft: #f0f3ea; /* success-50 */
-  --danger: #d64545; /* error-500 */
-  --danger-soft: #fcecea; /* error-50 */
-  --shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1);
-  --shadow-tight: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
-  --voice-chip-bg: var(--green-soft);
-  --voice-chip-text: #4f5d3a;
-  --font-display: "Newsreader", Georgia, ui-serif, serif;
-  --font-sans: "Poppins", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
-  --font-serif: "Lora", Georgia, ui-serif, serif;
+  color: var(--foreground);
+  background: var(--background);
   font-family: var(--font-sans);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 }
 
-/* 编辑化标题：页面大标题、面板标题用 display 衬线 */
+/* 编辑化标题：页面大标题、面板标题、弹窗标题、空状态标题用 display 衬线 */
 .app-header h1,
 .panel-heading h2,
 .auth-panel h1,
 .tts-studio-preview-heading h3,
-.template-results-heading h3 {
+.template-results-heading h3,
+.empty-state h3,
+.MuiDialog h3 {
   font-family: var(--font-display);
   font-weight: 500;
   letter-spacing: 0.01em;
 }
 
-/* 阅读型长文输入（多行文案编辑器）用 Lora 衬线 */
-.MuiOutlinedInput-root textarea,
-.MuiFilledInput-root textarea {
+/* ============================================================
+   元素级默认继承：任何新写的原生元素，不写样式也是 Claude 风格
+   ============================================================ */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  letter-spacing: 0.01em;
+}
+
+code, kbd, pre, samp {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+code, kbd {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--muted);
+  color: var(--foreground);
+}
+
+pre {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--card);
+  overflow-x: auto;
+}
+
+::selection {
+  background: var(--brand-100);
+  color: var(--text-900);
+}
+
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+a {
+  transition: color 0.16s ease;
+}
+
+a:hover {
+  color: var(--accent);
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+*:disabled {
+  color: var(--text-400);
+}
+
+@media (pointer: fine) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-300) transparent;
+  }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb {
+    background: var(--border-300);
+    border-radius: 999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+  }
+  *::-webkit-scrollbar-thumb:hover { background-color: var(--border-400); }
+}
+
+/* ============================================================
+   字体分工（Claude 设计系统四角色）
+   Newsreader = 大标题 · Poppins = UI chrome（默认继承）
+   Lora = 被阅读的内容 · Geist Mono = 技术标注
+   ============================================================ */
+/* 输入框值的基础字体由 theme MuiInputBase 提供（Lora）；多行加行距 */
+.MuiInputBase-inputMultiline {
+  line-height: 1.7;
+}
+
+/* 技术字段输入框（URL/API Key/随机密码）的等宽字体由各 TextField 的 sx 注入 */
+
+/* 说明性段落：被阅读的内容 → Lora */
+.app-description,
+.settings-copy p,
+.settings-service-copy p,
+.smart-skill-content p,
+.tts-studio-step-copy p,
+.panel-heading p,
+.profile-security-row p {
   font-family: var(--font-serif);
   line-height: 1.7;
+}
+
+/* 内容类文本：候选文案 / 音色参考文本 / 成片脚本摘录 → Lora */
+.script-candidate-select span,
+.voice-summary-main span,
+.template-result-copy p {
+  font-family: var(--font-serif);
+  line-height: 1.65;
+}
+
+/* 设置页说明段落仍为阅读体（与其他页面描述保持一致） */
+
+/* 技术标注：任务 ID / 掩码密钥 / 文件名与大小 / 码率 → 等宽 */
+.task-runninghub-card strong,
+.runninghub-task-id strong,
+.settings-summary dd,
+.file-row span:first-child,
+.poster-file-row span,
+.task-artifact-title-row span,
+.bgm-preview-meta,
+.tts-studio-audio-result-rate {
+  font-family: var(--font-mono);
 }
 
 body {
@@ -1674,12 +1789,6 @@ a {
   background: #000;
 }
 
-.download-action {
-  margin-top: 12px;
-  background: var(--green);
-  color: #f5f4ef;
-  box-shadow: 0 10px 22px rgba(120, 140, 93, 0.2);
-}
 
 .submitted-state {
   display: grid;
@@ -1735,9 +1844,6 @@ a {
   width: 100%;
 }
 
-.runninghub-link-row .download-action {
-  margin-top: 0;
-}
 
 .progress-area {
   display: grid;
@@ -1770,53 +1876,6 @@ a {
   margin-bottom: 22px;
 }
 
-.settings-backend-bar {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.85fr) minmax(420px, 1.15fr);
-  gap: 24px;
-  margin-bottom: 24px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-backend-copy,
-.settings-backend-form {
-  display: grid;
-  gap: 12px;
-  align-content: start;
-  min-width: 0;
-}
-
-.settings-backend-copy h3 {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin: 0;
-  color: var(--text);
-  font-size: 18px;
-  font-weight: 720;
-}
-
-.settings-backend-copy p {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: 13px;
-  line-height: 1.7;
-}
-
-.settings-backend-copy strong {
-  overflow-wrap: anywhere;
-  color: var(--text);
-  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-  font-size: 13px;
-  font-weight: 760;
-}
-
-.settings-backend-actions {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: 12px;
-}
 
 .settings-content {
   display: grid;
@@ -2093,26 +2152,7 @@ a {
 }
 
 
-.role-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 28px;
-  padding: 0 9px;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  background: var(--surface-muted);
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 720;
-  white-space: nowrap;
-}
 
-.role-badge.admin {
-  border-color: rgba(120, 140, 93, 0.32);
-  background: var(--green-soft);
-  color: #4f5d3a;
-}
 
 .compact-control {
   min-height: 38px;
@@ -2535,9 +2575,6 @@ a {
     grid-template-columns: 1fr;
   }
 
-  .settings-backend-bar {
-    grid-template-columns: 1fr;
-  }
 
   .result-surface {
     min-height: 360px;
@@ -2982,11 +3019,6 @@ a {
   width: 100%;
 }
 
-.tts-studio-audio-result .download-action {
-  min-height: 30px;
-  padding: 0 9px;
-  font-size: 11px;
-}
 
 .tts-studio-adjusted-empty {
   display: flex;
@@ -3000,12 +3032,6 @@ a {
   line-height: 1.5;
 }
 
-.download-action.is-disabled {
-  background: #d4d0c2;
-  box-shadow: none;
-  color: #9b988c;
-  cursor: not-allowed;
-}
 
 .tts-studio-empty-state {
   align-content: center;
@@ -3269,9 +3295,6 @@ a {
 
   .sidebar-nav,
   .settings-actions,
-  .settings-backend-actions {
-    grid-template-columns: 1fr;
-  }
 
   .app-sidebar {
     grid-template-columns: 1fr;
@@ -4092,48 +4115,11 @@ a {
   font-weight: 720;
 }
 
-.subtitle-notice-toggle input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-}
 
-.subtitle-notice-toggle > span {
-  position: relative;
-  width: 30px;
-  height: 18px;
-  flex: 0 0 auto;
-  border-radius: 999px;
-  background: var(--border-strong);
-  transition: background 0.16s ease;
-}
 
-.subtitle-notice-toggle > span::after {
-  position: absolute;
-  top: 3px;
-  left: 3px;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: #f5f4ef;
-  content: "";
-  transition: transform 0.16s ease;
-}
 
-.subtitle-notice-toggle input:checked + span {
-  background: var(--green);
-}
 
-.subtitle-notice-toggle input:checked + span::after {
-  transform: translateX(12px);
-}
 
-.subtitle-notice-toggle input:focus-visible + span {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
 
 .subtitle-notice-toggle em {
   font-style: normal;
@@ -4634,6 +4620,10 @@ a {
   grid-template-columns: minmax(260px, 0.8fr) minmax(340px, 1.2fr);
   gap: 36px;
   padding: 28px 0;
+}
+
+/* 两个配置区块之间的分隔线（首个区块不加） */
+.settings-service-section + .settings-service-section {
   border-top: 1px solid var(--border);
 }
 
@@ -5062,12 +5052,12 @@ a {
 .smart-keyword-editor {
   display: grid;
   gap: 10px;
+  align-content: start;
 }
 
-.smart-keyword-editor textarea {
-  min-height: 150px;
+.smart-keyword-editor .MuiInputBase-inputMultiline {
   line-height: 1.65;
-  resize: vertical;
+  resize: none;
 }
 
 .smart-keyword-list {
@@ -5143,48 +5133,12 @@ a {
   gap: 9px;
 }
 
-.smart-pacing-option {
-  min-width: 0;
-  display: block;
-  padding: 11px 12px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface-muted);
-  cursor: pointer;
-}
 
-.smart-pacing-option:hover {
-  border-color: var(--border-strong);
-}
 
-.smart-pacing-option.is-active {
-  border-color: var(--accent);
-  background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px rgba(217, 119, 87, 0.08);
-}
 
-.smart-pacing-option input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-}
 
-.smart-pacing-option > span {
-  display: grid;
-  gap: 3px;
-}
 
-.smart-pacing-option strong {
-  font-size: 13px;
-}
 
-.smart-pacing-option small {
-  color: var(--text-muted);
-  font-size: 11px;
-}
 
 .smart-count-field {
   max-width: 220px;

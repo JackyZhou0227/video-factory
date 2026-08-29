@@ -185,12 +185,12 @@ function TaskDetail({ task, backendBaseUrl, loading, onClose }) {
         <div className="task-runninghub-card">
           <div><span>RunningHub 任务 ID</span><strong>{extra.runninghub_task_id}</strong></div>
           <div className="task-runninghub-actions">
-            <a className="secondary-link-action" href={extra.runninghub_task_url} target="_blank" rel="noreferrer">
-              <Icon name="external" size={14} />任务进度
-            </a>
-            <a className="secondary-link-action" href={extra.runninghub_works_url} target="_blank" rel="noreferrer">
-              <Icon name="external" size={14} />我的作品
-            </a>
+            <Button href={extra.runninghub_task_url} target="_blank" rel="noreferrer" variant="text" size="small" startIcon={<Icon name="external" size={14} />}>
+              任务进度
+            </Button>
+            <Button href={extra.runninghub_works_url} target="_blank" rel="noreferrer" variant="text" size="small" startIcon={<Icon name="external" size={14} />}>
+              我的作品
+            </Button>
           </div>
         </div>
       ) : null}

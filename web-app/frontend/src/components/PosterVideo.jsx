@@ -542,7 +542,7 @@ export default function PosterVideo() {
 
                     <TextField
                       className="poster-block-text"
-                      label="内容"
+                      placeholder="输入大字报文字内容"
                       fullWidth
                       multiline
                       rows={3}

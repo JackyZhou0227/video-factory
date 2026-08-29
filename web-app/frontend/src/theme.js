@@ -86,6 +86,18 @@ const theme = createTheme({
     ...Array(22).fill("0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 4px 6px -1px rgba(0, 0, 0, 0.1)"),
   ],
   components: {
+    MuiInputBase: {
+      styleOverrides: {
+        // 输入框的值是"被阅读的内容" → Lora（Claude 四字体角色之一）
+        input: { fontFamily: "var(--font-serif)" },
+      },
+    },
+    MuiInputLabel: {
+      styleOverrides: {
+        // 浮动标签与内容统一用 Lora
+        root: { fontFamily: "var(--font-serif)" },
+      },
+    },
     MuiButton: {
       defaultProps: { disableElevation: true },
       styleOverrides: {
@@ -124,6 +136,30 @@ const theme = createTheme({
     MuiToggleButtonGroup: {
       styleOverrides: {
         root: { backgroundColor: tokens.popover, borderRadius: 8 },
+      },
+    },
+    MuiTableContainer: {
+      styleOverrides: {
+        root: { backgroundColor: "transparent" },
+      },
+    },
+    MuiTableCell: {
+      styleOverrides: {
+        root: {
+          borderBottom: `1px solid ${tokens.border}`,
+          borderRight: `1px solid ${tokens.border}`,
+          textAlign: "center",
+          color: tokens.textMuted,
+          fontSize: 13,
+          padding: "14px 16px",
+        },
+        head: {
+          backgroundColor: tokens.muted,
+          color: tokens.foreground,
+          fontSize: 12,
+          fontWeight: 700,
+        },
+        body: { verticalAlign: "middle" },
       },
     },
   },

@@ -2,9 +2,16 @@ import { useCallback, useEffect, useState } from "react";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
+import Chip from "@mui/material/Chip";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Tooltip from "@mui/material/Tooltip";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
@@ -38,21 +45,31 @@ function UserRow({ user, currentUserId, onOpenReset, onOpenRole, onRoleChange, r
   }, [nextRole, onRoleChange, user.id]);
 
   return (
-    <tr>
-      <td>
+    <TableRow>
+      <TableCell>
         <strong className="user-name">{user.display_name || user.username}</strong>
-      </td>
-      <td>
+      </TableCell>
+      <TableCell>
         <span className="user-username">{user.username}</span>
-      </td>
-      <td>
-        <span className={`role-badge ${user.is_admin ? "admin" : "user"}`}>
-          <Icon name={user.is_admin ? "shield" : "user"} size={14} />
-          {user.is_admin ? "管理员" : "普通用户"}
-        </span>
-      </td>
-      <td>{formatDateTime(user.created_at)}</td>
-      <td>
+      </TableCell>
+      <TableCell>
+        <Chip
+          icon={<Icon name={user.is_admin ? "shield" : "user"} size={14} />}
+          label={user.is_admin ? "管理员" : "普通用户"}
+          sx={{
+            minHeight: 32,
+            padding: "0 14px",
+            borderRadius: "16px",
+            fontSize: 12,
+            fontWeight: 600,
+            backgroundColor: user.is_admin ? "#f0f3ea" : "var(--surface-muted)",
+            color: user.is_admin ? "#4f5d3a" : "var(--text-muted)",
+            "& .MuiChip-icon": { color: "inherit" },
+          }}
+        />
+      </TableCell>
+      <TableCell>{formatDateTime(user.created_at)}</TableCell>
+      <TableCell>
         <div className="user-row-actions">
           <Tooltip title="权限管理" arrow>
             <span>
@@ -81,8 +98,8 @@ function UserRow({ user, currentUserId, onOpenReset, onOpenRole, onRoleChange, r
             </span>
           </Tooltip>
         </div>
-      </td>
-    </tr>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -213,18 +230,18 @@ export default function UserManagement({ currentUser }) {
 
         <div className="task-list-toolbar"><span>共 {total} 个用户</span></div>
 
-        <div className="admin-table-wrap">
-          <table className="admin-table">
-            <thead>
-              <tr>
-                <th>名称</th>
-                <th>用户名</th>
-                <th>角色</th>
-                <th>创建时间</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody>
+        <TableContainer>
+          <Table aria-label="用户列表">
+            <TableHead>
+              <TableRow>
+                <TableCell>名称</TableCell>
+                <TableCell>用户名</TableCell>
+                <TableCell>角色</TableCell>
+                <TableCell>创建时间</TableCell>
+                <TableCell>操作</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {users.map((user) => (
                 <UserRow
                   key={user.id}
@@ -237,9 +254,9 @@ export default function UserManagement({ currentUser }) {
                   updatingRoleUserId={updatingRoleUserId}
                 />
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </TableContainer>
 
         {!loading && users.length === 0 && <div className="audio-empty">暂无用户</div>}
 

@@ -6,6 +6,7 @@ import { HashRouter } from "react-router-dom";
 import App from "./App";
 import GlobalMessageProvider from "./components/GlobalMessageProvider";
 import theme from "./theme";
+import "./styles/claude/design-tokens.css";
 import "./App.css";
 
 ReactDOM.createRoot(document.getElementById("root")).render(

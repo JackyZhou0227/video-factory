@@ -946,7 +946,7 @@ export default function TemplateProduction({ currentUser }) {
             )}
             <TextField
               className="final-script-field"
-              label="最终文案"
+              placeholder="选择上方候选，或直接在这里输入最终用于配音和生成视频的文案"
               fullWidth
               multiline
               rows={5}
