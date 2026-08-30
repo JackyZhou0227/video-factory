@@ -15,7 +15,6 @@ import TTSStudio from "./components/TTSStudio";
 import TaskCenter from "./components/TaskCenter";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
-import OrganizationManagement from "./components/OrganizationManagement";
 import UserProfile from "./components/UserProfile";
 import SmartSkillHeaderCard from "./components/SmartSkillHeaderCard";
 import { useGlobalMessage } from "./components/GlobalMessageProvider";
@@ -85,13 +84,6 @@ const NAV_ITEMS = [
     icon: "shield",
     minRole: 1,
   },
-  {
-    id: "organizations",
-    label: "组织管理",
-    description: "组织与成员归属",
-    icon: "list",
-    minRole: 2,
-  },
 ];
 
 const PAGE_META = {
@@ -140,17 +132,13 @@ const PAGE_META = {
     title: "用户管理",
     description: "查看用户列表，管理用户账号角色与登录密码。",
   },
-  organizations: {
-    eyebrow: "Organization",
-    title: "组织管理",
-    description: "创建组织、调整成员归属并指定组织管理员。",
-  },
 };
 
 const DEFAULT_PAGE = "digital-human";
 
 function pageFromPathname(pathname) {
   const id = pathname.replace(/^\/+|\/+$/g, "");
+  if (id === "organizations") return "users"; // 组织管理已并入用户管理页
   return PAGE_META[id] ? id : null;
 }
 
@@ -518,9 +506,6 @@ export default function App() {
           </div>
           <div className={`settings-main page-panel ${activePage === "users" ? "is-active" : ""}`}>
             <UserManagement currentUser={currentUser} />
-          </div>
-          <div className={`settings-main page-panel ${activePage === "organizations" ? "is-active" : ""}`}>
-            <OrganizationManagement currentUser={currentUser} />
           </div>
         </div>
       </main>

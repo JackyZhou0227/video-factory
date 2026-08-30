@@ -16,7 +16,10 @@ import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
 import Icon from "./Icon";
+import OrganizationManagement from "./OrganizationManagement";
 import {
   createMember,
   listOrganizations,
@@ -167,6 +170,7 @@ function UserRow({ user, currentUserId, canManageRoles, onOpenReset, onOpenRole,
 
 export default function UserManagement({ currentUser }) {
   const canManageRoles = Boolean(currentUser?.is_admin);
+  const [activeTab, setActiveTab] = useState("members");
   const [filters, setFilters] = useState({ name: "", username: "", status: "" });
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -334,6 +338,20 @@ export default function UserManagement({ currentUser }) {
   return (
     <section className="workspace-panel admin-panel" aria-label="用户管理工作区">
       <div className="admin-content">
+        {currentUser?.is_admin && (
+          <Tabs
+            value={activeTab}
+            onChange={(_, value) => setActiveTab(value)}
+            sx={{ mb: 2, minHeight: 40, "& .MuiTab-root": { minHeight: 40, fontSize: 14, fontWeight: 600 } }}
+          >
+            <Tab value="members" label="成员管理" />
+            <Tab value="organizations" label="组织管理" />
+          </Tabs>
+        )}
+        {activeTab === "organizations" && currentUser?.is_admin ? (
+          <OrganizationManagement embedded />
+        ) : (
+          <>
         <div className="task-filter-grid admin-filter-grid">
           <TextField
             className="field"
@@ -428,6 +446,8 @@ export default function UserManagement({ currentUser }) {
             下一页
           </Button>
         </div>
+          </>
+        )}
       </div>
       <Dialog
         open={Boolean(roleDialog)}

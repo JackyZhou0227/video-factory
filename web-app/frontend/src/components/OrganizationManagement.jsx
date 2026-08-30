@@ -17,13 +17,14 @@ import Icon from "./Icon";
 import { createOrganization, deleteOrganization, listOrganizations, renameOrganization } from "../lib/auth";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 
-export default function OrganizationManagement() {
+export default function OrganizationManagement({ embedded = false }) {
   const [orgs, setOrgs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [name, setName] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [editing, setEditing] = useState(null);
   const [editingName, setEditingName] = useState("");
+  const [createOpen, setCreateOpen] = useState(false);
   const [actingId, setActingId] = useState("");
   const { showSuccess } = useGlobalMessage();
 
@@ -49,6 +50,7 @@ export default function OrganizationManagement() {
       await createOrganization(name.trim());
       showSuccess("组织已创建。");
       setName("");
+      setCreateOpen(false);
       await loadOrgs();
     } catch {
       // 错误已由全局提示展示
@@ -84,37 +86,22 @@ export default function OrganizationManagement() {
     }
   }, [loadOrgs, showSuccess]);
 
-  return (
-    <section className="workspace-panel admin-panel" aria-label="组织管理工作区">
-      <div className="admin-content">
-        <div className="task-filter-grid admin-filter-grid">
-          <TextField
-            className="field"
-            label="组织名称"
-            placeholder="输入名称后点击创建"
-            fullWidth
-            size="small"
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            slotProps={{ htmlInput: { maxLength: 64 } }}
-          />
-          <div className="field" style={{ display: "flex", alignItems: "center" }}>
-            <Button
-              type="button"
-              variant="contained"
-              size="small"
-              onClick={handleCreate}
-              disabled={submitting || !name.trim()}
-              startIcon={<Icon name={submitting ? "loading" : "list"} size={16} />}
-            >
-              {submitting ? "创建中..." : "创建组织"}
-            </Button>
-          </div>
-        </div>
-
+  const content = (
+    <>
         {loading && <div className="form-alert completed">正在读取组织列表...</div>}
 
-        <div className="task-list-toolbar"><span>共 {orgs.length} 个组织</span></div>
+        <div className="task-list-toolbar" style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <span>共 {orgs.length} 个组织</span>
+          <Button
+            type="button"
+            variant="contained"
+            size="small"
+            onClick={() => { setCreateOpen(true); setName(""); }}
+            startIcon={<Icon name={submitting ? "loading" : "plus"} size={16} />}
+          >
+            新建组织
+          </Button>
+        </div>
 
         <TableContainer>
           <Table aria-label="组织列表">
@@ -142,7 +129,7 @@ export default function OrganizationManagement() {
                             size="small"
                             onClick={() => { setEditing(org); setEditingName(org.name); }}
                           >
-                            <Icon name="type" size={16} />
+                            <Icon name={actingId === org.id ? "loading" : "edit"} size={16} />
                           </IconButton>
                         </span>
                       </Tooltip>
@@ -154,8 +141,9 @@ export default function OrganizationManagement() {
                             size="small"
                             disabled={org.member_count > 0 || actingId === org.id}
                             onClick={() => handleDelete(org)}
+                            sx={{ color: "#c0392b", "&:hover": { backgroundColor: "rgba(192, 57, 43, 0.08)" }, "&.Mui-disabled": { color: "rgba(192, 57, 43, 0.35)" } }}
                           >
-                            <Icon name={actingId === org.id ? "loading" : "x"} size={16} />
+                            <Icon name={actingId === org.id ? "loading" : "trash"} size={16} />
                           </IconButton>
                         </span>
                       </Tooltip>
@@ -168,6 +156,44 @@ export default function OrganizationManagement() {
         </TableContainer>
 
         {!loading && orgs.length === 0 && <div className="audio-empty">暂无组织，请先创建。</div>}
+
+        <Dialog
+          open={createOpen}
+          onClose={() => { if (!submitting) setCreateOpen(false); }}
+          aria-labelledby="org-create-title"
+          fullWidth
+          maxWidth="xs"
+        >
+          <DialogTitle id="org-create-title">新建组织</DialogTitle>
+          <DialogContent>
+            <div className="field" style={{ marginTop: 8 }}>
+              <span className="field-label">组织名称</span>
+              <TextField
+                autoFocus
+                fullWidth
+                size="small"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                slotProps={{ htmlInput: { maxLength: 64 } }}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && name.trim() && !submitting) handleCreate();
+                }}
+              />
+            </div>
+          </DialogContent>
+          <DialogActions>
+            <Button type="button" onClick={() => setCreateOpen(false)} disabled={submitting}>取消</Button>
+            <Button
+              type="button"
+              variant="contained"
+              onClick={handleCreate}
+              disabled={submitting || !name.trim()}
+              startIcon={<Icon name={submitting ? "loading" : "plus"} size={16} />}
+            >
+              {submitting ? "创建中..." : "确认"}
+            </Button>
+          </DialogActions>
+        </Dialog>
 
         <Dialog
           open={Boolean(editing)}
@@ -201,7 +227,13 @@ export default function OrganizationManagement() {
             </Button>
           </DialogActions>
         </Dialog>
-      </div>
+    </>
+  );
+
+  if (embedded) return content;
+  return (
+    <section className="workspace-panel admin-panel" aria-label="组织管理工作区">
+      <div className="admin-content">{content}</div>
     </section>
   );
 }
