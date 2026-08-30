@@ -1,4 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
+import PersonalStats from "./PersonalStats";
+import { DateField } from "./StatsTimeRange";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
@@ -244,6 +248,7 @@ export default function TaskCenter({ active = true }) {
   const [selectedTask, setSelectedTask] = useState(null);
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [activeTab, setActiveTab] = useState("list");
 
   const loadTasks = useCallback(async (targetPage = 1, silent = false) => {
     if (!silent) setLoading(true);
@@ -325,6 +330,18 @@ export default function TaskCenter({ active = true }) {
   return (
     <div className="task-center-layout">
       <section className="workspace-panel task-center-list-panel" aria-label="任务中心工作区">
+        <Tabs
+          value={activeTab}
+          onChange={(_, value) => setActiveTab(value)}
+          sx={{ mb: 2, minHeight: 40, "& .MuiTab-root": { minHeight: 40, fontSize: 14, fontWeight: 600 } }}
+        >
+          <Tab value="list" label="任务列表" />
+          <Tab value="stats" label="我的统计" />
+        </Tabs>
+        {activeTab === "stats" ? (
+          <PersonalStats active={active} />
+        ) : (
+          <>
         <div className="task-filter-grid">
           <TextField className="field" name="task_type" label="任务类型" fullWidth size="small" select value={filters.task_type} onChange={updateFilter}>
             <MenuItem value="">全部</MenuItem>
@@ -338,8 +355,8 @@ export default function TaskCenter({ active = true }) {
             <MenuItem value="">全部</MenuItem>
             {Object.entries(STATUS_LABELS).map(([value, label]) => <MenuItem key={value} value={value}>{label}</MenuItem>)}
           </TextField>
-          <TextField className="field" name="created_from" label="开始日期" fullWidth size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={filters.created_from} onChange={updateFilter} />
-          <TextField className="field" name="created_to" label="结束日期" fullWidth size="small" type="date" slotProps={{ inputLabel: { shrink: true } }} value={filters.created_to} onChange={updateFilter} />
+          <DateField className="field" label="开始日期" fullWidth value={filters.created_from} onChange={updateFilter} />
+          <DateField className="field" label="结束日期" fullWidth value={filters.created_to} onChange={updateFilter} />
           <div className="task-filter-actions"><Button type="button" variant="outlined" size="small" onClick={resetFilters}>重置</Button></div>
         </div>
 
@@ -369,6 +386,8 @@ export default function TaskCenter({ active = true }) {
           </div>
         ) : <div className="task-list-state"><Icon name="history" size={22} /><strong>还没有任务记录</strong><span>完成一次语音、图片或视频生成后，任务会出现在这里。</span></div>}
         <div className="task-pagination"><Button type="button" variant="outlined" size="small" disabled={page <= 1 || loading} onClick={() => loadTasks(page - 1)}>上一页</Button><span>第 {page} / {pages} 页</span><Button type="button" variant="outlined" size="small" disabled={page >= pages || loading} onClick={() => loadTasks(page + 1)}>下一页</Button></div>
+          </>
+        )}
       </section>
       <Dialog
         open={Boolean(selectedId)}

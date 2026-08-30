@@ -14,6 +14,7 @@ from app.api.digital_human import router as digital_human_router
 from app.api.output import router as output_router
 from app.api.poster_video import router as poster_video_router
 from app.api.smart_editing import router as smart_editing_router
+from app.api.stats import router as stats_router
 from app.api.template_production import router as template_production_router
 from app.api.tasks import router as tasks_router
 from app.api.tts_studio import router as tts_studio_router
@@ -66,6 +67,7 @@ def create_app() -> FastAPI:
 
     application.include_router(auth_router, prefix="/api")
     application.include_router(admin_router, prefix="/api")
+    application.include_router(stats_router, prefix="/api")
     application.include_router(output_router)
     application.include_router(digital_human_router, prefix="/api")
     application.include_router(tts_studio_router, prefix="/api")

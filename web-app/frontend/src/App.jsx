@@ -15,6 +15,7 @@ import TTSStudio from "./components/TTSStudio";
 import TaskCenter from "./components/TaskCenter";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
+import DataDashboard from "./components/DataDashboard";
 import UserProfile from "./components/UserProfile";
 import SmartSkillHeaderCard from "./components/SmartSkillHeaderCard";
 import { useGlobalMessage } from "./components/GlobalMessageProvider";
@@ -64,6 +65,13 @@ const NAV_ITEMS = [
     label: "任务中心",
     description: "生成记录与产物管理",
     icon: "history",
+  },
+  {
+    id: "dashboard",
+    label: "数据看板",
+    description: "组织与成员用量统计",
+    icon: "gauge",
+    minRole: 1,
   },
   {
     id: "settings",
@@ -126,6 +134,11 @@ const PAGE_META = {
     eyebrow: "Account",
     title: "个人资料",
     description: "管理显示名称和账号安全设置。",
+  },
+  dashboard: {
+    eyebrow: "Dashboard",
+    title: "数据看板",
+    description: "按时间、组织和成员维度查看任务量与产物量统计。",
   },
   users: {
     eyebrow: PAGE_NAMES.userManagement,
@@ -506,6 +519,9 @@ export default function App() {
           </div>
           <div className={`settings-main page-panel ${activePage === "users" ? "is-active" : ""}`}>
             <UserManagement currentUser={currentUser} />
+          </div>
+          <div className={`settings-main page-panel ${activePage === "dashboard" ? "is-active" : ""}`}>
+            <DataDashboard currentUser={currentUser} />
           </div>
         </div>
       </main>
