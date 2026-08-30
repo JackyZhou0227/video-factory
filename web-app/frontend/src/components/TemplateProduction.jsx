@@ -173,9 +173,8 @@ function ContentFieldControl({ field, value, onChange }) {
     className: "field",
     fullWidth: true,
     size: "small",
-    label: `${field.label}${field.required ? " *" : ""}`,
+    label: field.label,
     value,
-    required: Boolean(field.required),
     onChange: (event) => onChange(event.target.value),
   };
 

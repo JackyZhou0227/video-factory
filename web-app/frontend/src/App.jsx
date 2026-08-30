@@ -244,7 +244,6 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
             onChange={(event) => setUsername(event.target.value)}
             autoComplete="username"
             placeholder="3-32 位英文、数字或下划线"
-            required
           />
 
           {isRegister && (
@@ -271,7 +270,6 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
                 select
                 value={orgId}
                 onChange={(event) => setOrgId(event.target.value)}
-                required
               >
                 {organizations.map((org) => (
                   <MenuItem key={org.id} value={org.id}>{org.name}</MenuItem>
@@ -293,7 +291,6 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
             onChange={(event) => setPassword(event.target.value)}
             autoComplete={isRegister ? "new-password" : "current-password"}
             placeholder="至少 8 位"
-            required
           />
 
           {isRegister && (
@@ -307,7 +304,6 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
               onChange={(event) => setPasswordConfirm(event.target.value)}
               autoComplete="new-password"
               placeholder="再次输入密码"
-              required
             />
           )}
 

@@ -536,7 +536,6 @@ export default function UserManagement({ currentUser }) {
               onChange={(event) => setCreateForm((c) => ({ ...c, username: event.target.value }))}
               placeholder="3-32 位英文、数字或下划线"
               slotProps={{ htmlInput: { minLength: 3 } }}
-              required
             />
             <TextField
               id="admin-create-display-name"
@@ -559,7 +558,6 @@ export default function UserManagement({ currentUser }) {
               onChange={(event) => setCreateForm((c) => ({ ...c, password: event.target.value }))}
               helperText="至少 8 位，创建后成员可直接登录。"
               slotProps={{ htmlInput: { minLength: 8 } }}
-              required
             />
           </div>
         </DialogContent>

@@ -122,9 +122,9 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
         </DialogTitle>
         <DialogContent>
           <form className="profile-form" onSubmit={submitPasswordChange}>
-            <TextField className="field" label="当前密码" fullWidth size="small" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} required autoFocus />
-            <TextField className="field" label="新密码" fullWidth size="small" type="password" autoComplete="new-password" slotProps={{ htmlInput: { minLength: 8 } }} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} required />
-            <TextField className="field" label="确认新密码" fullWidth size="small" type="password" autoComplete="new-password" slotProps={{ htmlInput: { minLength: 8 } }} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} required />
+            <TextField className="field" label="当前密码" fullWidth size="small" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoFocus />
+            <TextField className="field" label="新密码" fullWidth size="small" type="password" autoComplete="new-password" slotProps={{ htmlInput: { minLength: 8 } }} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />
+            <TextField className="field" label="确认新密码" fullWidth size="small" type="password" autoComplete="new-password" slotProps={{ htmlInput: { minLength: 8 } }} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
             <div className="modal-actions">
               <Button type="button" variant="outlined" onClick={() => switchView(false)} disabled={changingPassword}>取消</Button>
               <Button type="submit" variant="contained" disabled={changingPassword} startIcon={<Icon name={changingPassword ? "loading" : "save"} size={16} />}>{changingPassword ? "正在修改" : "修改密码"}</Button>
