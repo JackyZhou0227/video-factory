@@ -22,6 +22,7 @@ APP_TABLES = (
     "bgm_tracks",
     "generation_tasks",
     "templates",
+    "organizations",
 )
 
 TEST_DATABASE_URL = str(
@@ -61,7 +62,7 @@ def truncate_app_tables() -> None:
     engine = create_engine_from_url(TEST_DATABASE_URL)
     try:
         with engine.begin() as connection:
-            connection.execute(text("TRUNCATE TABLE users, sessions, settings, subtitle_replacements, bgm_tracks, generation_tasks, templates RESTART IDENTITY CASCADE"))
+            connection.execute(text("TRUNCATE TABLE users, sessions, settings, subtitle_replacements, bgm_tracks, generation_tasks, templates, organizations RESTART IDENTITY CASCADE"))
     finally:
         engine.dispose()
     dispose_engines()

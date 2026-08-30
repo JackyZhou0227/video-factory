@@ -12,14 +12,15 @@ from tests.pg_test_utils import count_sessions, set_session_expires_at
 
 
 class AuthSecurityTests(unittest.TestCase):
-    ENV_NAMES = (
-        "VF_AUTH_REGISTRATION_ENABLED",
-        "VF_AUTH_ALLOW_FIRST_USER_ADMIN",
-        "VF_AUTH_COOKIE_SECURE",
-        "VF_AUTH_COOKIE_SAMESITE",
-        "VF_AUTH_SESSION_MAX_AGE_SECONDS",
-        "VF_AUTH_MAX_SESSIONS_PER_USER",
-    )
+    # VF_AUTH_* 环境变量已迁入 config.yaml 的 auth 段；测试直接改写内存配置
+    AUTH_KEYS = {
+        "VF_AUTH_REGISTRATION_ENABLED": "registration_enabled",
+        "VF_AUTH_ALLOW_FIRST_USER_ADMIN": "allow_first_user_admin",
+        "VF_AUTH_COOKIE_SECURE": "cookie_secure",
+        "VF_AUTH_COOKIE_SAMESITE": "cookie_samesite",
+        "VF_AUTH_SESSION_MAX_AGE_SECONDS": "session_max_age_seconds",
+        "VF_AUTH_MAX_SESSIONS_PER_USER": "max_sessions_per_user",
+    }
 
     def setUp(self):
         self.original_limits = {
@@ -31,7 +32,11 @@ class AuthSecurityTests(unittest.TestCase):
                 "REGISTER_USERNAME_MAX_ATTEMPTS",
             )
         }
-        self.original_env = {name: os.environ.get(name) for name in self.ENV_NAMES}
+        from app.core.config import app_config
+
+        self._app_config = app_config
+        self.original_auth = dict(app_config.get("auth") or {})
+        app_config["auth"] = dict(self.original_auth)
         settings_store.init_db()
         auth_store.init_auth_schema()
         auth_store.reset_rate_limits()
@@ -43,19 +48,24 @@ class AuthSecurityTests(unittest.TestCase):
     def tearDown(self):
         self.client.close()
         auth_store.reset_rate_limits()
-        for name, value in self.original_env.items():
-            if value is None:
-                os.environ.pop(name, None)
-            else:
-                os.environ[name] = value
+        self._app_config["auth"] = self.original_auth
         for name, value in self.original_limits.items():
             setattr(auth_store, name, value)
 
-    def set_env(self, name: str, value: str | None) -> None:
+    def set_env(self, name: str, value: str | bool | None) -> None:
+        key = self.AUTH_KEYS[name]
         if value is None:
-            os.environ.pop(name, None)
+            self._app_config["auth"].pop(key, None)
+        elif isinstance(value, bool):
+            self._app_config["auth"][key] = value
         else:
-            os.environ[name] = value
+            text = str(value).strip().lower()
+            if key in ("cookie_secure", "registration_enabled", "allow_first_user_admin"):
+                self._app_config["auth"][key] = text in {"1", "true", "yes", "on"}
+            elif key in ("session_max_age_seconds", "max_sessions_per_user"):
+                self._app_config["auth"][key] = int(text)
+            else:
+                self._app_config["auth"][key] = text
 
     def test_registration_is_disabled_by_default(self):
         self.set_env("VF_AUTH_REGISTRATION_ENABLED", None)
@@ -72,28 +82,35 @@ class AuthSecurityTests(unittest.TestCase):
         self.set_env("VF_AUTH_REGISTRATION_ENABLED", "true")
         self.set_env("VF_AUTH_COOKIE_SECURE", "false")
 
+        org_id = auth_store.create_organization("默认组织")["id"]
+
         response = self.client.post(
             "/api/auth/register",
-            json={"username": "newuser", "password": "correct-password"},
+            json={"username": "newuser", "password": "correct-password", "org_id": org_id},
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["pending"])
         self.assertFalse(response.json()["user"]["is_admin"])
+        self.assertEqual(response.json()["user"]["status"], "pending")
 
         second_response = self.client.post(
             "/api/auth/register",
-            json={"username": "seconduser", "password": "correct-password"},
+            json={"username": "seconduser", "password": "correct-password", "org_id": org_id},
         )
         self.assertEqual(second_response.status_code, 200)
+        self.assertTrue(second_response.json()["pending"])
         self.assertFalse(second_response.json()["user"]["is_admin"])
 
     def test_cookie_security_attributes_are_configurable(self):
-        self.set_env("VF_AUTH_REGISTRATION_ENABLED", "true")
+        self.set_env("VF_AUTH_COOKIE_SECURE", None)
         self.set_env("VF_AUTH_COOKIE_SECURE", "true")
         self.set_env("VF_AUTH_COOKIE_SAMESITE", "strict")
 
+        auth_store.create_user("cookieuser", "correct-password")
+
         response = self.client.post(
-            "/api/auth/register",
+            "/api/auth/login",
             json={"username": "cookieuser", "password": "correct-password"},
         )
 
@@ -103,11 +120,12 @@ class AuthSecurityTests(unittest.TestCase):
         self.assertIn("SameSite=strict", cookie)
 
     def test_cookie_secure_follows_local_http_by_default(self):
-        self.set_env("VF_AUTH_REGISTRATION_ENABLED", "true")
+        self.set_env("VF_AUTH_COOKIE_SECURE", None)
         self.set_env("VF_AUTH_COOKIE_SECURE", None)
 
+        auth_store.create_user("httpuser", "correct-password")
         response = self.client.post(
-            "/api/auth/register",
+            "/api/auth/login",
             json={"username": "httpuser", "password": "correct-password"},
         )
 
@@ -115,11 +133,12 @@ class AuthSecurityTests(unittest.TestCase):
         self.assertNotIn("Secure", response.headers["set-cookie"])
 
     def test_cookie_secure_follows_forwarded_https_by_default(self):
-        self.set_env("VF_AUTH_REGISTRATION_ENABLED", "true")
+        self.set_env("VF_AUTH_COOKIE_SECURE", None)
         self.set_env("VF_AUTH_COOKIE_SECURE", None)
 
+        auth_store.create_user("httpsuser", "correct-password")
         response = self.client.post(
-            "/api/auth/register",
+            "/api/auth/login",
             headers={"X-Forwarded-Proto": "https"},
             json={"username": "httpsuser", "password": "correct-password"},
         )
@@ -128,11 +147,12 @@ class AuthSecurityTests(unittest.TestCase):
         self.assertIn("Secure", response.headers["set-cookie"])
 
     def test_cookie_secure_environment_override_wins(self):
-        self.set_env("VF_AUTH_REGISTRATION_ENABLED", "true")
+        self.set_env("VF_AUTH_COOKIE_SECURE", None)
         self.set_env("VF_AUTH_COOKIE_SECURE", "false")
 
+        auth_store.create_user("overrideuser", "correct-password")
         response = self.client.post(
-            "/api/auth/register",
+            "/api/auth/login",
             headers={"X-Forwarded-Proto": "https"},
             json={"username": "overrideuser", "password": "correct-password"},
         )

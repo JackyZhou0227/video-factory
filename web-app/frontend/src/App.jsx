@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from "react-router-dom";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
+import MenuItem from "@mui/material/MenuItem";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import Icon from "./components/Icon";
@@ -14,10 +15,19 @@ import TTSStudio from "./components/TTSStudio";
 import TaskCenter from "./components/TaskCenter";
 import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
+import OrganizationManagement from "./components/OrganizationManagement";
 import UserProfile from "./components/UserProfile";
 import SmartSkillHeaderCard from "./components/SmartSkillHeaderCard";
-import { getCurrentUser, login, logout, register } from "./lib/auth";
+import { useGlobalMessage } from "./components/GlobalMessageProvider";
+import { getCurrentUser, listPublicOrganizations, login, logout, register } from "./lib/auth";
 import { PAGE_NAMES, PROJECT_NAME } from "./lib/pageNames";
+
+// 角色等级：超管(2) > 组织管理员(1) > 普通成员(0)
+const ROLE_LEVELS = { admin: 2, org_admin: 1, user: 0 };
+
+function roleLevel(user) {
+  return ROLE_LEVELS[user?.role] ?? 0;
+}
 
 const NAV_ITEMS = [
   {
@@ -73,7 +83,14 @@ const NAV_ITEMS = [
     label: "用户管理",
     description: "账号与密码",
     icon: "shield",
-    adminOnly: true,
+    minRole: 1,
+  },
+  {
+    id: "organizations",
+    label: "组织管理",
+    description: "组织与成员归属",
+    icon: "list",
+    minRole: 2,
   },
 ];
 
@@ -123,6 +140,11 @@ const PAGE_META = {
     title: "用户管理",
     description: "查看用户列表，管理用户账号角色与登录密码。",
   },
+  organizations: {
+    eyebrow: "Organization",
+    title: "组织管理",
+    description: "创建组织、调整成员归属并指定组织管理员。",
+  },
 };
 
 const DEFAULT_PAGE = "digital-human";
@@ -132,18 +154,28 @@ function pageFromPathname(pathname) {
   return PAGE_META[id] ? id : null;
 }
 
-function AuthScreen({ onAuthenticated }) {
+function AuthScreen({ registrationEnabled, onAuthenticated }) {
   const [mode, setMode] = useState("login");
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
   const [passwordConfirm, setPasswordConfirm] = useState("");
+  const [orgId, setOrgId] = useState("");
+  const [organizations, setOrganizations] = useState([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const { showSuccess } = useGlobalMessage();
 
   const isRegister = mode === "register";
   const title = isRegister ? "注册账号" : "登录账号";
-  const actionLabel = isRegister ? "注册并登录" : "登录";
+  const actionLabel = isRegister ? "提交注册申请" : "登录";
+
+  useEffect(() => {
+    if (!isRegister || organizations.length > 0) return;
+    listPublicOrganizations()
+      .then((data) => setOrganizations(data.organizations || []))
+      .catch(() => setOrganizations([]));
+  }, [isRegister, organizations.length]);
 
   const handleSubmit = useCallback(
     async (event) => {
@@ -158,16 +190,26 @@ function AuthScreen({ onAuthenticated }) {
       setSubmitting(true);
       try {
         const data = isRegister
-          ? await register(username.trim(), password, displayName)
+          ? await register(username.trim(), password, displayName, orgId)
           : await login(username.trim(), password);
-        onAuthenticated(data.user);
+        if (isRegister && data.pending) {
+          showSuccess("注册申请已提交，等待组织管理员审批，批准后即可登录。");
+          setMode("login");
+          setUsername("");
+          setPassword("");
+          setPasswordConfirm("");
+          setDisplayName("");
+          setOrgId("");
+        } else {
+          onAuthenticated(data.user);
+        }
       } catch (err) {
         setError(err.message);
       } finally {
         setSubmitting(false);
       }
     },
-    [actionLabel, displayName, isRegister, onAuthenticated, password, passwordConfirm, username]
+    [displayName, isRegister, onAuthenticated, orgId, password, passwordConfirm, showSuccess, username]
   );
 
   const switchMode = useCallback(() => {
@@ -218,6 +260,28 @@ function AuthScreen({ onAuthenticated }) {
             />
           )}
 
+          {isRegister && (
+            <div className="field">
+              <span className="field-label">所属组织</span>
+              <TextField
+                id="auth-org"
+                fullWidth
+                size="small"
+                select
+                value={orgId}
+                onChange={(event) => setOrgId(event.target.value)}
+                required
+              >
+                {organizations.map((org) => (
+                  <MenuItem key={org.id} value={org.id}>{org.name}</MenuItem>
+                ))}
+              </TextField>
+              <p className="field-help">
+                {organizations.length === 0 ? "暂无可选组织，请联系管理员" : "注册后等待组织管理员审批"}
+              </p>
+            </div>
+          )}
+
           <TextField
             id="auth-password"
             label="密码"
@@ -260,9 +324,11 @@ function AuthScreen({ onAuthenticated }) {
           </Button>
         </form>
 
-        <Button className="auth-switch" type="button" variant="text" onClick={switchMode}>
-          {isRegister ? "已有账号，去登录" : "还没有账号，创建一个"}
-        </Button>
+        {registrationEnabled && (
+          <Button className="auth-switch" type="button" variant="text" onClick={switchMode}>
+            {isRegister ? "已有账号，去登录" : "还没有账号，申请注册"}
+          </Button>
+        )}
         {!isRegister && <p className="auth-help-text">忘记密码请联系管理员重置。</p>}
       </section>
     </main>
@@ -288,10 +354,12 @@ export default function App() {
   const activePage = routePage || DEFAULT_PAGE;
   const [authChecking, setAuthChecking] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
+  const [registrationEnabled, setRegistrationEnabled] = useState(false);
   const [authError, setAuthError] = useState("");
+  const currentRoleLevel = roleLevel(currentUser);
   const visibleNavItems = useMemo(
-    () => NAV_ITEMS.filter((item) => !item.adminOnly || currentUser?.is_admin),
-    [currentUser]
+    () => NAV_ITEMS.filter((item) => !item.minRole || currentRoleLevel >= item.minRole),
+    [currentRoleLevel]
   );
   const pageMeta = useMemo(() => PAGE_META[activePage], [activePage]);
   const handlePageChange = useCallback(
@@ -309,6 +377,7 @@ export default function App() {
       .then((data) => {
         if (cancelled) return;
         setCurrentUser(data.authenticated ? data.user : null);
+        setRegistrationEnabled(Boolean(data.registration_enabled));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -328,9 +397,10 @@ export default function App() {
   useEffect(() => {
     if (authChecking || !currentUser) return;
     // URL 不指向有效页面、或指向无权限页面时，纠正到默认页（保留刷新/直达能力）
-    if (routePage && (routePage !== "users" || currentUser.is_admin)) return;
+    const guardedPage = routePage && NAV_ITEMS.find((item) => item.id === routePage);
+    if (routePage && (!guardedPage?.minRole || currentRoleLevel >= guardedPage.minRole)) return;
     navigate(`/${DEFAULT_PAGE}`, { replace: true });
-  }, [authChecking, currentUser, navigate, routePage]);
+  }, [authChecking, currentRoleLevel, currentUser, navigate, routePage]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -348,7 +418,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <>
-        <AuthScreen onAuthenticated={setCurrentUser} />
+        <AuthScreen registrationEnabled={registrationEnabled} onAuthenticated={setCurrentUser} />
         {authError && <div className="auth-floating-error">{authError}</div>}
       </>
     );
@@ -393,9 +463,9 @@ export default function App() {
             <span title={currentUser.username}>@{currentUser.username}</span>
           </div>
           <div className="sidebar-account-actions">
-            <span className={`sidebar-role ${currentUser.is_admin ? "admin" : ""}`}>
-              <Icon name={currentUser.is_admin ? "shield" : "user"} size={14} />
-              {currentUser.is_admin ? "管理员" : "普通账号"}
+            <span className={`sidebar-role ${currentRoleLevel > 0 ? "admin" : ""}`}>
+              <Icon name={currentRoleLevel > 0 ? "shield" : "user"} size={14} />
+              {currentUser.is_admin ? "超级管理员" : currentUser.is_org_admin ? "组织管理员" : "普通账号"}
             </span>
             <Button
               className="sidebar-logout"
@@ -448,6 +518,9 @@ export default function App() {
           </div>
           <div className={`settings-main page-panel ${activePage === "users" ? "is-active" : ""}`}>
             <UserManagement currentUser={currentUser} />
+          </div>
+          <div className={`settings-main page-panel ${activePage === "organizations" ? "is-active" : ""}`}>
+            <OrganizationManagement currentUser={currentUser} />
           </div>
         </div>
       </main>

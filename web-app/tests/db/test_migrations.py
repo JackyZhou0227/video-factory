@@ -20,6 +20,7 @@ TABLE_NAMES = {
     "bgm_tracks",
     "generation_tasks",
     "templates",
+    "organizations",
 }
 
 
@@ -50,7 +51,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0003",
+                    "0004",
                 )
         finally:
             engine.dispose()
@@ -103,7 +104,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0003",
+                    "0004",
                 )
             with engine.connect() as connection:
                 self.assertEqual(

@@ -17,9 +17,10 @@ export async function login(username, password) {
   );
 }
 
-export async function register(username, password, displayName) {
+export async function register(username, password, displayName, orgId) {
   const payload = { username, password };
   if (displayName.trim()) payload.display_name = displayName.trim();
+  if (orgId) payload.org_id = orgId;
 
   return apiJson(
     "/api/auth/register",
@@ -30,6 +31,10 @@ export async function register(username, password, displayName) {
       silentError: true,
     }
   );
+}
+
+export async function listPublicOrganizations() {
+  return apiJson("/api/auth/organizations", { silentError: true });
 }
 
 export async function logout() {
@@ -58,11 +63,83 @@ export async function updateProfile(displayName) {
   );
 }
 
-export async function listUsers({ name = "", username = "", page = 1, pageSize = 20 } = {}) {
+export async function listUsers({ name = "", username = "", page = 1, pageSize = 20, status = "" } = {}) {
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) });
   if (name.trim()) params.set("name", name.trim());
   if (username.trim()) params.set("username", username.trim());
+  if (status) params.set("status_filter", status);
   return apiJson(`/api/admin/users?${params.toString()}`);
+}
+
+export async function createMember({ username, password, displayName }) {
+  const payload = { username, password };
+  if (displayName?.trim()) payload.display_name = displayName.trim();
+  return apiJson(
+    "/api/admin/users",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function updateUserStatus(userId, status) {
+  return apiJson(
+    `/api/admin/users/${userId}/status`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status }),
+    }
+  );
+}
+
+export async function rejectPendingUser(userId) {
+  return apiJson(`/api/admin/users/${userId}/pending`, { method: "DELETE" });
+}
+
+export async function updateUserOrg(userId, orgId) {
+  return apiJson(
+    `/api/admin/users/${userId}/org`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ org_id: orgId }),
+    }
+  );
+}
+
+// --- 组织管理（仅超管） ---
+
+export async function listOrganizations() {
+  return apiJson("/api/admin/organizations");
+}
+
+export async function createOrganization(name) {
+  return apiJson(
+    "/api/admin/organizations",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }
+  );
+}
+
+export async function renameOrganization(orgId, name) {
+  return apiJson(
+    `/api/admin/organizations/${orgId}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    }
+  );
+}
+
+export async function deleteOrganization(orgId) {
+  return apiJson(`/api/admin/organizations/${orgId}`, { method: "DELETE" });
 }
 
 export async function resetUserPassword(userId, password) {

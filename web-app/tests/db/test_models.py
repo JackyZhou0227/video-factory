@@ -32,6 +32,7 @@ TABLE_NAMES = {
     "bgm_tracks",
     "generation_tasks",
     "templates",
+    "organizations",
 }
 CREATED_AT = "2026-08-23T00:00:00+00:00"
 EXPIRES_AT = "2026-09-22T00:00:00+00:00"

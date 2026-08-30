@@ -80,8 +80,8 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
           <div className="profile-role">
             <span className="field-label">账号角色</span>
             <Chip
-              icon={<Icon name={currentUser?.is_admin ? "shield" : "user"} size={14} />}
-              label={currentUser?.is_admin ? "管理员" : "普通用户"}
+              icon={<Icon name={currentUser?.is_admin ? "shield" : currentUser?.is_org_admin ? "list" : "user"} size={14} />}
+              label={currentUser?.is_admin ? "超级管理员" : currentUser?.is_org_admin ? "组织管理员" : "普通用户"}
               sx={{
                 justifyContent: "center",
                 justifySelf: "start",
@@ -90,8 +90,8 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
                 borderRadius: "16px",
                 fontSize: 12,
                 fontWeight: 600,
-                backgroundColor: currentUser?.is_admin ? "#f0f3ea" : "var(--surface-muted)",
-                color: currentUser?.is_admin ? "#4f5d3a" : "var(--text-muted)",
+                backgroundColor: currentUser?.is_admin ? "#f0f3ea" : currentUser?.is_org_admin ? "#e8f0f5" : "var(--surface-muted)",
+                color: currentUser?.is_admin ? "#4f5d3a" : currentUser?.is_org_admin ? "#33566b" : "var(--text-muted)",
                 "& .MuiChip-icon": { color: "inherit" },
               }}
             />

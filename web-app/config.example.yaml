@@ -14,6 +14,20 @@ tts:
     # 本地推理的最大并发数（1-8），建议先保持 1。
     concurrent_limit: 1
 
+auth:
+  # 是否开放自助注册。开启后注册需选择组织，账号进入待审批状态，
+  # 由组织管理员或超级管理员批准后才能登录。
+  registration_enabled: false
+  # 首个设置密码的用户自动成为超级管理员（仅用于初始化，保持关闭）。
+  allow_first_user_admin: false
+  # 会话有效期（秒）与单用户最大会话数。
+  session_max_age_seconds: 2592000
+  max_sessions_per_user: 10
+  # Cookie 安全属性。cookie_secure 不配置（注释掉）时按请求协议自动判断；
+  # 反向代理终止 HTTPS 时建议显式设置为 true。
+  # cookie_secure: true
+  cookie_samesite: "lax"
+
 database:
   # 正式服务启动必须提供 PostgreSQL 连接 URL。
   url: ""

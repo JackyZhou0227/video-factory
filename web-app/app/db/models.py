@@ -11,10 +11,21 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 
+class Organization(Base):
+    __tablename__ = "organizations"
+    __table_args__ = ({"comment": "组织（行政归属单位，用于人员归属与管理口径）"},)
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
-        CheckConstraint("role IN ('user', 'admin')"),
+        CheckConstraint("role IN ('user', 'org_admin', 'admin')"),
+        CheckConstraint("status IN ('active', 'pending')"),
         CheckConstraint("is_default IN (0, 1)"),
         {"comment": "系统用户"},
     )
@@ -23,6 +34,12 @@ class User(Base):
     username: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     display_name: Mapped[str] = mapped_column(Text, nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'user'"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'active'"))
+    org_id: Mapped[Optional[str]] = mapped_column(
+        Text,
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     password_hash: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     password_salt: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("''"))
     password_iterations: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
@@ -190,6 +207,7 @@ class GenerationTask(Base):
 # existing column is covered without changing its runtime behavior.
 _TABLE_COMMENTS = {
     "users": "系统用户",
+    "organizations": "组织（行政归属单位，用于人员归属与管理口径）",
     "sessions": "登录会话",
     "settings": "用户配置项",
     "subtitle_replacements": "用户字幕敏感词替换规则",
@@ -198,13 +216,14 @@ _TABLE_COMMENTS = {
     "templates": "全站共享模板",
 }
 _COLUMN_COMMENTS = {
-    "users": {"id": "用户唯一标识", "username": "登录用户名", "display_name": "显示名称", "role": "用户角色", "password_hash": "密码哈希", "password_salt": "密码盐值", "password_iterations": "密码哈希迭代次数", "is_default": "是否为默认用户", "created_at": "创建时间", "updated_at": "更新时间"},
+    "users": {"id": "用户唯一标识", "username": "登录用户名", "display_name": "显示名称", "role": "用户角色", "status": "账号状态（active 正常 / pending 待审批）", "org_id": "所属组织标识", "password_hash": "密码哈希", "password_salt": "密码盐值", "password_iterations": "密码哈希迭代次数", "is_default": "是否为默认用户", "created_at": "创建时间", "updated_at": "更新时间"},
     "sessions": {"id": "会话唯一标识", "user_id": "所属用户标识", "token_hash": "会话令牌哈希", "created_at": "创建时间", "expires_at": "过期时间", "revoked_at": "撤销时间"},
     "settings": {"id": "配置项 ID", "user_id": "所属用户标识", "namespace": "配置命名空间", "setting_name": "配置名称", "value": "配置值", "value_type": "配置值类型", "is_secret": "是否为敏感配置", "created_at": "创建时间", "updated_at": "更新时间"},
     "subtitle_replacements": {"id": "替换规则 ID", "user_id": "所属用户标识", "source": "需要替换的原词", "replacement": "字幕替换词", "created_at": "创建时间", "updated_at": "更新时间"},
     "bgm_tracks": {"id": "背景音乐唯一标识", "user_id": "所属用户标识", "name": "文件名称", "relative_path": "相对存储路径", "duration": "音频时长", "file_size": "文件大小", "created_at": "创建时间", "updated_at": "更新时间"},
     "generation_tasks": {"id": "任务唯一标识", "user_id": "所属用户标识", "creator_username": "创建者用户名", "creator_display_name": "创建者显示名称", "task_type": "任务类型", "generation_type": "生成类型", "requested_count": "请求生成数量", "success_count": "成功数量", "failed_count": "失败数量", "status": "任务状态", "progress": "任务进度", "message": "任务消息", "error": "错误信息", "storage_path": "任务存储路径", "extra_info_json": "任务扩展信息", "artifacts_json": "任务产物信息", "created_at": "创建时间", "started_at": "开始时间", "finished_at": "完成时间", "updated_at": "更新时间"},
     "templates": {"id": "模板唯一标识", "definition": "模板定义 JSON", "created_by": "创建模板的管理员", "created_at": "创建时间", "updated_at": "更新时间"},
+    "organizations": {"id": "组织唯一标识", "name": "组织名称", "created_at": "创建时间", "updated_at": "更新时间"},
 }
 for _table_name, _comment in _TABLE_COMMENTS.items():
     if _table_name in Base.metadata.tables:
@@ -216,6 +235,7 @@ for _table_name, _comment in _TABLE_COMMENTS.items():
 __all__ = [
     "BgmTrack",
     "GenerationTask",
+    "Organization",
     "Session",
     "Setting",
     "SubtitleReplacement",

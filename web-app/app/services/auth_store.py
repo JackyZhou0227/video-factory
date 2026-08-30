@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
 from app.db.models import Session as DbSession
-from app.db.models import Setting, User
+from app.db.models import Organization, Setting, User
 from app.services import settings_store
 
 SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
@@ -28,8 +28,12 @@ MIN_PASSWORD_LENGTH = 8
 MAX_PASSWORD_LENGTH = 256
 USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_]{3,32}$")
 ROLE_ADMIN = "admin"
+ROLE_ORG_ADMIN = "org_admin"
 ROLE_USER = "user"
-VALID_ROLES = {ROLE_ADMIN, ROLE_USER}
+VALID_ROLES = {ROLE_ADMIN, ROLE_ORG_ADMIN, ROLE_USER}
+STATUS_ACTIVE = "active"
+STATUS_PENDING = "pending"
+VALID_STATUSES = {STATUS_ACTIVE, STATUS_PENDING}
 
 LOGIN_IP_MAX_ATTEMPTS = 20
 LOGIN_IP_WINDOW_SECONDS = 60
@@ -74,26 +78,25 @@ def _env_int(name: str, default: int, minimum: int = 1) -> int:
 
 
 def is_registration_enabled() -> bool:
-    return _env_bool("VF_AUTH_REGISTRATION_ENABLED", False)
+    return _auth_flag("registration_enabled", False)
 
 
 def allow_first_user_admin() -> bool:
-    return _env_bool("VF_AUTH_ALLOW_FIRST_USER_ADMIN", False)
+    return _auth_flag("allow_first_user_admin", False)
 
 
 def get_session_max_age_seconds() -> int:
-    return _env_int("VF_AUTH_SESSION_MAX_AGE_SECONDS", SESSION_MAX_AGE_SECONDS)
+    return _auth_int("session_max_age_seconds", SESSION_MAX_AGE_SECONDS)
 
 
 def get_max_sessions_per_user() -> int:
-    return _env_int("VF_AUTH_MAX_SESSIONS_PER_USER", MAX_SESSIONS_PER_USER)
+    return _auth_int("max_sessions_per_user", MAX_SESSIONS_PER_USER)
 
 
 def cookie_secure_override() -> Optional[bool]:
-    value = os.getenv("VF_AUTH_COOKIE_SECURE")
-    if value is None:
-        return None
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    # config.yaml 的 auth.cookie_secure；未配置返回 None，按请求协议判断
+    value = _auth_setting("cookie_secure")
+    return value if isinstance(value, bool) else None
 
 
 def cookie_secure() -> bool:
@@ -102,8 +105,27 @@ def cookie_secure() -> bool:
 
 
 def cookie_samesite() -> str:
-    value = (os.getenv("VF_AUTH_COOKIE_SAMESITE") or "lax").strip().lower()
+    value = str(_auth_setting("cookie_samesite") or "").strip().lower()
     return value if value in {"lax", "strict", "none"} else "lax"
+
+
+def _auth_setting(name: str) -> Any:
+    from app.core.config import app_config
+
+    auth_cfg = app_config.get("auth")
+    return auth_cfg.get(name) if isinstance(auth_cfg, dict) else None
+
+
+def _auth_flag(name: str, default: bool) -> bool:
+    value = _auth_setting(name)
+    return value if isinstance(value, bool) else default
+
+
+def _auth_int(name: str, default: int) -> int:
+    value = _auth_setting(name)
+    if isinstance(value, int) and value > 0:
+        return value
+    return default
 
 
 def _now() -> datetime:
@@ -192,7 +214,7 @@ def check_registration_rate_limit(client_ip: str, username: str) -> None:
     )
 
 
-def _public_user(user: User) -> dict[str, Any]:
+def _public_user(user: User, org_name: Optional[str] = None) -> dict[str, Any]:
     role = user.role
     return {
         "id": user.id,
@@ -200,10 +222,25 @@ def _public_user(user: User) -> dict[str, Any]:
         "display_name": user.display_name,
         "role": role,
         "is_admin": role == ROLE_ADMIN,
+        "is_org_admin": role == ROLE_ORG_ADMIN,
+        "status": user.status if hasattr(user, "status") else STATUS_ACTIVE,
+        "org_id": user.org_id if hasattr(user, "org_id") else None,
+        "org_name": org_name,
         "is_default": bool(user.is_default),
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
+
+
+def _org_names_by_id(session: OrmSession) -> dict[str, str]:
+    rows = session.execute(select(Organization.id, Organization.name)).all()
+    return {row[0]: row[1] for row in rows}
+
+
+def _org_name_for(session: OrmSession, org_id: Optional[str]) -> Optional[str]:
+    if not org_id:
+        return None
+    return session.scalar(select(Organization.name).where(Organization.id == org_id))
 
 
 def _orm_session() -> AbstractContextManager[OrmSession]:
@@ -349,10 +386,18 @@ def _copy_default_settings(session: OrmSession, user_id: str) -> None:
             )
 
 
-def create_user(username: str, password: str, display_name: Optional[str] = None) -> dict[str, Any]:
+def create_user(
+    username: str,
+    password: str,
+    display_name: Optional[str] = None,
+    org_id: Optional[str] = None,
+    status: str = STATUS_ACTIVE,
+) -> dict[str, Any]:
     init_auth_schema()
     normalized_username = _validate_username(username)
     _validate_password(password)
+    if status not in VALID_STATUSES:
+        raise ValueError("Unsupported user status")
 
     salt = secrets.token_bytes(16)
     password_hash = _password_hash(password, salt)
@@ -362,6 +407,10 @@ def create_user(username: str, password: str, display_name: Optional[str] = None
 
     try:
         with _orm_session() as session:
+            if org_id is not None and session.scalar(
+                select(Organization.id).where(Organization.id == org_id)
+            ) is None:
+                raise ValueError("组织不存在")
             first_password_user = _password_user_count(session) == 0
             role = (
                 ROLE_ADMIN
@@ -378,6 +427,8 @@ def create_user(username: str, password: str, display_name: Optional[str] = None
                 password_salt=_encode(salt),
                 password_iterations=PASSWORD_ITERATIONS,
                 role=role,
+                status=status,
+                org_id=org_id,
                 is_default=0,
                 created_at=now,
                 updated_at=now,
@@ -386,10 +437,11 @@ def create_user(username: str, password: str, display_name: Optional[str] = None
             session.flush()
             if first_password_user:
                 _copy_default_settings(session, user_id)
+            org_name = _org_name_for(session, org_id)
     except IntegrityError:
         raise ValueError("用户名已存在") from None
 
-    return _public_user(user)
+    return _public_user(user, org_name)
 
 
 def create_initial_admin(
@@ -463,7 +515,9 @@ def authenticate_user(username: str, password: str) -> Optional[dict[str, Any]]:
     if not secrets.compare_digest(actual, expected):
         return None
 
-    return _public_user(user)
+    with _orm_session() as session:
+        org_name = _org_name_for(session, user.org_id)
+    return _public_user(user, org_name)
 
 
 def update_user_profile(user_id: str, display_name: str) -> dict[str, Any]:
@@ -489,6 +543,8 @@ def list_users(
     username: str = "",
     page: int = 1,
     page_size: int = 20,
+    org_id: Optional[str] = None,
+    status: Optional[str] = None,
 ) -> dict[str, Any]:
     init_auth_schema()
     page = max(1, int(page or 1))
@@ -501,6 +557,10 @@ def list_users(
         conditions.append(User.display_name.ilike(f"%{name}%"))
     if username:
         conditions.append(User.username.ilike(f"%{username}%"))
+    if org_id is not None:
+        conditions.append(User.org_id == org_id)
+    if status is not None:
+        conditions.append(User.status == status)
 
     with _orm_session() as session:
         total = session.scalar(select(func.count()).select_from(User).where(*conditions)) or 0
@@ -511,8 +571,9 @@ def list_users(
             .offset((page - 1) * page_size)
             .limit(page_size)
         ).all()
+        org_names = _org_names_by_id(session)
     return {
-        "items": [_public_user(user) for user in users],
+        "items": [_public_user(user, org_names.get(user.org_id)) for user in users],
         "total": int(total),
         "page": page,
         "pages": max(1, (int(total) + page_size - 1) // page_size),
@@ -614,11 +675,14 @@ def update_user_role(user_id: str, role: str) -> dict[str, Any]:
             and _admin_user_count(session) <= 1
         ):
             raise ValueError("At least one admin user is required")
+        if next_role == ROLE_ORG_ADMIN and not user.org_id:
+            raise ValueError("组织管理员必须先归属一个组织")
 
         user.role = next_role
         user.updated_at = now
+        org_name = _org_name_for(session, user.org_id)
 
-    return _public_user(user)
+    return _public_user(user, org_name)
 
 
 def create_session(user_id: str) -> tuple[str, datetime]:
@@ -667,11 +731,15 @@ def get_user_by_session_token(token: str) -> Optional[dict[str, Any]]:
             .where(
                 DbSession.token_hash == _hash_token(token),
                 DbSession.revoked_at.is_(None),
-                DbSession.expires_at > _now_iso(),
+                    DbSession.expires_at > _now_iso(),
+                )
             )
-        )
 
-    return _public_user(user) if user else None
+    if user is None:
+        return None
+    with _orm_session() as session:
+        org_name = _org_name_for(session, user.org_id)
+    return _public_user(user, org_name)
 
 
 def revoke_session(token: str) -> None:
@@ -688,3 +756,159 @@ def revoke_session(token: str) -> None:
             )
             .values(revoked_at=_now_iso())
         )
+
+
+# --- Organizations -----------------------------------------------------------
+
+
+def list_organizations() -> list[dict[str, Any]]:
+    init_auth_schema()
+    with _orm_session() as session:
+        rows = session.execute(
+            select(
+                Organization.id,
+                Organization.name,
+                Organization.created_at,
+                Organization.updated_at,
+                func.count(User.id).label("member_count"),
+            )
+            .outerjoin(User, (User.org_id == Organization.id) & (User.password_hash != ""))
+            .group_by(Organization.id)
+            .order_by(Organization.created_at.asc())
+        ).all()
+    return [
+        {
+            "id": row[0],
+            "name": row[1],
+            "created_at": row[2],
+            "updated_at": row[3],
+            "member_count": int(row[4] or 0),
+        }
+        for row in rows
+    ]
+
+
+def create_organization(name: str) -> dict[str, Any]:
+    init_auth_schema()
+    normalized = (name or "").strip()
+    if not normalized:
+        raise ValueError("组织名称不能为空")
+    if len(normalized) > 64:
+        raise ValueError("组织名称不能超过 64 个字符")
+
+    org_id = uuid.uuid4().hex
+    now = _now_iso()
+    try:
+        with _orm_session() as session:
+            org = Organization(id=org_id, name=normalized, created_at=now, updated_at=now)
+            session.add(org)
+            session.flush()
+            return {"id": org.id, "name": org.name, "created_at": org.created_at, "updated_at": org.updated_at, "member_count": 0}
+    except IntegrityError:
+        raise ValueError("组织名称已存在") from None
+
+
+def rename_organization(org_id: str, name: str) -> dict[str, Any]:
+    init_auth_schema()
+    normalized = (name or "").strip()
+    if not normalized:
+        raise ValueError("组织名称不能为空")
+    if len(normalized) > 64:
+        raise ValueError("组织名称不能超过 64 个字符")
+
+    with _orm_session() as session:
+        org = session.scalar(select(Organization).where(Organization.id == org_id))
+        if org is None:
+            raise ValueError("组织不存在")
+        org.name = normalized
+        org.updated_at = _now_iso()
+        member_count = int(
+            session.scalar(
+                select(func.count()).select_from(User).where(
+                    User.org_id == org_id, User.password_hash != ""
+                )
+            )
+            or 0
+        )
+    return {"id": org_id, "name": normalized, "member_count": member_count, "created_at": org.created_at, "updated_at": org.updated_at}
+
+
+def delete_organization(org_id: str) -> None:
+    init_auth_schema()
+    with _orm_session() as session:
+        org = session.scalar(select(Organization).where(Organization.id == org_id))
+        if org is None:
+            raise ValueError("组织不存在")
+        member_count = int(
+            session.scalar(
+                select(func.count()).select_from(User).where(User.org_id == org_id)
+            )
+            or 0
+        )
+        if member_count > 0:
+            raise ValueError("组织下仍有成员，请先移出全部成员")
+        session.delete(org)
+
+
+def get_user_by_id(user_id: str) -> Optional[dict[str, Any]]:
+    init_auth_schema()
+    with _orm_session() as session:
+        user = session.scalar(select(User).where(User.id == user_id, User.password_hash != ""))
+        if user is None:
+            return None
+        org_name = _org_name_for(session, user.org_id)
+        return _public_user(user, org_name)
+
+
+def update_user_org(user_id: str, org_id: Optional[str]) -> dict[str, Any]:
+    init_auth_schema()
+    with _orm_session() as session:
+        user = session.scalar(select(User).where(User.id == user_id, User.password_hash != ""))
+        if user is None:
+            raise ValueError("User not found")
+        if org_id is not None and session.scalar(
+            select(Organization.id).where(Organization.id == org_id)
+        ) is None:
+            raise ValueError("组织不存在")
+        if user.role == ROLE_ORG_ADMIN and org_id != user.org_id:
+            raise ValueError("请先调整该组织管理员的角色，再变更其组织归属")
+        user.org_id = org_id
+        user.updated_at = _now_iso()
+        org_name = _org_name_for(session, org_id)
+        return _public_user(user, org_name)
+
+
+def update_user_status(user_id: str, status: str) -> dict[str, Any]:
+    init_auth_schema()
+    next_status = (status or "").strip().lower()
+    if next_status not in VALID_STATUSES:
+        raise ValueError("Unsupported user status")
+
+    now = _now_iso()
+    with _orm_session() as session:
+        user = session.scalar(select(User).where(User.id == user_id, User.password_hash != ""))
+        if user is None:
+            raise ValueError("User not found")
+        user.status = next_status
+        user.updated_at = now
+        if next_status == STATUS_PENDING:
+            session.execute(
+                update(DbSession)
+                .where(DbSession.user_id == user_id, DbSession.revoked_at.is_(None))
+                .values(revoked_at=now)
+            )
+        org_name = _org_name_for(session, user.org_id)
+
+    return _public_user(user, org_name)
+
+
+def delete_pending_user(user_id: str) -> None:
+    """Remove a pending registration entirely (rejection)."""
+    init_auth_schema()
+    with _orm_session() as session:
+        user = session.scalar(
+            select(User).where(User.id == user_id, User.status == STATUS_PENDING)
+        )
+        if user is None:
+            raise ValueError("待审批用户不存在")
+        session.delete(user)
