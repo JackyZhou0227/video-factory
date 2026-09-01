@@ -141,7 +141,9 @@ export async function apiJson(path, options, baseUrl = getBackendBaseUrl()) {
 
   if (!response.ok) {
     const error = new ApiError(extractDetailMessage(data, response), response.status);
-    if (!silentError) notifyGlobalError(error);
+    if (response.status === 429 && typeof window !== "undefined") {
+      window.alert(error.message);
+    } else if (!silentError) notifyGlobalError(error);
     throw error;
   }
 

@@ -4,6 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fastapi import HTTPException
+
+from app.api import common
+from app.core.config import app_config
 from app.services import settings_store, task_store
 from tests.pg_test_utils import ensure_test_user, index_names, table_names
 
@@ -140,6 +144,65 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(loaded["status"], "failed")
         self.assertEqual(loaded["failed_count"], 2)
         self.assertIsNotNone(loaded["finished_at"])
+
+    def _set_task_quota(self, per_user: int, active: int = 10, queued: int = 8) -> None:
+        self._original_tasks_config = app_config.get("tasks")
+        app_config["tasks"] = {
+            "max_running_tasks_per_user": per_user,
+            "max_active_jobs": active,
+            "max_queued_jobs": queued,
+        }
+
+    def tearDown(self) -> None:
+        if getattr(self, "_original_tasks_config", None) is None:
+            app_config.pop("tasks", None)
+        else:
+            app_config["tasks"] = self._original_tasks_config
+        self.temp_dir.cleanup()
+
+    def _create_voice_task(self, user_id: str = "user-a") -> dict:
+        return task_store.create_task(
+            user=self.user(user_id),
+            task_type=task_store.TASK_TYPE_VOICE,
+            generation_type="voice",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+
+    def test_create_task_rejects_when_user_quota_exceeded(self):
+        self._set_task_quota(per_user=1)
+        first = self._create_voice_task()
+        with self.assertRaises(task_store.TaskQuotaExceededError) as ctx:
+            self._create_voice_task()
+        self.assertEqual(ctx.exception.scope, "user")
+        task_store.update_task(first["id"], status="completed", progress=100)
+        retried = self._create_voice_task()
+        self.assertNotEqual(retried["id"], first["id"])
+
+    def test_create_task_rejects_when_global_quota_exceeded(self):
+        self._set_task_quota(per_user=10, active=1, queued=0)
+        self._create_voice_task("user-a")
+        with self.assertRaises(task_store.TaskQuotaExceededError) as ctx:
+            self._create_voice_task("user-b")
+        self.assertEqual(ctx.exception.scope, "global")
+
+    def test_zero_quota_disables_limit(self):
+        self._set_task_quota(per_user=0, active=10, queued=8)
+        for _ in range(4):
+            self._create_voice_task()
+
+    def test_common_create_task_translates_quota_error_to_429(self):
+        self._set_task_quota(per_user=1)
+        self._create_voice_task()
+        with self.assertRaises(HTTPException) as ctx:
+            common.create_task(
+                user=self.user(),
+                task_type=task_store.TASK_TYPE_VOICE,
+                generation_type="voice",
+                requested_count=1,
+                output_root=self.output_root,
+            )
+        self.assertEqual(ctx.exception.status_code, 429)
 
 
 if __name__ == "__main__":

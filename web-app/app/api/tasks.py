@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 
 from app.api.auth import require_current_user
 from app.services import task_store
+from app.services.task_runtime import get_task_runtime
 
 router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(require_current_user)])
 try:
@@ -49,6 +50,16 @@ def _owned_task(task_id: str, user_id: str) -> dict:
         return task_store.get_task(task_id, user_id)
     except task_store.TaskNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found") from None
+
+
+@router.get("/summary")
+def get_task_summary(user: dict = Depends(require_current_user)):
+    summary = task_store.get_task_summary(user["id"])
+    try:
+        summary["runtime"] = get_task_runtime().snapshot()
+    except RuntimeError:
+        summary["runtime"] = None
+    return summary
 
 
 @router.get("")

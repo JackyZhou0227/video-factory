@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from app.api import tasks as tasks_api
 from app.api.auth import require_current_user
+from app.core.config import app_config
 from app.services import settings_store, task_store
 from tests.pg_test_utils import ensure_test_user, set_task_artifacts
 
@@ -174,6 +175,83 @@ class TasksApiTests(unittest.TestCase):
         response = self.client.get(f"/api/tasks/{task['id']}/artifacts/malicious/download")
         self.assertEqual(response.status_code, 404, response.text)
         self.assertNotIn(str(outside), response.text)
+    def test_task_summary_counts_pending_and_running_without_leaking_other_tasks(self):
+        original_tasks_config = app_config.get("tasks")
+        app_config["tasks"] = {
+            "max_running_tasks_per_user": 3,
+            "max_active_jobs": 6,
+            "max_queued_jobs": 4,
+        }
+        try:
+            current_pending = task_store.create_task(
+                user=self.user("user-a"),
+                task_type=task_store.TASK_TYPE_VOICE,
+                generation_type="voice",
+                requested_count=1,
+                output_root=self.output_root,
+            )
+            current_running = task_store.create_task(
+                user=self.user("user-a"),
+                task_type=task_store.TASK_TYPE_POSTER,
+                generation_type="image",
+                requested_count=1,
+                output_root=self.output_root,
+            )
+            task_store.update_task(current_running["id"], status="running", started=True)
+            completed = task_store.create_task(
+                user=self.user("user-a"),
+                task_type=task_store.TASK_TYPE_TEMPLATE,
+                generation_type="video",
+                requested_count=1,
+                output_root=self.output_root,
+            )
+            task_store.update_task(completed["id"], status="completed", finished=True)
+            other_pending = task_store.create_task(
+                user=self.user("user-b"),
+                task_type=task_store.TASK_TYPE_VOICE,
+                generation_type="voice",
+                requested_count=1,
+                output_root=self.output_root,
+            )
+            other_running = task_store.create_task(
+                user=self.user("user-b"),
+                task_type=task_store.TASK_TYPE_POSTER,
+                generation_type="image",
+                requested_count=1,
+                output_root=self.output_root,
+            )
+            task_store.update_task(other_running["id"], status="running", started=True)
+
+            response = self.client.get("/api/tasks/summary")
+            self.assertEqual(response.status_code, 200, response.text)
+            payload = response.json()
+            self.assertEqual(payload["user"], {"pending": 1, "running": 1, "active": 2, "limit": 3})
+            self.assertEqual(payload["global"], {"pending": 2, "running": 2, "active": 4, "limit": 10})
+            self.assertIsNone(payload["runtime"])
+            self.assertNotIn(other_pending["id"], response.text)
+        finally:
+            if original_tasks_config is None:
+                app_config.pop("tasks", None)
+            else:
+                app_config["tasks"] = original_tasks_config
+
+    def test_task_summary_returns_null_limits_when_disabled(self):
+        original_tasks_config = app_config.get("tasks")
+        app_config["tasks"] = {
+            "max_running_tasks_per_user": 0,
+            "max_active_jobs": 1,
+            "max_queued_jobs": 0,
+        }
+        try:
+            response = self.client.get("/api/tasks/summary")
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIsNone(response.json()["user"]["limit"])
+            self.assertEqual(response.json()["global"]["limit"], 1)
+        finally:
+            if original_tasks_config is None:
+                app_config.pop("tasks", None)
+            else:
+                app_config["tasks"] = original_tasks_config
 
 
 if __name__ == "__main__":

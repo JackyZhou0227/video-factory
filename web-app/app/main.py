@@ -22,25 +22,41 @@ from app.core.config import ROOT, app_config
 from app.core.security import install_security_middleware
 from app.db.engine import require_postgresql_url
 from app.services import auth_store, settings_store, task_store
+from app.services.task_runtime import TaskExecutionManager, configure_task_runtime
 from app.services.tts import tts_service
 
 logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
-async def lifespan(_application: FastAPI):
+async def lifespan(application: FastAPI):
+    task_config = app_config.get("tasks") or {}
+    runtime = TaskExecutionManager(
+        max_active_jobs=int(task_config.get("max_active_jobs", 10)),
+        max_queued_jobs=int(task_config.get("max_queued_jobs", 8)),
+        qwen_limit=int(
+            ((app_config.get("tts") or {}).get("qwen3_tts_base") or {}).get("concurrent_limit", 1)
+        ),
+    )
+    task_store.mark_incomplete_tasks_failed()
+    configure_task_runtime(runtime)
+    await runtime.start()
+    application.state.task_runtime = runtime
     try:
         await tts_service.prewarm_provider_statuses_async()
     except Exception:
         logger.exception("Failed to prewarm TTS provider statuses")
-    yield
+    try:
+        yield
+    finally:
+        await runtime.stop()
+        configure_task_runtime(None)
 
 
 def create_app() -> FastAPI:
     require_postgresql_url(app_config)
     settings_store.init_db(app_config)
     auth_store.init_auth_schema()
-    task_store.mark_incomplete_tasks_failed()
 
     application = FastAPI(
         title="Video Factory",

@@ -250,6 +250,7 @@ export default function TaskCenter({ active = true }) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("list");
 
+
   const loadTasks = useCallback(async (targetPage = 1, silent = false) => {
     if (!silent) setLoading(true);
     const params = new URLSearchParams({ page: String(targetPage), page_size: "12" });

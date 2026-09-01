@@ -186,7 +186,7 @@ async def generate_video(
     )
 
     task_id = uuid.uuid4().hex
-    task_record = task_store.create_task(
+    task_record = common.create_task(
         user=user,
         task_type=task_store.TASK_TYPE_DIGITAL_HUMAN,
         generation_type="video",
@@ -259,8 +259,7 @@ async def generate_video(
         "error": None,
     }
 
-    asyncio.create_task(
-        _run_video_generation(
+    common.schedule_task(task_id, lambda: _run_video_generation(
             task_id=task_id,
             task_dir=task_dir,
             image_path=image_path,
@@ -268,8 +267,7 @@ async def generate_video(
             api_key=runninghub_api_key,
             workflow_id=runninghub_workflow_id,
             instance_type=runninghub_instance_type,
-        )
-    )
+        ))
 
     return {"task_id": task_id}
 

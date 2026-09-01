@@ -3,6 +3,14 @@ runninghub:
   # 如果账号属于其他地区，可通过 RUNNINGHUB_BASE_URL 或此处覆盖。
   base_url: "https://www.runninghub.cn"
 
+tasks:
+  # 每个用户可占用的 pending/running 任务数；0 或负数表示不限制。
+  max_running_tasks_per_user: 3
+  # 全局任务池：最多同时执行 max_active_jobs 个，另允许 max_queued_jobs 个等待；全局接纳上限自动为二者之和。
+  max_active_jobs: 10
+  max_queued_jobs: 10
+  # Qwen-TTS 的并发限制在 tts.qwen3_tts_base.concurrent_limit 中配置。
+
 tts:
   qwen3_tts_base:
     # 不部署本地音色克隆模型的服务器请保持关闭。

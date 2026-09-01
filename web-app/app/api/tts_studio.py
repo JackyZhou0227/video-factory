@@ -66,7 +66,7 @@ def _public_output_url(path: Path) -> str:
 
 def _new_voice_task(user: dict, suffix: str, extra_info: dict) -> tuple[str, str, Path, Path]:
     task_id = uuid.uuid4().hex
-    record = task_store.create_task(
+    record = common.create_task(
         user=user,
         task_type=task_store.TASK_TYPE_VOICE,
         generation_type="voice",

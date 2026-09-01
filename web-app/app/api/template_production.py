@@ -24,6 +24,7 @@ from app.schemas.template_definition import (
     validate_material_manifest,
 )
 from app.services import settings_store, task_store, template_production, template_registry
+from app.services.task_runtime import run_blocking
 from app.services.llm import LLMConfig, LLMMessage, LLMServiceError, llm_service
 from app.services.tts import EDGE_TTS_MODEL, TTSRequest, tts_service
 
@@ -299,7 +300,7 @@ async def upload_bgm_track(
             default_suffix=".mp3",
             label="背景音乐",
         )
-        duration = await asyncio.to_thread(template_production.probe_duration, file_path)
+        duration = await run_blocking("media", template_production.probe_duration, file_path)
     except template_production.TemplateProductionError:
         duration = 0.0
     except HTTPException:
@@ -599,7 +600,7 @@ async def create_task(
         bgm_name = bgm_track["name"]
 
     task_id = uuid.uuid4().hex
-    task_record = task_store.create_task(
+    task_record = common.create_task(
         user=user,
         task_type=task_store.TASK_TYPE_TEMPLATE,
         generation_type="video",
@@ -717,8 +718,7 @@ async def create_task(
         "zip_url": None,
         "error": None,
     }
-    asyncio.create_task(
-        _run_task(
+    common.schedule_task(task_id, lambda: _run_task(
             task_id=task_id,
             task_dir=task_dir,
             output_dir=output_dir,
@@ -728,8 +728,7 @@ async def create_task(
             subtitle_replacements=parsed_replacements,
             subtitle_style=subtitle_style,
             bgm_path=bgm_path,
-        )
-    )
+        ))
     return {"task_id": task_id}
 
 
@@ -780,7 +779,7 @@ async def _run_task(
             task.update(status="running", progress=1, message="正在标准化素材")
             for index, material in enumerate(materials, start=1):
                 segment_path = temp_dir / f"segment_{index:02d}.mp4"
-                await asyncio.to_thread(
+                await run_blocking("media",
                     template_production.prepare_material_segment,
                     material["input_path"],
                     segment_path,
@@ -822,10 +821,10 @@ async def _run_task(
                     _template_tts_request(tts_text),
                     audio_path,
                 )
-                audio_duration = tts_result.duration or await asyncio.to_thread(template_production.probe_duration, audio_path)
+                audio_duration = tts_result.duration or await run_blocking("media", template_production.probe_duration, audio_path)
                 item["message"] = "正在合成视频"
                 if is_zhongyi:
-                    await asyncio.to_thread(
+                    await run_blocking("media",
                         template_production.compose_zhongyi_video,
                         materials,
                         audio_path,
@@ -841,7 +840,7 @@ async def _run_task(
                         bgm_path=bgm_path,
                     )
                 else:
-                    await asyncio.to_thread(
+                    await run_blocking("media",
                         template_production.compose_video,
                         prepared_segments,
                         audio_path,
@@ -889,7 +888,7 @@ async def _run_task(
 
         if completed_outputs:
             zip_path = task_dir / "template_videos.zip"
-            await asyncio.to_thread(common.create_output_zip, zip_path, completed_outputs)
+            await run_blocking("media", common.create_output_zip, zip_path, completed_outputs)
             archive_id = f"{task_id}-archive"
             task["zip_url"] = _artifact_url(task_id, archive_id, "download")
             common.persist_artifact(

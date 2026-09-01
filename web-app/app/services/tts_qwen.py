@@ -5,6 +5,8 @@ from pathlib import Path
 
 import soundfile as sf
 
+from app.services.task_runtime import run_blocking
+
 SUPPORTED_LANGUAGES = [
     {"id": "Chinese", "label": "中文"},
     {"id": "English", "label": "英语"},
@@ -44,7 +46,7 @@ async def _load_model(model_path: str, device: str):
     async with _model_lock:
         if cache_key in _model_cache:
             return _model_cache[cache_key]
-        model = await asyncio.to_thread(_load_model_sync, model_path, device)
+        model = await run_blocking("qwen", _load_model_sync, model_path, device)
         _model_cache[cache_key] = model
         return model
 
@@ -65,7 +67,6 @@ async def synthesize(
         raise ValueError("ref_text is required for base voice clone mode")
 
     model = await _load_model(model_path, device)
-    loop = asyncio.get_event_loop()
 
     def _infer():
         wavs, sample_rate = model.generate_voice_clone(
@@ -76,7 +77,7 @@ async def synthesize(
         )
         return wavs[0], sample_rate
 
-    wav, sample_rate = await loop.run_in_executor(None, _infer)
+    wav, sample_rate = await run_blocking("qwen", _infer)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(output_path), wav, sample_rate)
     return output_path

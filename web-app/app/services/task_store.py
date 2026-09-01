@@ -39,6 +39,11 @@ TASK_STATUSES = {
     "cancelled",
 }
 TERMINAL_STATUSES = {"submitted", "completed", "partial_failed", "failed", "cancelled"}
+# 占用并发配额的状态：已创建但尚未开始，以及正在执行。
+RUNNING_STATUSES = ("pending", "running")
+DEFAULT_MAX_RUNNING_TASKS_PER_USER = 3
+DEFAULT_MAX_ACTIVE_JOBS = 10
+DEFAULT_MAX_QUEUED_JOBS = 8
 ARTIFACT_STATUSES = {"pending", "running", "completed", "failed", "missing"}
 FORBIDDEN_EXTRA_KEYS = {
     "api_key",
@@ -86,6 +91,15 @@ class TaskNotFoundError(LookupError):
 
 class ArtifactNotFoundError(LookupError):
     pass
+
+
+class TaskQuotaExceededError(RuntimeError):
+    """同时运行任务数超过配置上限时抛出。"""
+
+    def __init__(self, message: str, *, scope: str, limit: int) -> None:
+        super().__init__(message)
+        self.scope = scope
+        self.limit = limit
 
 
 def _now() -> datetime:
@@ -289,6 +303,98 @@ def _normalize_artifacts(
     return normalized
 
 
+def _task_quota_limits() -> tuple[Optional[int], int]:
+    """Return the per-user limit and the derived global admission capacity."""
+    raw = app_config.get("tasks") or {}
+    if not isinstance(raw, dict):
+        raw = {}
+
+    def positive_int(key: str, default: int, *, allow_disabled: bool = False) -> Optional[int]:
+        try:
+            value = int(raw.get(key, default))
+        except (TypeError, ValueError):
+            value = default
+        if allow_disabled and value <= 0:
+            return None
+        return max(1, value)
+
+    per_user_limit = positive_int(
+        "max_running_tasks_per_user",
+        DEFAULT_MAX_RUNNING_TASKS_PER_USER,
+        allow_disabled=True,
+    )
+    active_limit = positive_int("max_active_jobs", DEFAULT_MAX_ACTIVE_JOBS) or DEFAULT_MAX_ACTIVE_JOBS
+    try:
+        queued_limit = max(0, int(raw.get("max_queued_jobs", DEFAULT_MAX_QUEUED_JOBS)))
+    except (TypeError, ValueError):
+        queued_limit = DEFAULT_MAX_QUEUED_JOBS
+    return per_user_limit, active_limit + queued_limit
+
+
+def enforce_task_quota(user_id: str) -> None:
+    """创建任务前校验每用户与全局的未完成任务数上限。"""
+    per_user_limit, global_limit = _task_quota_limits()
+    _ensure_db()
+    with _orm_session() as session:
+        if per_user_limit is not None:
+            user_count = session.scalar(
+                select(func.count())
+                .select_from(GenerationTask)
+                .where(GenerationTask.user_id == user_id)
+                .where(GenerationTask.status.in_(RUNNING_STATUSES))
+            ) or 0
+            if int(user_count) >= per_user_limit:
+                raise TaskQuotaExceededError(
+                    f"同时运行的任务数已达上限（每用户 {per_user_limit} 个），请等待已有任务完成后再试",
+                    scope="user",
+                    limit=per_user_limit,
+                )
+        if global_limit is not None:
+            global_count = session.scalar(
+                select(func.count())
+                .select_from(GenerationTask)
+                .where(GenerationTask.status.in_(RUNNING_STATUSES))
+            ) or 0
+            if int(global_count) >= global_limit:
+                raise TaskQuotaExceededError(
+                    f"服务器同时运行的任务数已达上限（{global_limit} 个），请稍后再试",
+                    scope="global",
+                    limit=global_limit,
+                )
+
+
+def get_task_summary(user_id: str) -> dict[str, dict[str, int | None]]:
+    """Return task counts using the same pending/running definition as quota checks."""
+    _ensure_db()
+    with _orm_session() as session:
+        user_counts = dict(
+            session.execute(
+                select(GenerationTask.status, func.count())
+                .where(GenerationTask.user_id == user_id)
+                .where(GenerationTask.status.in_(RUNNING_STATUSES))
+                .group_by(GenerationTask.status)
+            ).all()
+        )
+        global_counts = dict(
+            session.execute(
+                select(GenerationTask.status, func.count())
+                .where(GenerationTask.status.in_(RUNNING_STATUSES))
+                .group_by(GenerationTask.status)
+            ).all()
+        )
+    per_user_limit, global_limit = _task_quota_limits()
+
+    def summary(counts: dict[str, int], limit: Optional[int]) -> dict[str, int | None]:
+        pending = int(counts.get("pending", 0))
+        running = int(counts.get("running", 0))
+        return {"pending": pending, "running": running, "active": pending + running, "limit": limit}
+
+    return {
+        "user": summary(user_counts, per_user_limit),
+        "global": summary(global_counts, global_limit),
+    }
+
+
 def create_task(
     *,
     user: dict[str, Any],
@@ -310,6 +416,7 @@ def create_task(
     task_id = _validate_task_id(task_id or uuid.uuid4().hex)
     created_at = _normalize_timestamp(created_at or _now_iso())
     normalized_extra_info = _normalize_extra_info(extra_info)
+    enforce_task_quota(str(user.get("id") or ""))
     _ensure_db()
     with _orm_session() as session:
         username, display_name = _task_owner_snapshot(session, user)
@@ -640,7 +747,7 @@ def mark_incomplete_tasks_failed() -> None:
     with _orm_session() as session:
         session.execute(
             update(GenerationTask)
-            .where(GenerationTask.status.in_(("pending", "running")))
+            .where(GenerationTask.status.in_(RUNNING_STATUSES))
             .values(
                 status="failed",
                 error=func.coalesce(GenerationTask.error, "后端重启时任务未完成"),

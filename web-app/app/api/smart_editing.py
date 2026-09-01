@@ -16,6 +16,7 @@ from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.services import settings_store, smart_editing, task_store, template_production
+from app.services.task_runtime import run_blocking
 from app.services.tts import EDGE_TTS_MODEL, TTSRequest, tts_service
 
 router = APIRouter(prefix="/smart-editing", tags=["smart-editing"])
@@ -296,7 +297,7 @@ async def create_task(
     bgm_source_path, bgm_name = _resolve_bgm_track(user["id"], bgm_id, output_root)
 
     task_id = uuid.uuid4().hex
-    task_record = task_store.create_task(
+    task_record = common.create_task(
         user=user,
         task_type=task_store.TASK_TYPE_SMART_EDITING,
         generation_type="video",
@@ -397,8 +398,7 @@ async def create_task(
         "zip_url": None,
         "error": None,
     }
-    asyncio.create_task(
-        _run_task(
+    common.schedule_task(task_id, lambda: _run_task(
             task_id=task_id,
             task_dir=task_dir,
             output_dir=output_dir,
@@ -409,8 +409,7 @@ async def create_task(
             materials=saved_materials,
             subtitle_replacements=replacements_snapshot,
             bgm_path=bgm_path,
-        )
-    )
+        ))
     return {"task_id": task_id}
 
 
@@ -457,7 +456,7 @@ async def _run_task(
             _smart_editing_tts_request(script),
             audio_path,
         )
-        audio_duration = tts_result.duration or await asyncio.to_thread(
+        audio_duration = tts_result.duration or await run_blocking("media",
             template_production.probe_duration,
             audio_path,
         )
@@ -475,7 +474,7 @@ async def _run_task(
             )
             output_path = output_dir / f"smart_edit_video_{index:03d}.mp4"
             try:
-                await asyncio.to_thread(
+                await run_blocking("media",
                     smart_editing.compose_video,
                     materials,
                     len(keywords),
@@ -523,7 +522,7 @@ async def _run_task(
 
         if completed_outputs:
             zip_path = task_dir / "smart_edit_videos.zip"
-            await asyncio.to_thread(common.create_output_zip, zip_path, completed_outputs)
+            await run_blocking("media", common.create_output_zip, zip_path, completed_outputs)
             archive_id = f"{task_id}-archive"
             task["zip_url"] = common.artifact_url(task_id, archive_id, "download")
             common.persist_artifact(

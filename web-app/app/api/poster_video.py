@@ -12,6 +12,7 @@ from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.services import poster_video, task_store
+from app.services.task_runtime import run_blocking
 
 router = APIRouter(dependencies=[Depends(require_current_user)])
 
@@ -130,7 +131,7 @@ async def generate_poster_videos(
         )
 
     task_id = uuid.uuid4().hex
-    task_record = task_store.create_task(
+    task_record = common.create_task(
         user=user,
         task_type=task_store.TASK_TYPE_POSTER,
         generation_type=media_type,
@@ -223,15 +224,13 @@ async def generate_poster_videos(
         raise HTTPException(status_code=500, detail="保存任务素材失败") from exc
 
     _tasks[task_id] = _new_task(user_id=user["id"], task_dir=task_dir, files=saved_files, media_type=media_type)
-    asyncio.create_task(
-        _run_batch(
+    common.schedule_task(task_id, lambda: _run_batch(
             task_id=task_id,
             files=saved_files,
             overlay_path=overlay_path,
             task_dir=task_dir,
             media_type=media_type,
-        )
-    )
+        ))
     return {"task_id": task_id}
 
 
@@ -283,7 +282,7 @@ async def _run_batch(task_id: str, files: list[dict], overlay_path: Path, task_d
 
             try:
                 processor = poster_video.process_video if media_type == "video" else poster_video.process_image
-                await asyncio.to_thread(
+                await run_blocking("media",
                     processor,
                     item["input_path"],
                     overlay_path,
@@ -325,7 +324,7 @@ async def _run_batch(task_id: str, files: list[dict], overlay_path: Path, task_d
         zip_name = "poster_videos.zip" if media_type == "video" else "poster_images.zip"
         zip_path = task_dir / zip_name
         if completed:
-            await asyncio.to_thread(common.create_output_zip, zip_path, [item["output_path"] for item in files if item["output_path"].exists()])
+            await run_blocking("media", common.create_output_zip, zip_path, [item["output_path"] for item in files if item["output_path"].exists()])
             archive_id = f"{task_id}-archive"
             task["zip_url"] = common.artifact_url(task_id, archive_id, "download")
             task_store.add_artifact(

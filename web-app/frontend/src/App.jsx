@@ -18,6 +18,7 @@ import UserManagement from "./components/UserManagement";
 import DataDashboard from "./components/DataDashboard";
 import UserProfile from "./components/UserProfile";
 import SmartSkillHeaderCard from "./components/SmartSkillHeaderCard";
+import TaskCapacityHeaderCard from "./components/TaskCapacityHeaderCard";
 import { useGlobalMessage } from "./components/GlobalMessageProvider";
 import { getCurrentUser, listPublicOrganizations, login, logout, register } from "./lib/auth";
 import { PAGE_NAMES, PROJECT_NAME } from "./lib/pageNames";
@@ -485,6 +486,7 @@ export default function App() {
             <h1>{pageMeta.title}</h1>
             <p className="app-description">{pageMeta.description}</p>
           </div>
+          {activePage === "task-center" ? <TaskCapacityHeaderCard /> : null}
           {activePage === "smart-editing" ? <SmartSkillHeaderCard /> : null}
         </header>
 
