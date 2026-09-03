@@ -201,9 +201,12 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
     <>
       <div className="subtitle-replacement-editor">
         <div className="subtitle-replacement-heading">
-          <div>
-            <strong>个人敏感词替换</strong>
-            <small>配音保留原词，最终字幕按个人规则替换</small>
+          <div className="subtitle-replacement-title">
+            <span aria-hidden="true"><Icon name="shield" size={17} /></span>
+            <div>
+              <strong>个人敏感词替换</strong>
+              <small>配音保留原词，最终字幕按个人规则替换</small>
+            </div>
           </div>
           {replacements.length ? (
             <Button

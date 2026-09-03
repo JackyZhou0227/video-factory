@@ -241,6 +241,7 @@ def compose_video(
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
     subtitle_style: dict[str, Any] | None = None,
+    subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
 ) -> Path:
     template_production.require_ffmpeg()
@@ -279,5 +280,6 @@ def compose_video(
         timings=timings,
         subtitle_replacements=subtitle_replacements,
         subtitle_style=subtitle_style or DEFAULT_SUBTITLE_STYLE,
+        subtitle_enabled=subtitle_enabled,
         bgm_path=bgm_path,
     )

@@ -81,6 +81,7 @@ class SmartEditingApiTests(unittest.TestCase):
         generate_count: int = 3,
         pacing: str = "standard",
         bgm_id: str = "",
+        subtitle_enabled: bool = True,
     ):
         keyword_values = keywords or ["医院", "医生"]
         file_values = files or [
@@ -96,6 +97,7 @@ class SmartEditingApiTests(unittest.TestCase):
             "keywords": json.dumps(keyword_values, ensure_ascii=False),
             "pacing": pacing,
             "generate_count": str(generate_count),
+            "subtitle_enabled": str(subtitle_enabled).lower(),
             "material_manifest": json.dumps(manifest_values, ensure_ascii=False),
         }
         if bgm_id:
@@ -186,6 +188,24 @@ class SmartEditingApiTests(unittest.TestCase):
         self.assertEqual(task_center.status_code, 200, task_center.text)
         self.assertEqual(task_center.json()["total"], 1)
         self.assertEqual(task_center.json()["items"][0]["task_type"], "smart_editing")
+
+    def test_task_creation_without_subtitles_skips_replacement_snapshot(self):
+        settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
+        run_task = AsyncMock(return_value=None)
+        with patch.object(smart_api, "resolve_output_dir", return_value=self.output_root), patch.object(
+            smart_api.template_production,
+            "require_ffmpeg",
+        ), patch.object(smart_api, "_run_task", run_task):
+            response = self._post_task(subtitle_enabled=False)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        task_id = response.json()["task_id"]
+        stored = task_store.get_task(task_id, self.user_id)
+        self.assertFalse(stored["extra_info"]["subtitle_enabled"])
+        self.assertEqual(stored["extra_info"]["subtitle_replacements_snapshot"], [])
+        self.assertFalse(smart_api._tasks[task_id]["subtitle_enabled"])
+        self.assertEqual(run_task.call_args.kwargs["subtitle_replacements"], [])
+        self.assertFalse(run_task.call_args.kwargs["subtitle_enabled"])
 
     def test_task_creation_with_bgm_uses_task_snapshot(self):
         source_bgm_path = self._create_bgm_track()

@@ -290,6 +290,8 @@ async def create_task(
     keywords: str = Form(...),
     pacing: str = Form("standard"),
     generate_count: int = Form(5),
+    subtitle_enabled: bool = Form(True),
+    subtitle_style: str = Form("{}"),
     material_manifest: str = Form(...),
     materials: list[UploadFile] = File(...),
     bgm_id: str = Form(""),
@@ -332,7 +334,9 @@ async def create_task(
     replacements_snapshot = [
         {"source": item["source"], "replacement": item["replacement"]}
         for item in settings_store.list_subtitle_replacements(user["id"])
-    ]
+    ] if subtitle_enabled else []
+    subtitle_style_value = common.parse_json_field(subtitle_style, "subtitle_style", dict)
+    subtitle_style_snapshot = template_production.normalize_subtitle_style(subtitle_style_value)
     material_groups = [
         {
             "keyword_index": index,
@@ -362,6 +366,8 @@ async def create_task(
             "pacing": pacing,
             "generate_count": generate_count,
             "bgm_name": bgm_name,
+            "subtitle_enabled": subtitle_enabled,
+            "subtitle_style": subtitle_style_snapshot,
             "subtitle_replacements_snapshot": replacements_snapshot,
             "material_groups": material_groups,
         },
@@ -442,6 +448,8 @@ async def create_task(
         "_bgm_path": bgm_path,
         "bgm_name": bgm_name,
         "generate_count": generate_count,
+        "subtitle_enabled": subtitle_enabled,
+        "subtitle_style": subtitle_style_snapshot,
         "status": "pending",
         "progress": 0,
         "message": "任务已创建，等待处理",
@@ -459,6 +467,8 @@ async def create_task(
             pacing=pacing,
             materials=saved_materials,
             subtitle_replacements=replacements_snapshot,
+            subtitle_enabled=subtitle_enabled,
+            subtitle_style=subtitle_style_snapshot,
             bgm_path=bgm_path,
         ))
     return {"task_id": task_id}
@@ -487,6 +497,8 @@ async def _run_task(
     pacing: str,
     materials: list[dict[str, Any]],
     subtitle_replacements: list[dict[str, str]],
+    subtitle_enabled: bool = True,
+    subtitle_style: dict[str, Any] | None = None,
     bgm_path: Path | None = None,
 ) -> None:
     task = _tasks[task_id]
@@ -538,7 +550,8 @@ async def _run_task(
                     audio_duration=audio_duration,
                     timings=tts_result.timings,
                     subtitle_replacements=subtitle_replacements,
-                    subtitle_style=smart_editing.DEFAULT_SUBTITLE_STYLE,
+                    subtitle_style=subtitle_style or smart_editing.DEFAULT_SUBTITLE_STYLE,
+                    subtitle_enabled=subtitle_enabled,
                     bgm_path=bgm_path,
                 )
                 completed_outputs.append(output_path)

@@ -552,13 +552,16 @@ async def create_task(
     if not script_values or len(script_values) > MAX_GENERATE_COUNT:
         raise HTTPException(status_code=422, detail="文案数量必须在 1-50 之间")
     video = common.parse_json_field(video_config, "video_config", dict)
+    subtitle_enabled = video.get("subtitle_enabled", True)
+    if not isinstance(subtitle_enabled, bool):
+        raise HTTPException(status_code=422, detail="subtitle_enabled 格式不正确")
     subtitle_style_value = video.get("subtitle_style")
     if subtitle_style_value is not None and not isinstance(subtitle_style_value, dict):
         raise HTTPException(status_code=422, detail="subtitle_style 格式不正确")
     subtitle_style = template_production.normalize_subtitle_style(subtitle_style_value)
     # The form field remains accepted for older clients, but production always
     # uses the shared database rules captured when this task is created.
-    stored_replacements = settings_store.list_subtitle_replacements(user["id"])
+    stored_replacements = settings_store.list_subtitle_replacements(user["id"]) if subtitle_enabled else []
     parsed_replacements = [
         {"source": item["source"], "replacement": item["replacement"]}
         for item in stored_replacements
@@ -612,6 +615,7 @@ async def create_task(
             "template_version": template.template_version,
             "pipeline_id": template.production.pipeline_id,
             "bgm_name": bgm_name,
+            "subtitle_enabled": subtitle_enabled,
         },
     )
     task_dir = Path(task_record["storage_path"])
@@ -708,6 +712,7 @@ async def create_task(
         "_template_snapshot": template.model_dump(mode="json", exclude_none=True),
         "_subtitle_replacements": parsed_replacements,
         "_subtitle_style": subtitle_style,
+        "subtitle_enabled": subtitle_enabled,
         "_bgm_path": bgm_path,
         "bgm_name": bgm_name,
         "status": "pending",
@@ -726,6 +731,7 @@ async def create_task(
             ratio=ratio,
             subtitle_replacements=parsed_replacements,
             subtitle_style=subtitle_style,
+            subtitle_enabled=subtitle_enabled,
             bgm_path=bgm_path,
         ))
     return {"task_id": task_id}
@@ -757,6 +763,7 @@ async def _run_task(
     ratio: str,
     subtitle_replacements: list[dict[str, str]],
     subtitle_style: dict[str, Any] | None = None,
+    subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
 ) -> None:
     task = _tasks[task_id]
@@ -828,6 +835,7 @@ async def _run_task(
                     timings=tts_result.timings,
                     subtitle_replacements=subtitle_replacements,
                     subtitle_style=subtitle_style,
+                    subtitle_enabled=subtitle_enabled,
                     bgm_path=bgm_path,
                 )
                 completed_outputs.append(output_path)

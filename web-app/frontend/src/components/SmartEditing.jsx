@@ -17,6 +17,7 @@ import BgmManager from "./BgmManager";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
+import SubtitleSettings, { cloneDefaultSubtitleStyle } from "./SubtitleSettings";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 
@@ -110,6 +111,8 @@ export default function SmartEditing({ currentUser }) {
   const [pendingKeywordChange, setPendingKeywordChange] = useState(null);
   const [scriptAtKeywordParse, setScriptAtKeywordParse] = useState(null);
   const [pacing, setPacing] = useState("standard");
+  const [subtitleEnabled, setSubtitleEnabled] = useState(false);
+  const [subtitleStyle, setSubtitleStyle] = useState(cloneDefaultSubtitleStyle);
   const [generateCount, setGenerateCount] = useState(5);
   const [selectedBgmId, setSelectedBgmId] = useState("");
   const [replacementStatus, setReplacementStatus] = useState({
@@ -144,8 +147,8 @@ export default function SmartEditing({ currentUser }) {
     && keywordGroups.length > 0
     && !editingKeywords
     && firstMissingGroupIndex < 0
-    && replacementStatus.issues.length === 0
-    && !replacementStatus.hasUnsaved
+    && (!subtitleEnabled || replacementStatus.issues.length === 0)
+    && (!subtitleEnabled || !replacementStatus.hasUnsaved)
     && !submitting;
 
   const stopPolling = useCallback(() => {
@@ -376,11 +379,11 @@ export default function SmartEditing({ currentUser }) {
       focusMissingGroup(missingIndex);
       return;
     }
-    if (replacementStatus.issues.length) {
+    if (subtitleEnabled && replacementStatus.issues.length) {
       setError(replacementStatus.issues[0]);
       return;
     }
-    if (replacementStatus.hasUnsaved) {
+    if (subtitleEnabled && replacementStatus.hasUnsaved) {
       setError("请先保存当前用户的敏感词替换规则。");
       return;
     }
@@ -408,6 +411,8 @@ export default function SmartEditing({ currentUser }) {
       form.append("keywords", JSON.stringify(keywordGroups.map((group) => group.keyword)));
       form.append("pacing", pacing);
       form.append("generate_count", String(generateCount));
+      form.append("subtitle_enabled", String(subtitleEnabled));
+      form.append("subtitle_style", JSON.stringify(subtitleStyle));
       form.append("material_manifest", JSON.stringify(manifest));
       if (selectedBgmId) form.append("bgm_id", selectedBgmId);
 
@@ -436,6 +441,8 @@ export default function SmartEditing({ currentUser }) {
     replacementStatus.hasUnsaved,
     replacementStatus.issues,
     selectedBgmId,
+    subtitleEnabled,
+    subtitleStyle,
     scriptIssue,
     stopPolling,
     taskStorageKey,
@@ -578,16 +585,23 @@ export default function SmartEditing({ currentUser }) {
             idPrefix="smart"
           />
 
-          <section className="template-work-section" aria-labelledby="smart-replacements-title">
-            <div className="template-section-heading">
-              <span><Icon name="shield" size={17} /></span>
-              <div><strong id="smart-replacements-title">敏感词管理</strong><small>与模板量产共享同一套全局规则</small></div>
-            </div>
+          <section className="template-work-section" aria-labelledby="smart-subtitle-title">
+            <SubtitleSettings
+              idPrefix="smart"
+              enabled={subtitleEnabled}
+              onEnabledChange={setSubtitleEnabled}
+              style={subtitleStyle}
+              onStyleChange={setSubtitleStyle}
+              disabled={submitting}
+            />
+          </section>
+
+          {subtitleEnabled ? <section className="template-work-section" aria-label="敏感词替换">
             <SubtitleReplacementManager
               currentUserId={currentUser?.id}
               onStatusChange={setReplacementStatus}
             />
-          </section>
+          </section> : null}
         </div>
 
         <div className="smart-editing-column">

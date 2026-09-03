@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -261,6 +262,27 @@ class TemplateProductionTests(unittest.TestCase):
             self.assertIn("Style: Notice,Microsoft YaHei,42,&H00332211,&H00332211,&H50665544,&H50000000,", content)
             self.assertIn("1,2,1,8,50,50,70,1", content)
             self.assertIn("请谨遵医嘱\\N内容仅作参考", content)
+
+    def test_compose_video_without_subtitles_does_not_write_ass_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with patch.object(template_production, "require_ffmpeg"), patch.object(
+                template_production, "probe_duration", return_value=1.0
+            ), patch.object(template_production, "_run") as run:
+                template_production.compose_prepared_video(
+                    [root / "segment.mp4"],
+                    root / "audio.mp3",
+                    root / "output.mp4",
+                    audio_duration=1.0,
+                    script="医生介绍",
+                    work_dir=root / "work",
+                    subtitle_replacements=[{"source": "医生", "replacement": "yi生"}],
+                    subtitle_enabled=False,
+                )
+
+            self.assertFalse((root / "work" / "subtitles.ass").exists())
+            command = run.call_args.args[0]
+            self.assertNotIn("ass=", " ".join(command))
 
     def test_material_sequence_is_deterministic_and_fills_duration(self):
         segments = [Path("a.mp4"), Path("b.mp4"), Path("c.mp4")]

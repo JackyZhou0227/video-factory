@@ -473,6 +473,7 @@ def compose_video(
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
     subtitle_style: dict[str, Any] | None = None,
+    subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
 ) -> Path:
     require_ffmpeg()
@@ -489,6 +490,7 @@ def compose_video(
         timings=timings,
         subtitle_replacements=subtitle_replacements,
         subtitle_style=subtitle_style,
+        subtitle_enabled=subtitle_enabled,
         bgm_path=bgm_path,
     )
 
@@ -505,6 +507,7 @@ def compose_prepared_video(
     timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
     subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
     subtitle_style: dict[str, Any] | None = None,
+    subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
 ) -> Path:
     require_ffmpeg()
@@ -514,7 +517,7 @@ def compose_prepared_video(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     concat_path = output_path.with_suffix(".concat.txt")
     ass_path: Path | None = None
-    if script and script.strip():
+    if subtitle_enabled and script and script.strip():
         subtitle_dir = work_dir or output_path.parent
         ass_path = write_subtitle_ass(
             script,

@@ -3989,6 +3989,80 @@ a {
   flex: 0 0 auto;
 }
 
+.subtitle-enabled-control {
+  min-width: 0;
+  margin: 0;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.subtitle-enabled-control .MuiFormControlLabel-label {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.subtitle-enabled-control.is-enabled .MuiFormControlLabel-label {
+  border-color: var(--brand-200);
+  background: var(--brand-50);
+  color: var(--accent-dark);
+}
+
+.subtitle-enabled-switch {
+  width: 44px;
+  height: 26px;
+  margin: 0;
+  padding: 0;
+}
+
+.subtitle-enabled-switch .MuiSwitch-switchBase {
+  padding: 3px;
+  color: var(--bg-50);
+  transition: transform 160ms ease, color 160ms ease;
+}
+
+.subtitle-enabled-switch .MuiSwitch-thumb {
+  width: 20px;
+  height: 20px;
+  box-shadow: var(--shadow-xs);
+}
+
+.subtitle-enabled-switch .MuiSwitch-track {
+  border-radius: 999px;
+  opacity: 1;
+  background: var(--border-500);
+  transition: background-color 160ms ease;
+}
+
+.subtitle-enabled-switch .MuiSwitch-switchBase.Mui-checked {
+  color: var(--bg-50);
+  transform: translateX(18px);
+}
+
+.subtitle-enabled-switch .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track {
+  opacity: 1;
+  background: var(--accent);
+}
+
+.subtitle-enabled-switch .MuiSwitch-switchBase.Mui-focusVisible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.subtitle-enabled-switch .MuiSwitch-switchBase.Mui-disabled {
+  color: var(--bg-50);
+}
+
+.subtitle-enabled-switch .MuiSwitch-switchBase.Mui-disabled + .MuiSwitch-track {
+  opacity: 0.55;
+}
+
 .subtitle-style-editor {
   min-width: 0;
   display: grid;
@@ -4342,17 +4416,35 @@ a {
   gap: 12px;
 }
 
-.subtitle-replacement-heading > div {
+.subtitle-replacement-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.subtitle-replacement-title > span {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border-radius: 8px;
+  background: var(--surface-strong);
+  color: var(--accent-dark);
+}
+
+.subtitle-replacement-title > div {
   min-width: 0;
   display: grid;
   gap: 3px;
 }
 
-.subtitle-replacement-heading strong {
+.subtitle-replacement-title strong {
   font-size: 13px;
 }
 
-.subtitle-replacement-heading small,
+.subtitle-replacement-title small,
 .subtitle-replacement-add-card small {
   color: var(--text-muted);
   font-size: 11px;
