@@ -17,11 +17,12 @@ import Settings from "./components/Settings";
 import UserManagement from "./components/UserManagement";
 import DataDashboard from "./components/DataDashboard";
 import UserProfile from "./components/UserProfile";
-import SmartSkillHeaderCard from "./components/SmartSkillHeaderCard";
+import SkillHeaderCard from "./components/SkillHeaderCard";
 import TaskCapacityHeaderCard from "./components/TaskCapacityHeaderCard";
 import { useGlobalMessage } from "./components/GlobalMessageProvider";
 import { getCurrentUser, listPublicOrganizations, login, logout, register } from "./lib/auth";
 import { PAGE_NAMES, PROJECT_NAME } from "./lib/pageNames";
+import templateProductionSkill from "../skills/generate-template-production-template/skill.json";
 
 // 角色等级：超管(2) > 组织管理员(1) > 普通成员(0)
 const ROLE_LEVELS = { admin: 2, org_admin: 1, user: 0 };
@@ -119,7 +120,7 @@ const PAGE_META = {
   "smart-editing": {
     eyebrow: PAGE_NAMES.smartEditing,
     title: "智能剪辑",
-    description: "粘贴文案和 Agent 生成的有序关键词，为每个关键词上传素材后自动轮询拼接成片。",
+    description: "输入视频文案并提取有序关键词，为每个关键词上传素材后自动轮询拼接成片。",
   },
   "task-center": {
     eyebrow: PAGE_NAMES.taskCenter,
@@ -487,7 +488,9 @@ export default function App() {
             <p className="app-description">{pageMeta.description}</p>
           </div>
           {activePage === "task-center" ? <TaskCapacityHeaderCard /> : null}
-          {activePage === "smart-editing" ? <SmartSkillHeaderCard /> : null}
+          {activePage === "template-production" ? (
+            <SkillHeaderCard skill={templateProductionSkill} icon="template" />
+          ) : null}
         </header>
 
         <div className="page-stack">

@@ -6,7 +6,6 @@ import re
 import shutil
 import subprocess
 import textwrap
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +21,6 @@ from app.services.tts import TTSTiming
 # Configuration & Constants
 # ============================================================================
 
-ZHONGYI_TEMPLATE_ID = "zhongyi-xunfang"
 DEFAULT_VIDEO_RATIO = "9:16"
 VIDEO_RATIOS = {
     DEFAULT_VIDEO_RATIO: (1080, 1920),
@@ -32,17 +30,6 @@ VIDEO_RATIOS = {
 }
 VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp"}
-ZHONGYI_SLOT_PLAN = (
-    ("doctor-scene", 0.12, ("clinic-scene",)),
-    ("clinic-scene", 0.13, ("doctor-scene",)),
-    ("doctor-scene", 0.13, ("clinic-scene",)),
-    ("clinic-scene", 0.12, ("doctor-scene",)),
-    ("doctor-scene", 0.17, ("clinic-scene",)),
-    ("clinic-scene", 0.15, ("doctor-scene",)),
-    ("doctor-scene", 0.18, ("clinic-scene",)),
-)
-ZHONGYI_TRANSITION_DURATION = 0.3
-TEMPLATE_SAFETY_NOTICE = "人文记录 无不良引导\\N如有不适 请线上就医"
 BGM_VOLUME_WEIGHT = 0.6
 DEFAULT_SUBTITLE_STYLE = {
     "font_family": "Microsoft YaHei",
@@ -142,15 +129,6 @@ def _scaled_subtitle_value(
 # ============================================================================
 # Template & Prompt Building
 # ============================================================================
-
-@dataclass(frozen=True)
-class TimelineSegment:
-    source_path: Path
-    media_type: str
-    requirement_id: str
-    duration: float
-    start_time: float
-
 
 def require_template(template_id: str) -> str:
     return resolve_template_definition(template_id).id
@@ -611,65 +589,6 @@ def compose_prepared_video(
 
 
 # ============================================================================
-# Zhongyi Timeline
-# ============================================================================
-
-def build_zhongyi_timeline(
-    materials: list[dict[str, Any]],
-    target_duration: float,
-    *,
-    seed: str,
-    transition_duration: float = ZHONGYI_TRANSITION_DURATION,
-) -> list[TimelineSegment]:
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for material in materials:
-        grouped.setdefault(str(material.get("requirement_id") or ""), []).append(material)
-
-    rng = random.Random(seed)
-    duration_cache: dict[Path, float] = {}
-    previous_path: Path | None = None
-    timeline: list[TimelineSegment] = []
-    for index, (requirement_id, share, fallbacks) in enumerate(ZHONGYI_SLOT_PLAN):
-        candidates = grouped.get(requirement_id) or []
-        selected_requirement = requirement_id
-        if not candidates:
-            for fallback in fallbacks:
-                if grouped.get(fallback):
-                    candidates = grouped[fallback]
-                    selected_requirement = fallback
-                    break
-        if not candidates:
-            raise TemplateProductionError(f"中医寻访缺少可用于 {requirement_id} 槽位的素材")
-
-        choices = list(candidates)
-        rng.shuffle(choices)
-        if len(choices) > 1 and Path(choices[0]["input_path"]) == previous_path:
-            choices[0], choices[1] = choices[1], choices[0]
-        selected = choices[0]
-        source_path = Path(selected["input_path"])
-        media_type = str(selected.get("media_type") or "video")
-        raw_duration = max(1.0, target_duration * share + (transition_duration if index < len(ZHONGYI_SLOT_PLAN) - 1 else 0))
-        source_duration = 0.0
-        if media_type == "video":
-            if source_path not in duration_cache:
-                duration_cache[source_path] = probe_duration(source_path)
-            source_duration = duration_cache[source_path]
-        max_start = max(0.0, source_duration - raw_duration)
-        start_time = rng.uniform(0, max_start) if max_start > 0.25 else 0.0
-        timeline.append(
-            TimelineSegment(
-                source_path=source_path,
-                media_type=media_type,
-                requirement_id=selected_requirement,
-                duration=raw_duration,
-                start_time=start_time,
-            )
-        )
-        previous_path = source_path
-    return timeline
-
-
-# ============================================================================
 # Subtitle Processing
 # ============================================================================
 
@@ -824,132 +743,9 @@ def write_subtitle_ass(
 
 
 # ============================================================================
-# Zhongyi Video Composition
+# Video Composition
 # ============================================================================
 
 def _ffmpeg_filter_path(path: Path) -> str:
     value = path.resolve().as_posix().replace("\\", "/")
     return value.replace(":", r"\:").replace("'", r"\'").replace(",", r"\,")
-
-
-def compose_zhongyi_video(
-    materials: list[dict[str, Any]],
-    audio_path: Path,
-    output_path: Path,
-    *,
-    script: str,
-    work_dir: Path,
-    seed: str,
-    ratio: str = "9:16",
-    audio_duration: float | None = None,
-    timings: tuple[TTSTiming, ...] | list[TTSTiming] = (),
-    subtitle_replacements: tuple[dict[str, str], ...] | list[dict[str, str]] = (),
-    subtitle_style: dict[str, Any] | None = None,
-    bgm_path: Path | None = None,
-) -> Path:
-    require_ffmpeg()
-    duration = audio_duration or probe_duration(audio_path)
-    if duration <= 0:
-        raise TemplateProductionError("配音时长无效")
-    target_size = ratio_size(ratio)
-    transition = min(ZHONGYI_TRANSITION_DURATION, max(0.12, duration / 100))
-    timeline = build_zhongyi_timeline(materials, duration, seed=seed, transition_duration=transition)
-    work_dir.mkdir(parents=True, exist_ok=True)
-
-    prepared: list[Path] = []
-    for index, segment in enumerate(timeline, start=1):
-        segment_path = work_dir / f"slot_{index:02d}.mp4"
-        prepare_material_segment(
-            segment.source_path,
-            segment_path,
-            media_type=segment.media_type,
-            ratio=ratio,
-            segment_duration=segment.duration,
-            target_size=target_size,
-            fill_mode="cover",
-            start_time=segment.start_time,
-        )
-        prepared.append(segment_path)
-
-    ass_path = write_subtitle_ass(
-        script,
-        duration,
-        work_dir / "subtitles.ass",
-        target_size=target_size,
-        timings=timings,
-        subtitle_replacements=subtitle_replacements,
-        subtitle_style=subtitle_style,
-    )
-    command = ["ffmpeg", "-y"]
-    for segment_path in prepared:
-        command.extend(["-i", str(segment_path)])
-    command.extend(["-i", str(audio_path)])
-    audio_input_index = len(prepared)
-    has_bgm = bgm_path is not None
-    if has_bgm:
-        command.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
-
-    filters: list[str] = []
-    cumulative = timeline[0].duration
-    previous_label = "[0:v]"
-    for index in range(1, len(timeline)):
-        output_label = f"[xf{index}]"
-        offset = max(0.0, cumulative - transition * index)
-        filters.append(
-            f"{previous_label}[{index}:v]xfade=transition=fade:duration={transition:.3f}:offset={offset:.3f}{output_label}"
-        )
-        previous_label = output_label
-        cumulative += timeline[index].duration
-    filters.append(f"{previous_label}ass=filename='{_ffmpeg_filter_path(ass_path)}'[vout]")
-    if has_bgm:
-        bgm_input_index = audio_input_index + 1
-        filters.append(
-            f"[{audio_input_index}:a][{bgm_input_index}:a]amix=inputs=2:duration=first:"
-            f"dropout_transition=0:weights='1 {BGM_VOLUME_WEIGHT}':normalize=0[aout]"
-        )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    if has_bgm:
-        command.extend(
-            [
-                "-filter_complex",
-                ";".join(filters),
-                "-map",
-                "[vout]",
-                "-map",
-                "[aout]",
-            ]
-        )
-    else:
-        command.extend(
-            [
-                "-filter_complex",
-                ";".join(filters),
-                "-map",
-                "[vout]",
-                "-map",
-                f"{audio_input_index}:a:0",
-            ]
-        )
-    command.extend(
-        [
-            "-t",
-            f"{duration:.3f}",
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "23",
-            "-c:a",
-            "aac",
-            "-b:a",
-            "192k",
-            "-pix_fmt",
-            "yuv420p",
-            "-movflags",
-            "+faststart",
-            str(output_path),
-        ]
-    )
-    _run(command)
-    return output_path

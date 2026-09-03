@@ -25,9 +25,12 @@ web-app/
 
 当前包含：
 
-- `web-app/frontend/skills/generate-smart-edit-copy/`：通过简短提问明确短视频需求，根据输入文案生成可直接复制的最终口播文案和有序素材关键词，并与“智能剪辑”页面配套使用。
+- `web-app/frontend/skills/generate-template-production-template/`：根据业务需求或参考视频，与用户沟通生成可导入的模板量产 JSON，并使用包内独立脚本完成格式校验。
+- 该 Skill 还包含本地 `render_preview.py` 预览器，可使用用户提供的示例素材生成一条静音 MP4；它不连接后端或远程服务。
 
-每个 Skill 使用目录内的 `skill.json` 维护独立 SemVer 版本。修改 Skill 时直接编辑该目录并提升版本号，不需要移动文件或手动制作压缩包。`npm run dev` 和 `npm run build` 会先运行 `web-app/frontend/scripts/package_skills.py`，把最新版生成到 `public/skills/`；Vite 构建后会继续复制到 `dist/skills/`，供智能剪辑页面展示版本并下载。生成的 ZIP 属于构建产物，不提交 Git。
+“智能剪辑”不再提供单独 Skill。页面直接输入完整文案并调用当前用户配置的 LLM 提取有序素材关键词；关键词允许重复，并按出现顺序分别建立素材分组。
+
+每个 Skill 使用目录内的 `skill.json` 维护独立 SemVer 版本。修改 Skill 时直接编辑该目录并提升版本号，不需要移动文件或手动制作压缩包。`npm run dev` 和 `npm run build` 会先运行 `web-app/frontend/scripts/package_skills.py`，把最新版生成到 `public/skills/`；Vite 构建后会继续复制到 `dist/skills/`，供对应功能页面展示版本并下载。生成的 ZIP 属于构建产物，不提交 Git。
 
 ### Skill 版本展示约定
 
@@ -316,7 +319,7 @@ web-app/output/tasks/2026/08/07/digital_human/71a.../
 
 模板量产使用 Pydantic 校验的版本化 JSON 定义。模板只描述内容字段、素材槽、文案提示词和服务端流水线绑定，不包含某次任务填写的内容、上传文件、生成文案或任务状态。页面支持导入模板 JSON，也可以把当前模板直接导出。
 
-模板定义存储在 PostgreSQL 的 `templates.definition` JSONB 字段中，全站共享。`web-app/app/templates/builtin/` 只保留两个初始模板的仓库备份，运行时不会读取；`web-app/data/templates/users/` 中的旧私有模板也不再加载或迁移。导入文件最大为 128 KiB，当前只允许绑定 `generic_concat_v1` 或 `zhongyi_visit_v1`，不会执行模板中提供的 Python 表达式或任意函数。模板 ID 全局唯一，重复导入返回 `409`；只有管理员可以导入，普通登录用户可以查看、导出和使用。
+模板定义只存储在 PostgreSQL 的 `templates.definition` JSONB 字段中，全站共享。代码仓库不包含内置模板文件或模板种子数据，运行时也不读取本地模板文件。导入文件最大为 128 KiB，当前只允许绑定已注册的服务端流水线，不会执行模板中提供的 Python 表达式或任意函数。模板 ID 全局唯一，重复导入返回 `409`；只有管理员可以导入，普通登录用户可以查看、导出和使用。
 
 模板接口：
 

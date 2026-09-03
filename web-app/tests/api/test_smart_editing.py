@@ -106,6 +106,37 @@ class SmartEditingApiTests(unittest.TestCase):
             files=file_values,
         )
 
+    def test_keyword_extraction_rejects_non_chinese_terms(self):
+        generate = AsyncMock(return_value='["clinic", "doctor"]')
+        with patch.object(smart_api.llm_service, "generate", generate):
+            response = self.client.post(
+                "/api/smart-editing/keywords/extract",
+                json={
+                    "script": "医生先走进诊所，随后再次回到诊所。",
+                    "count": 2,
+                },
+            )
+
+        self.assertEqual(response.status_code, 502, response.text)
+        self.assertIn("必须使用中文", response.json()["detail"])
+
+    def test_keyword_extraction_returns_duplicate_terms_in_script_order(self):
+        generate = AsyncMock(return_value='["诊所", "医生", "医生", "夕阳"]')
+        with patch.object(smart_api.llm_service, "generate", generate):
+            response = self.client.post(
+                "/api/smart-editing/keywords/extract",
+                json={
+                    "script": "医生先走进诊所，随后再次回到诊所，最后走向夕阳。",
+                    "count": 4,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["keywords"], ["诊所", "医生", "医生", "夕阳"])
+        prompt = generate.call_args.args[1][1].content
+        self.assertIn("关键词必须只使用中文汉字", prompt)
+        self.assertIn("关键词可以重复", prompt)
+
     def test_task_creation_saves_mixed_materials_snapshot_and_task_center_record(self):
         settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
@@ -219,8 +250,7 @@ class SmartEditingApiTests(unittest.TestCase):
             bad_pacing = self._post_task(pacing="turbo")
             too_many_outputs = self._post_task(generate_count=11)
 
-        self.assertEqual(duplicate.status_code, 422, duplicate.text)
-        self.assertIn("重复", duplicate.json()["detail"])
+        self.assertEqual(duplicate.status_code, 200, duplicate.text)
         self.assertEqual(empty_group.status_code, 422, empty_group.text)
         self.assertIn("第 2 个关键词", empty_group.json()["detail"])
         self.assertEqual(illegal.status_code, 422, illegal.text)

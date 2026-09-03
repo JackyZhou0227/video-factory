@@ -54,50 +54,118 @@ class TemplateProductionApiTests(unittest.TestCase):
     def _ensure_test_user(self, user_id: str) -> None:
         ensure_test_user(user_id, username=user_id, display_name=user_id)
 
-    def importable_template(self, template_id: str = "user-doctor-intro") -> dict:
-        value = json.loads(self.registry.export_template_json("user-a", "doctor-intro"))
-        value.update(id=template_id, name="我的医生介绍", template_version=2)
-        value["production"].update(default_batch_size=2, max_batch_size=2)
-        return value
+    def template_payload(self, template_id: str = "user-generic-intro") -> dict:
+        return {
+            "schema_version": 1,
+            "template_version": 2,
+            "id": template_id,
+            "name": "我的通用介绍",
+            "description": "用于接口测试的通用模板。",
+            "content_fields": [
+                {
+                    "key": "tone",
+                    "label": "表达风格",
+                    "input_type": "select",
+                    "required": True,
+                    "default": "calm",
+                    "options": [
+                        {"value": "calm", "label": "克制"},
+                        {"value": "warm", "label": "温暖"},
+                    ],
+                },
+                {
+                    "key": "subject",
+                    "label": "介绍对象",
+                    "required": True,
+                    "min_length": 2,
+                    "max_length": 100,
+                },
+            ],
+            "material_requirements": [
+                {
+                    "key": "main-image",
+                    "label": "主体图片",
+                    "description": "用于视频主体画面的图片。",
+                    "media_type": "image",
+                    "min_count": 1,
+                    "max_count": 2,
+                },
+                {
+                    "key": "main-video",
+                    "label": "主体视频",
+                    "description": "用于视频主体画面的视频。",
+                    "media_type": "video",
+                    "min_count": 1,
+                    "max_count": 2,
+                },
+            ],
+            "script_generation": {
+                "system_prompt": "你是短视频文案编导。",
+                "prompt_template": "生成 {{candidate_count}} 条文案。\n{{content_context}}\n{{material_context}}\n{{response_contract}}",
+                "rewrite_prompt_template": "重写 {{original_script}}\n{{content_context}}\n{{response_contract}}",
+                "response_format": "plain_scripts_v1",
+                "default_candidate_count": 3,
+                "temperature": 0.75,
+                "max_tokens": 2400,
+            },
+            "production": {
+                "pipeline_id": "generic_concat_v1",
+                "default_ratio": "9:16",
+                "default_batch_size": 2,
+                "max_batch_size": 2,
+            },
+        }
 
-    def test_template_list_export_import_conflict_and_user_isolation(self):
-        response = self.client.get("/api/template-production/templates")
-        self.assertEqual(response.status_code, 200, response.text)
-        templates = response.json()["templates"]
-        self.assertEqual([item["id"] for item in templates[:2]], ["zhongyi-xunfang", "doctor-intro"])
-        self.assertTrue(all("is_builtin" not in item for item in templates[:2]))
-        self.assertTrue(
-            all(item["runtime_capabilities"]["subtitle_replacements"] for item in templates)
-        )
-
-        response = self.client.get("/api/template-production/templates/zhongyi-xunfang/export")
-        self.assertEqual(response.status_code, 200, response.text)
-        exported = response.json()
-        self.assertEqual(exported["id"], "zhongyi-xunfang")
-        self.assertNotIn("runtime_capabilities", exported)
-        self.assertIn("attachment", response.headers["content-disposition"])
-
-        payload = json.dumps(self.importable_template(), ensure_ascii=False).encode("utf-8")
+    def import_template(self, template_id: str = "user-generic-intro") -> None:
+        payload = json.dumps(self.template_payload(template_id), ensure_ascii=False).encode("utf-8")
         response = self.client.post(
             "/api/template-production/templates/import",
             files={"file": ("template.json", payload, "application/json")},
         )
         self.assertEqual(response.status_code, 201, response.text)
-        self.assertEqual(response.json()["template"]["id"], "user-doctor-intro")
-        self.assertNotIn("is_builtin", response.json()["template"])
 
+    def task_manifest(self):
+        manifest = [
+            {"requirement_id": "main-image", "file_index": 0, "media_type": "image", "name": "main.png"},
+            {"requirement_id": "main-video", "file_index": 1, "media_type": "video", "name": "main.mp4"},
+        ]
+        files = [
+            ("materials", ("main.png", b"image", "image/png")),
+            ("materials", ("main.mp4", b"video", "video/mp4")),
+        ]
+        return manifest, files
+
+    def test_template_list_export_import_conflict(self):
+        response = self.client.get("/api/template-production/templates")
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["templates"], [])
+
+        self.import_template()
+        response = self.client.get("/api/template-production/templates")
+        self.assertEqual(response.status_code, 200, response.text)
+        templates = response.json()["templates"]
+        self.assertEqual([item["id"] for item in templates], ["user-generic-intro"])
+        self.assertTrue(all("is_builtin" not in item for item in templates))
+        self.assertTrue(
+            all(item["runtime_capabilities"]["subtitle_replacements"] for item in templates)
+        )
+
+        response = self.client.get("/api/template-production/templates/user-generic-intro/export")
+        self.assertEqual(response.status_code, 200, response.text)
+        exported = response.json()
+        self.assertEqual(exported["id"], "user-generic-intro")
+        self.assertNotIn("runtime_capabilities", exported)
+        self.assertIn("attachment", response.headers["content-disposition"])
+
+        payload = json.dumps(self.template_payload(), ensure_ascii=False).encode("utf-8")
         response = self.client.post(
             "/api/template-production/templates/import",
             files={"file": ("template.json", payload, "application/json")},
         )
         self.assertEqual(response.status_code, 409, response.text)
 
-        self.user_id = "user-b"
-        response = self.client.get("/api/template-production/templates/user-doctor-intro")
-        self.assertEqual(response.status_code, 200, response.text)
-
     def test_import_rejects_unknown_pipeline_and_oversized_json(self):
-        value = self.importable_template("unknown-pipeline-template")
+        value = self.template_payload("unknown-pipeline-template")
         value["production"]["pipeline_id"] = "unregistered_v1"
         response = self.client.post(
             "/api/template-production/templates/import",
@@ -154,17 +222,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(response.json()["replacements"], [])
 
     def test_imported_template_drives_task_pipeline_limits_and_snapshot(self):
-        payload = json.dumps(self.importable_template(), ensure_ascii=False).encode("utf-8")
-        response = self.client.post(
-            "/api/template-production/templates/import",
-            files={"file": ("template.json", payload, "application/json")},
-        )
-        self.assertEqual(response.status_code, 201, response.text)
-
-        manifest = [
-            {"requirement_id": "doctor-image", "file_index": 0, "media_type": "image", "name": "doctor.png"},
-            {"requirement_id": "hospital-scene", "file_index": 1, "media_type": "video", "name": "hospital.mp4"},
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         global_replacement = settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
@@ -173,7 +232,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "user-doctor-intro",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的用户模板测试文案。"], ensure_ascii=False),
                     "generate_count": "2",
                     "video_config": json.dumps({"ratio": "9:16"}),
@@ -183,17 +242,14 @@ class TemplateProductionApiTests(unittest.TestCase):
                     ),
                     "material_manifest": json.dumps(manifest),
                 },
-                files=[
-                    ("materials", ("doctor.png", b"image", "image/png")),
-                    ("materials", ("hospital.mp4", b"video", "video/mp4")),
-                ],
+                files=files,
             )
         self.assertEqual(response.status_code, 200, response.text)
         task_id = response.json()["task_id"]
         stored = template_api._tasks[task_id]
         self.assertEqual(stored["pipeline_id"], "generic_concat_v1")
         self.assertEqual(stored["template_version"], 2)
-        self.assertEqual(stored["_template_snapshot"]["id"], "user-doctor-intro")
+        self.assertEqual(stored["_template_snapshot"]["id"], "user-generic-intro")
         self.assertEqual(
             run_task.call_args.kwargs["subtitle_replacements"],
             [{"source": global_replacement["source"], "replacement": global_replacement["replacement"]}],
@@ -208,22 +264,20 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "user-doctor-intro",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的用户模板测试文案。"], ensure_ascii=False),
                     "generate_count": "3",
                     "video_config": json.dumps({"ratio": "9:16"}),
                     "material_manifest": json.dumps(manifest),
                 },
-                files=[
-                    ("materials", ("doctor.png", b"image", "image/png")),
-                    ("materials", ("hospital.mp4", b"video", "video/mp4")),
-                ],
+                files=files,
             )
         self.assertEqual(response.status_code, 422, response.text)
 
     def test_script_generation(self):
+        self.import_template()
         llm_result = json.dumps(
-            ["这是第一条用于接口测试的医生介绍口播文案。", "这是第二条用于接口测试的医生介绍口播文案。"],
+            ["这是第一条用于接口测试的通用介绍口播文案。", "这是第二条用于接口测试的通用介绍口播文案。"],
             ensure_ascii=False,
         )
         with patch.object(template_api.settings_store, "get_llm_settings", return_value={
@@ -234,13 +288,8 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/scripts/generate",
                 json={
-                    "template_id": "doctor-intro",
-                    "variables": {
-                        "doctor-name": "张医生",
-                        "hospital": "示例医院",
-                        "department": "心内科",
-                        "specialty": "慢性病管理",
-                    },
+                    "template_id": "user-generic-intro",
+                    "variables": {"subject": "示例品牌"},
                     "count": 2,
                 },
             )
@@ -248,14 +297,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(len(response.json()["scripts"]), 2)
 
     def test_task_creation_polling_and_user_isolation(self):
-        manifest = [
-            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
-            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
-        ]
-        files = [
-            ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
-            ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
@@ -264,7 +307,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的模板量产接口测试文案。"], ensure_ascii=False),
                     "generate_count": "2",
                     "video_config": json.dumps({"ratio": "9:16"}),
@@ -283,7 +326,7 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(persisted_task["task_type"], task_store.TASK_TYPE_TEMPLATE)
         self.assertEqual(persisted_task["generation_type"], "video")
         self.assertEqual(persisted_task["requested_count"], 2)
-        self.assertEqual(persisted_task["extra_info"]["pipeline_id"], "zhongyi_visit_v1")
+        self.assertEqual(persisted_task["extra_info"]["pipeline_id"], "generic_concat_v1")
         response = self.client.get(f"/api/template-production/tasks/{task_id}")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["items"]), 2)
@@ -301,10 +344,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_task_uses_user_subtitle_replacements_instead_of_form_values(self):
-        manifest = [
-            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
-            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         settings_store.create_subtitle_replacement(user_id=self.user_id, source="医生", replacement="yi生")
         run_task = AsyncMock(return_value=None)
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), patch.object(
@@ -313,7 +354,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的模板量产接口测试文案。"], ensure_ascii=False),
                     "generate_count": "1",
                     "video_config": json.dumps({"ratio": "9:16"}),
@@ -326,10 +367,7 @@ class TemplateProductionApiTests(unittest.TestCase):
                     ),
                     "material_manifest": json.dumps(manifest, ensure_ascii=False),
                 },
-                files=[
-                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
-                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
-                ],
+                files=files,
             )
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -339,10 +377,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         )
 
     def test_task_captures_and_passes_subtitle_style(self):
-        manifest = [
-            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
-            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         requested_style = {
             "font_family": "SimHei",
             "font_size": 72,
@@ -358,16 +394,13 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条用于验证字幕样式配置传递的模板量产测试文案。"], ensure_ascii=False),
                     "generate_count": "1",
                     "video_config": json.dumps({"ratio": "16:9", "subtitle_style": requested_style}),
                     "material_manifest": json.dumps(manifest, ensure_ascii=False),
                 },
-                files=[
-                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
-                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
-                ],
+                files=files,
             )
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -381,24 +414,19 @@ class TemplateProductionApiTests(unittest.TestCase):
         )
 
     def test_task_rejects_non_object_subtitle_style(self):
-        manifest = [
-            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
-            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         with patch.object(template_api.template_production, "require_ffmpeg"):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条用于验证字幕样式参数校验的模板量产测试文案。"], ensure_ascii=False),
                     "generate_count": "1",
                     "video_config": json.dumps({"ratio": "9:16", "subtitle_style": "invalid"}),
                     "material_manifest": json.dumps(manifest, ensure_ascii=False),
                 },
-                files=[
-                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
-                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
-                ],
+                files=files,
             )
 
         self.assertEqual(response.status_code, 422, response.text)
@@ -413,7 +441,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         original_script = "医生介绍医生"
         replacements = [{"source": "医生", "replacement": "yi生"}]
         template_api._tasks[task_id] = {
-            "template_id": template_api.template_production.ZHONGYI_TEMPLATE_ID,
+            "template_id": "user-generic-intro",
+            "pipeline_id": "generic_concat_v1",
             "status": "pending",
             "progress": 0,
             "message": "等待生成",
@@ -434,14 +463,15 @@ class TemplateProductionApiTests(unittest.TestCase):
 
         synthesize = AsyncMock(return_value=SimpleNamespace(duration=1.0, timings=()))
 
-        def compose_video(_materials, _audio_path, output_path, **_kwargs):
+        def compose_video(_segments, _audio_path, output_path, **_kwargs):
             output_path.write_bytes(b"video")
 
         with patch.object(template_api.tts_service, "synthesize", synthesize), patch.object(
             template_api.template_production,
-            "compose_zhongyi_video",
+            "compose_video",
             side_effect=compose_video,
-        ) as compose, patch.object(common, "public_output_url", return_value="/output/test"):
+        ) as compose, patch.object(template_api.template_production, "prepare_material_segment"), \
+             patch.object(common, "public_output_url", return_value="/output/test"):
             asyncio.run(
                 template_api._run_task(
                     task_id=task_id,
@@ -455,7 +485,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             )
 
         tts_request = synthesize.await_args.args[1]
-        self.assertEqual(tts_request.text, template_api.template_production.script_text_for_tts(original_script))
+        self.assertEqual(tts_request.text, original_script)
         self.assertIn("医生", tts_request.text)
         self.assertNotIn("yi生", tts_request.text)
         self.assertEqual(compose.call_args.kwargs["script"], original_script)
@@ -469,9 +499,10 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(request.speed, 1.0)
         self.assertEqual(request.volume, 100)
 
-    def test_zhongyi_script_generation_returns_candidates_without_validating_them(self):
+    def test_script_generation_returns_candidates_without_validating_them(self):
+        self.import_template()
         candidate_result = json.dumps(
-            {"scripts": [{"style": "寻访过程", "sentences": ["这是一条可以解析但结构偏短的候选文案"]}]},
+            {"scripts": [{"style": "口播", "sentences": ["这是一条可以解析但结构偏短的候选文案"]}]},
             ensure_ascii=False,
         )
         generate = AsyncMock(return_value=candidate_result)
@@ -483,15 +514,10 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/scripts/generate",
                 json={
-                    "template_id": "zhongyi-xunfang",
-                    "variables": {
-                        "address": "湖北阳新老街",
-                        "name": "马医生",
-                        "specialty": "痛风调理",
-                        "feature": "三代中医世家",
-                    },
+                    "template_id": "user-generic-intro",
+                    "variables": {"subject": "示例品牌"},
                     "count": 1,
-                    "material_context": {"doctor-scene": 2, "clinic-scene": 1},
+                    "material_context": {"main-image": 2},
                 },
             )
         self.assertEqual(response.status_code, 200, response.text)
@@ -499,7 +525,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(len(response.json()["scripts"]), 1)
         self.assertNotIn("warnings", response.json())
 
-    def test_zhongyi_task_rejects_material_groups_outside_original_template(self):
+    def test_task_rejects_material_groups_outside_template(self):
+        self.import_template()
         manifest = [
             {"requirement_id": "presenter-scene", "file_index": 0, "media_type": "video", "name": "presenter.mp4"},
         ]
@@ -507,7 +534,7 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的模板量产接口测试文案。"], ensure_ascii=False),
                     "generate_count": "1",
                     "video_config": json.dumps({"ratio": "9:16"}),
@@ -520,9 +547,10 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertIn("presenter-scene", response.json()["detail"])
 
     def test_single_candidate_rewrite_only_returns_one_script(self):
+        self.import_template()
         rewritten_sentences = ["重新创作后的候选文案内容真实自然" for _ in range(15)]
         rewritten_result = json.dumps(
-            {"scripts": [{"style": "寻访过程", "sentences": rewritten_sentences}]},
+            {"scripts": [{"style": "口播", "sentences": rewritten_sentences}]},
             ensure_ascii=False,
         )
         generate = AsyncMock(return_value=rewritten_result)
@@ -534,13 +562,8 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/scripts/rewrite",
                 json={
-                    "template_id": "zhongyi-xunfang",
-                    "variables": {
-                        "address": "湖北阳新老街",
-                        "name": "马医生",
-                        "specialty": "痛风调理",
-                        "feature": "三代中医世家",
-                    },
+                    "template_id": "user-generic-intro",
+                    "variables": {"subject": "示例品牌"},
                     "original_script": "这是需要单独重写的当前候选文案，内容需要换一个表达角度。",
                 },
             )
@@ -644,10 +667,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         bgm_id = response.json()["bgm_track"]["id"]
         expected_bgm_path = self.output_root / f"bgm/{self.user_id}/{bgm_id}.mp3"
 
-        manifest = [
-            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
-            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         run_task = AsyncMock(return_value=None)
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), \
              patch.object(template_api.template_production, "require_ffmpeg"), \
@@ -655,17 +676,14 @@ class TemplateProductionApiTests(unittest.TestCase):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的模板量产BGM测试文案。"], ensure_ascii=False),
                     "generate_count": "1",
                     "video_config": json.dumps({"ratio": "9:16"}),
                     "material_manifest": json.dumps(manifest),
                     "bgm_id": bgm_id,
                 },
-                files=[
-                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
-                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
-                ],
+                files=files,
             )
         self.assertEqual(response.status_code, 200, response.text)
         task_id = response.json()["task_id"]
@@ -674,26 +692,21 @@ class TemplateProductionApiTests(unittest.TestCase):
         self.assertEqual(run_task.call_args.kwargs["bgm_path"], expected_bgm_path)
 
     def test_task_creation_rejects_unknown_bgm_id(self):
-        manifest = [
-            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
-            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), \
              patch.object(template_api.template_production, "require_ffmpeg"):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的模板量产BGM测试文案。"], ensure_ascii=False),
                     "generate_count": "1",
                     "video_config": json.dumps({"ratio": "9:16"}),
                     "material_manifest": json.dumps(manifest),
                     "bgm_id": "nonexistent-bgm-id",
                 },
-                files=[
-                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
-                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
-                ],
+                files=files,
             )
         self.assertEqual(response.status_code, 422, response.text)
         self.assertIn("背景音乐", response.json()["detail"])
@@ -708,26 +721,21 @@ class TemplateProductionApiTests(unittest.TestCase):
             file_size=100,
         )
 
-        manifest = [
-            {"requirement_id": "doctor-scene", "file_index": 0, "media_type": "video", "name": "doctor.mp4"},
-            {"requirement_id": "clinic-scene", "file_index": 1, "media_type": "video", "name": "clinic.mp4"},
-        ]
+        self.import_template()
+        manifest, files = self.task_manifest()
         with patch.object(template_api, "resolve_output_dir", return_value=self.output_root), \
              patch.object(template_api.template_production, "require_ffmpeg"):
             response = self.client.post(
                 "/api/template-production/tasks",
                 data={
-                    "template_id": "zhongyi-xunfang",
+                    "template_id": "user-generic-intro",
                     "scripts": json.dumps(["这是一条足够长的模板量产BGM测试文案。"], ensure_ascii=False),
                     "generate_count": "1",
                     "video_config": json.dumps({"ratio": "9:16"}),
                     "material_manifest": json.dumps(manifest),
                     "bgm_id": "orphan-bgm",
                 },
-                files=[
-                    ("materials", ("doctor.mp4", b"video-one", "video/mp4")),
-                    ("materials", ("clinic.mp4", b"video-two", "video/mp4")),
-                ],
+                files=files,
             )
         self.assertEqual(response.status_code, 422, response.text)
         self.assertIn("不存在", response.json()["detail"])
@@ -743,7 +751,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         bgm_path.write_bytes(b"bgm-audio")
 
         template_api._tasks[task_id] = {
-            "template_id": "doctor-intro",
+            "template_id": "user-generic-intro",
+            "pipeline_id": "generic_concat_v1",
             "status": "pending",
             "progress": 0,
             "message": "等待生成",
@@ -795,7 +804,8 @@ class TemplateProductionApiTests(unittest.TestCase):
         temp_dir.mkdir(parents=True)
 
         template_api._tasks[task_id] = {
-            "template_id": "doctor-intro",
+            "template_id": "user-generic-intro",
+            "pipeline_id": "generic_concat_v1",
             "status": "pending",
             "progress": 0,
             "message": "等待生成",

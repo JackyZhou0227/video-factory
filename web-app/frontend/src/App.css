@@ -142,7 +142,7 @@ hr {
 .app-description,
 .settings-copy p,
 .settings-service-copy p,
-.smart-skill-content p,
+.skill-header-content p,
 .tts-studio-step-copy p,
 .panel-heading p,
 .profile-security-row p {
@@ -3461,6 +3461,42 @@ a {
   margin-bottom: 0;
 }
 
+.template-production-toolbar {
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.template-select-field {
+  min-width: 0;
+  flex: 0 1 360px;
+}
+
+.template-select-menu {
+  min-width: 360px;
+}
+
+.template-select-option {
+  display: grid !important;
+  align-items: start;
+  gap: 2px;
+  white-space: normal !important;
+}
+
+.template-select-option-name {
+  color: var(--text);
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.template-select-option small {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .template-heading-actions {
   min-width: 0;
   display: flex;
@@ -4876,14 +4912,22 @@ a {
     padding: 12px 18px 18px;
   }
 
+  .template-production-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .template-select-field {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .template-select-menu {
+    min-width: min(360px, calc(100vw - 36px));
+  }
+
   .template-heading-actions {
     width: 100%;
     justify-content: flex-start;
-  }
-
-  .template-heading-actions .status-pill {
-    width: 100%;
-    order: -1;
   }
 
   .template-selector,
@@ -5018,7 +5062,7 @@ a {
   padding: 28px;
 }
 
-.smart-skill-card {
+.skill-header-card {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 14px;
@@ -5029,7 +5073,7 @@ a {
   background: var(--background);
 }
 
-.smart-skill-icon {
+.skill-header-icon {
   display: inline-grid;
   place-items: center;
   width: 44px;
@@ -5039,25 +5083,25 @@ a {
   color: var(--accent-dark);
 }
 
-.smart-skill-content {
+.skill-header-content {
   min-width: 0;
   display: grid;
   gap: 5px;
 }
 
-.smart-skill-heading {
+.skill-header-heading {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
-.smart-skill-heading strong {
+.skill-header-heading strong {
   color: var(--text);
   font-size: 14px;
 }
 
-.smart-skill-version {
+.skill-header-version {
   padding: 3px 8px;
   border-radius: 999px;
   background: var(--surface);
@@ -5066,27 +5110,27 @@ a {
   font-weight: 750;
 }
 
-.smart-skill-content p,
-.smart-skill-content small {
+.skill-header-content p,
+.skill-header-content small {
   margin: 0;
 }
 
-.smart-skill-content p {
+.skill-header-content p {
   color: var(--text-muted);
   font-size: 12px;
   line-height: 1.6;
 }
 
-.smart-skill-content small {
+.skill-header-content small {
   color: var(--text-muted);
   font-size: 11px;
 }
 
-.smart-skill-content code {
+.skill-header-content code {
   font-size: inherit;
 }
 
-.smart-skill-download {
+.skill-header-download {
   width: auto;
   margin-top: 0;
   padding: 0 16px;
@@ -5418,12 +5462,12 @@ a {
     flex-direction: column;
   }
 
-  .smart-skill-card {
+  .skill-header-card {
     grid-template-columns: auto minmax(0, 1fr);
     padding: 14px 16px;
   }
 
-  .smart-skill-download {
+  .skill-header-download {
     grid-column: 1 / -1;
     width: 100%;
   }

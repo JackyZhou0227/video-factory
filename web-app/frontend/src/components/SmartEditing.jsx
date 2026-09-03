@@ -47,6 +47,10 @@ function splitKeywords(value) {
     .filter(Boolean);
 }
 
+function isChineseKeyword(value) {
+  return /^[\u3400-\u4dbf\u4e00-\u9fff]+$/.test(value);
+}
+
 function detectMediaType(file) {
   const extension = String(file?.name || "").split(".").pop()?.toLowerCase() || "";
   if (IMAGE_EXTENSIONS.has(extension)) return "image";
@@ -102,6 +106,7 @@ export default function SmartEditing({ currentUser }) {
   const [editingKeywords, setEditingKeywords] = useState(true);
   const [keywordNotice, setKeywordNotice] = useState("");
   const [keywordError, setKeywordError] = useState("");
+  const [extractingKeywords, setExtractingKeywords] = useState(false);
   const [pendingKeywordChange, setPendingKeywordChange] = useState(null);
   const [scriptAtKeywordParse, setScriptAtKeywordParse] = useState(null);
   const [pacing, setPacing] = useState("standard");
@@ -190,7 +195,7 @@ export default function SmartEditing({ currentUser }) {
     setKeywordError("");
     setKeywordNotice(
       duplicateKeywords.length
-        ? `已按首次出现位置合并重复关键词：${duplicateKeywords.join("、")}`
+        ? `检测到重复关键词，已按文案顺序保留：${duplicateKeywords.join("、")}`
         : `已解析 ${nextGroups.length} 个关键词，顺序将作为剪辑依据。`
     );
   }, [script]);
@@ -202,40 +207,45 @@ export default function SmartEditing({ currentUser }) {
       return false;
     }
 
-    const uniqueKeywords = [];
+    const normalizedKeywords = [];
+    const occurrences = new Map();
     const duplicateKeywords = [];
-    const seen = new Set();
     for (const keyword of parsed) {
+      if (!isChineseKeyword(keyword)) {
+        setKeywordError(`关键词“${keyword.slice(0, 20)}”必须使用中文。`);
+        return false;
+      }
       if (keyword.length > 100) {
         setKeywordError(`关键词“${keyword.slice(0, 20)}”不能超过 100 个字符。`);
         return false;
       }
       const key = normalizeKeywordKey(keyword);
-      if (seen.has(key)) {
-        if (!duplicateKeywords.includes(keyword)) duplicateKeywords.push(keyword);
-        continue;
-      }
-      seen.add(key);
-      uniqueKeywords.push({ keyword, key });
+      const occurrence = (occurrences.get(key) || 0) + 1;
+      occurrences.set(key, occurrence);
+      if (occurrence > 1 && !duplicateKeywords.includes(keyword)) duplicateKeywords.push(keyword);
+      normalizedKeywords.push({ keyword, key, occurrence });
     }
-    if (uniqueKeywords.length > MAX_KEYWORDS) {
-      setKeywordError(`关键词最多 ${MAX_KEYWORDS} 个，当前解析出 ${uniqueKeywords.length} 个。`);
+    if (normalizedKeywords.length > MAX_KEYWORDS) {
+      setKeywordError(`关键词最多 ${MAX_KEYWORDS} 个，当前解析出 ${normalizedKeywords.length} 个。`);
       return false;
     }
 
-    const previousByKey = new Map(keywordGroups.map((group) => [group.key, group]));
-    const nextGroups = uniqueKeywords.map(({ keyword, key }) => {
-      const previous = previousByKey.get(key);
+    const previousByIdentity = new Map(
+      keywordGroups.map((group) => [`${group.key}::${group.occurrence || 1}`, group])
+    );
+    const nextGroups = normalizedKeywords.map(({ keyword, key, occurrence }) => {
+      const previous = previousByIdentity.get(`${key}::${occurrence}`);
       return {
         id: previous?.id || makeId(),
         key,
         keyword,
+        occurrence,
         materials: previous?.materials || [],
       };
     });
-    const nextKeys = new Set(nextGroups.map((group) => group.key));
+    const nextIds = new Set(nextGroups.map((group) => group.id));
     const removedGroups = keywordGroups.filter(
-      (group) => !nextKeys.has(group.key) && group.materials.length > 0
+      (group) => !nextIds.has(group.id) && group.materials.length > 0
     );
     if (removedGroups.length) {
       setPendingKeywordChange({ nextGroups, duplicateKeywords, removedGroups });
@@ -257,6 +267,39 @@ export default function SmartEditing({ currentUser }) {
   const handleKeywordPaste = useCallback(() => {
     window.setTimeout(() => parseKeywordDraft(keywordDraftRef.current), 0);
   }, [parseKeywordDraft]);
+
+  const extractKeywords = useCallback(async () => {
+    setError("");
+    setKeywordError("");
+    if (scriptIssue) {
+      setError(scriptIssue);
+      return;
+    }
+
+    setExtractingKeywords(true);
+    try {
+      const data = await apiJson(
+        "/api/smart-editing/keywords/extract",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ script: cleanScript, count: 8 }),
+          silentError: true,
+        },
+        backendBaseUrl
+      );
+      const keywords = Array.isArray(data?.keywords) ? data.keywords : [];
+      if (!keywords.length) throw new Error("没有提取到可用关键词，请重试或手动编辑。");
+      const nextDraft = keywords.join("\n");
+      setKeywordDraft(nextDraft);
+      keywordDraftRef.current = nextDraft;
+      parseKeywordDraft(nextDraft);
+    } catch (extractError) {
+      setError(extractError.message || "提取关键词失败");
+    } finally {
+      setExtractingKeywords(false);
+    }
+  }, [backendBaseUrl, cleanScript, parseKeywordDraft, scriptIssue]);
 
   const beginKeywordEdit = useCallback(() => {
     const nextDraft = keywordGroups.map((group) => group.keyword).join("\n");
@@ -403,19 +446,28 @@ export default function SmartEditing({ currentUser }) {
       <div className="smart-editing-grid">
         <div className="smart-editing-column">
           <section className="template-work-section" aria-labelledby="smart-script-title">
-            <div className="template-section-heading">
+            <div className="template-section-heading with-actions">
               <span><Icon name="file" size={17} /></span>
-              <div><strong id="smart-script-title">文案</strong><small>10-5000 字，敏感词替换不会修改原文或配音</small></div>
+              <div><strong id="smart-script-title">文案</strong><small>输入完整文案，关键词会按叙事顺序提取，重复关键词会保留</small></div>
+              <Button
+                type="button"
+                variant="outlined"
+                size="small"
+                onClick={extractKeywords}
+                disabled={extractingKeywords || submitting}
+                startIcon={<Icon name={extractingKeywords ? "loading" : "sparkles"} size={14} />}
+              >
+                {extractingKeywords ? "正在提取" : "提取关键词"}
+              </Button>
             </div>
             <TextField
               className="smart-script-input"
-              placeholder="粘贴 Agent 仿写后的完整文案"
+              placeholder="输入要制作的视频文案"
               fullWidth
               multiline
               rows={10}
               value={script}
               slotProps={{ htmlInput: { maxLength: 5000 } }}
-              placeholder="粘贴 Agent 仿写后的完整文案"
               onChange={(event) => setScript(event.target.value)}
               helperText={`${cleanScript.length}/5000 字符`}
             />

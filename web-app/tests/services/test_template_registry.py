@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import json
-import tempfile
 import unittest
 from copy import deepcopy
-from pathlib import Path
 
 from pydantic import ValidationError
 
@@ -23,6 +21,7 @@ from app.services.template_registry import (
     TemplateNotFoundError,
     TemplateRegistry,
 )
+from tests.pg_test_utils import ensure_test_user
 
 
 def _generic_template(template_id: str = "campaign-template") -> dict:
@@ -140,12 +139,6 @@ class TemplateDefinitionTests(unittest.TestCase):
         with self.assertRaises(ValidationError):
             TemplateDefinition.model_validate(value)
 
-        value = _generic_template()
-        value["production"]["pipeline_id"] = "zhongyi_visit_v1"
-        value["script_generation"]["response_format"] = "segmented_scripts_v1"
-        with self.assertRaises(ValidationError):
-            TemplateDefinition.model_validate(value)
-
     def test_total_material_capacity_is_limited(self):
         value = _generic_template()
         value["material_requirements"] = [
@@ -209,89 +202,75 @@ class TemplateDefinitionTests(unittest.TestCase):
 
 
 class TemplateRegistryTests(unittest.TestCase):
-    def test_builtin_templates_load_and_export_unicode_round_trip(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            registry = TemplateRegistry(storage_root=Path(temp_dir))
-            entries = registry.list_entries("user-a")
-            self.assertEqual(
-                [entry.definition.id for entry in entries[:2]],
-                ["zhongyi-xunfang", "doctor-intro"],
-            )
-            self.assertTrue(all(entry.is_builtin for entry in entries[:2]))
+    def setUp(self):
+        ensure_test_user("user-a")
+        ensure_test_user("user-b")
 
-            exported = registry.export_template_json("user-a", "zhongyi-xunfang")
-            self.assertIn("中医寻访", exported)
-            restored = TemplateDefinition.model_validate_json(exported)
-            self.assertEqual(restored, entries[0].definition)
-            self.assertNotIn("content_values", exported)
-            self.assertNotIn("material_manifest", exported)
+    def test_import_list_and_export_round_trip_preserves_unicode(self):
+        registry = TemplateRegistry()
+        imported = registry.import_template_json(
+            "user-a", json.dumps(_generic_template(), ensure_ascii=False)
+        )
+        self.assertEqual(imported.id, "campaign-template")
+        self.assertEqual(registry.get_template("user-a", imported.id), imported)
 
-    def test_import_is_atomic_conflict_checked_and_user_isolated(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            registry = TemplateRegistry(storage_root=Path(temp_dir))
-            payload = json.dumps(_generic_template(), ensure_ascii=False)
-            imported = registry.import_template_json("user-a", payload)
-            self.assertEqual(imported.id, "campaign-template")
-            self.assertEqual(registry.get_template("user-a", imported.id), imported)
-            with self.assertRaises(TemplateNotFoundError):
-                registry.get_template("user-b", imported.id)
+        entries = registry.list_entries("user-a")
+        self.assertEqual([entry.definition.id for entry in entries], ["campaign-template"])
+        exported = registry.export_template_json("user-a", imported.id)
+        self.assertIn("活动介绍", exported)
+        restored = TemplateDefinition.model_validate_json(exported)
+        self.assertEqual(restored, imported)
+        self.assertNotIn("content_values", exported)
+        self.assertNotIn("material_manifest", exported)
 
-            destination = registry.user_template_dir("user-a") / "campaign-template.json"
-            self.assertTrue(destination.is_file())
-            self.assertFalse(list(destination.parent.glob("*.tmp")))
-            with self.assertRaises(TemplateConflictError):
-                registry.import_template_json("user-a", payload)
-            self.assertFalse(list(destination.parent.glob("*.tmp")))
+        with self.assertRaises(TemplateNotFoundError):
+            registry.get_template("user-a", "missing-template")
 
-            builtin_payload = json.loads(
-                registry.export_template_json("user-a", "doctor-intro")
-            )
-            with self.assertRaises(TemplateConflictError):
-                registry.import_template_json(
-                    "user-a",
-                    json.dumps(builtin_payload, ensure_ascii=False),
-                )
+    def test_import_is_conflict_checked_across_users(self):
+        registry = TemplateRegistry()
+        payload = json.dumps(_generic_template(), ensure_ascii=False)
+        registry.import_template_json("user-a", payload)
+        with self.assertRaises(TemplateConflictError):
+            registry.import_template_json("user-b", payload)
 
     def test_import_rejects_size_limit_and_unknown_pipeline(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            registry = TemplateRegistry(storage_root=Path(temp_dir))
-            with self.assertRaises(TemplateImportError):
-                registry.import_template_json("user-a", b" " * (MAX_TEMPLATE_JSON_BYTES + 1))
-            with self.assertRaises(TemplateImportError):
-                registry.import_template_json("user-a", "\ud800")
+        registry = TemplateRegistry()
+        with self.assertRaises(TemplateImportError):
+            registry.import_template_json("user-a", b" " * (MAX_TEMPLATE_JSON_BYTES + 1))
+        with self.assertRaises(TemplateImportError):
+            registry.import_template_json("user-a", "\ud800")
 
-            value = _generic_template()
-            value["production"]["pipeline_id"] = "unregistered_v1"
-            with self.assertRaises(TemplateImportError):
-                registry.import_template_json(
-                    "user-a",
-                    json.dumps(value, ensure_ascii=False),
-                )
+        value = _generic_template()
+        value["production"]["pipeline_id"] = "unregistered_v1"
+        with self.assertRaises(TemplateImportError):
+            registry.import_template_json(
+                "user-a",
+                json.dumps(value, ensure_ascii=False),
+            )
 
     def test_import_rejects_definition_whose_export_exceeds_size_limit(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            registry = TemplateRegistry(storage_root=Path(temp_dir))
-            value = _generic_template("large-canonical-template")
-            compact = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
-            canonical = TemplateDefinition.model_validate(value).model_dump_json(
-                indent=2,
-                exclude_none=True,
-            )
-            whitespace_overhead = len(canonical.encode("utf-8")) - len(compact.encode("utf-8"))
-            target_size = MAX_TEMPLATE_JSON_BYTES - max(1, whitespace_overhead // 2)
-            filler_size = target_size - len(compact.encode("utf-8"))
+        registry = TemplateRegistry()
+        value = _generic_template("large-canonical-template")
+        compact = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        canonical = TemplateDefinition.model_validate(value).model_dump_json(
+            indent=2,
+            exclude_none=True,
+        )
+        whitespace_overhead = len(canonical.encode("utf-8")) - len(compact.encode("utf-8"))
+        target_size = MAX_TEMPLATE_JSON_BYTES - max(1, whitespace_overhead // 2)
+        filler_size = target_size - len(compact.encode("utf-8"))
 
-            prompt = value["script_generation"]["prompt_template"]
-            prompt_room = 80_000 - len(prompt)
-            prompt_filler = min(filler_size, prompt_room)
-            value["script_generation"]["prompt_template"] = prompt + ("x" * prompt_filler)
-            rewrite_filler = filler_size - prompt_filler
-            value["script_generation"]["rewrite_prompt_template"] += "y" * rewrite_filler
-            payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        prompt = value["script_generation"]["prompt_template"]
+        prompt_room = 80_000 - len(prompt)
+        prompt_filler = min(filler_size, prompt_room)
+        value["script_generation"]["prompt_template"] = prompt + ("x" * prompt_filler)
+        rewrite_filler = filler_size - prompt_filler
+        value["script_generation"]["rewrite_prompt_template"] += "y" * rewrite_filler
+        payload = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
-            self.assertLessEqual(len(payload.encode("utf-8")), MAX_TEMPLATE_JSON_BYTES)
-            with self.assertRaises(TemplateImportError):
-                registry.import_template_json("user-a", payload)
+        self.assertLessEqual(len(payload.encode("utf-8")), MAX_TEMPLATE_JSON_BYTES)
+        with self.assertRaises(TemplateImportError):
+            registry.import_template_json("user-a", payload)
 
 
 if __name__ == "__main__":

@@ -236,22 +236,9 @@ def _validate_generic_concat(template: TemplateDefinition) -> None:
         raise ValueError("generic_concat_v1 requires at least one required material slot")
 
 
-def _validate_zhongyi_visit(template: TemplateDefinition) -> None:
-    requirements = {requirement.key: requirement for requirement in template.material_requirements}
-    for key in ("doctor-scene", "clinic-scene"):
-        requirement = requirements.get(key)
-        if requirement is None:
-            raise ValueError(f"zhongyi_visit_v1 requires the {key} material requirement")
-        if requirement.media_type != "video" or requirement.min_count < 1:
-            raise ValueError(f"zhongyi_visit_v1 requires {key} to be a required video slot")
-    if template.script_generation.response_format != "segmented_scripts_v1":
-        raise ValueError("zhongyi_visit_v1 requires segmented_scripts_v1 responses")
-
-
 _PIPELINE_COMPATIBILITY_VALIDATORS.update(
     {
         "generic_concat_v1": _validate_generic_concat,
-        "zhongyi_visit_v1": _validate_zhongyi_visit,
     }
 )
 
@@ -423,7 +410,7 @@ _RESPONSE_CONTRACTS: dict[ResponseFormat, str] = {
     ),
     "segmented_scripts_v1": (
         '只输出合法 JSON，不使用 Markdown 代码块或额外解释。格式为：'
-        '{"scripts":[{"style":"寻访过程","sentences":["第一句","第二句"]}]}'
+        '{"scripts":[{"style":"文案风格","sentences":["第一句","第二句"]}]}'
     ),
 }
 

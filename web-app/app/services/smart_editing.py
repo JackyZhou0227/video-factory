@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import json
 import random
-import unicodedata
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Sequence
@@ -47,21 +48,74 @@ def normalize_keywords(values: Sequence[object]) -> list[str]:
         raise SmartEditingError(f"关键词数量必须在 1-{MAX_KEYWORDS} 之间")
 
     normalized: list[str] = []
-    seen: set[str] = set()
     for index, raw_value in enumerate(values, start=1):
         if not isinstance(raw_value, str):
             raise SmartEditingError(f"第 {index} 个关键词必须是字符串")
         value = raw_value.strip()
         if not value:
             raise SmartEditingError(f"第 {index} 个关键词不能为空")
+        if not re.fullmatch(r"[\u3400-\u4dbf\u4e00-\u9fff]+", value):
+            raise SmartEditingError(f"第 {index} 个关键词必须使用中文")
         if len(value) > 100:
             raise SmartEditingError(f"第 {index} 个关键词不能超过 100 个字符")
-        key = unicodedata.normalize("NFKC", value).casefold()
-        if key in seen:
-            raise SmartEditingError(f"关键词“{value}”重复")
-        seen.add(key)
         normalized.append(value)
     return normalized
+
+
+def keyword_extraction_prompt(script: str, count: int = 8) -> str:
+    """Build a constrained prompt for visual search terms derived from a script."""
+
+    clean_script = str(script or "").strip()
+    return f"""
+# Role: Video Search Terms Generator
+
+根据下面的完整视频文案，提取 {count} 个适合搜索图片或视频素材的视觉关键词。
+
+要求：
+1. 只返回 JSON 字符串数组，不要 Markdown、解释或重复文案。
+2. 关键词必须只使用中文汉字，不要包含英文、数字、标点或其他语言；每个关键词简洁描述可被镜头表现的主体、地点、动作或场景。
+3. 按文案叙事顺序排列，让关键词能覆盖开头、中段和结尾的画面。
+4. 关键词可以重复：如果同一主体或场景在文案中多次出现，请按出现位置保留重复项，不要为了去重而删除。
+5. 关键词必须与文案相关，不要凭空添加品牌、人物或事实。
+
+输出示例：
+["城市街道", "医生问诊", "医生问诊", "夕阳风景"]
+
+视频文案：
+{clean_script}
+""".strip()
+
+
+def parse_keyword_response(content: str) -> list[str]:
+    """Parse a provider response while preserving duplicate keyword entries."""
+
+    text = str(content or "").strip()
+    if text.startswith("```"):
+        text = re.sub(r"^```[A-Za-z0-9_-]*\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+
+    candidates: object
+    try:
+        candidates = json.loads(text)
+    except (json.JSONDecodeError, TypeError):
+        match = re.search(r"\[[\s\S]*\]", text)
+        if not match:
+            raise SmartEditingError("LLM 没有返回合法的关键词数组") from None
+        try:
+            candidates = json.loads(match.group(0))
+        except json.JSONDecodeError as exc:
+            raise SmartEditingError("LLM 返回的关键词不是合法 JSON") from exc
+
+    if isinstance(candidates, dict):
+        candidates = candidates.get("keywords")
+    if not isinstance(candidates, list):
+        raise SmartEditingError("LLM 返回的关键词必须是字符串数组")
+    try:
+        return normalize_keywords(candidates)
+    except SmartEditingError:
+        raise
+    except Exception as exc:
+        raise SmartEditingError("LLM 返回的关键词格式不正确") from exc
 
 
 def pacing_range(pacing: str) -> tuple[float, float]:

@@ -44,7 +44,6 @@ MAX_BGM_FILE_SIZE = 20 * 1024 * 1024
 MAX_TEMPLATE_FILE_SIZE = uploads.MAX_JSON_FILE_SIZE
 PIPELINE_CAPABILITIES = {
     "generic_concat_v1": {},
-    "zhongyi_visit_v1": {},
 }
 
 _tasks: dict[str, dict[str, Any]] = {}
@@ -764,33 +763,27 @@ async def _run_task(
     completed_outputs: list[Path] = []
     failed = 0
     try:
-        pipeline_id = task.get("pipeline_id")
-        if pipeline_id is None:
-            pipeline_id = (
-                "zhongyi_visit_v1"
-                if task["template_id"] == template_production.ZHONGYI_TEMPLATE_ID
-                else "generic_concat_v1"
+        pipeline_id = task.get("pipeline_id") or "generic_concat_v1"
+        if pipeline_id != "generic_concat_v1":
+            raise template_production.TemplateProductionError(
+                f"不支持的模板流水线：{pipeline_id}"
             )
-        is_zhongyi = pipeline_id == "zhongyi_visit_v1"
         prepared_segments: list[Path] = []
-        if is_zhongyi:
-            task.update(status="running", progress=10, message="素材已就绪，正在生成视频")
-        else:
-            task.update(status="running", progress=1, message="正在标准化素材")
-            for index, material in enumerate(materials, start=1):
-                segment_path = temp_dir / f"segment_{index:02d}.mp4"
-                await run_blocking("media",
-                    template_production.prepare_material_segment,
-                    material["input_path"],
-                    segment_path,
-                    media_type=material["media_type"],
-                    ratio=ratio,
-                )
-                prepared_segments.append(segment_path)
-                task.update(
-                    progress=max(2, round(index / len(materials) * 10)),
-                    message=f"正在处理素材 {index}/{len(materials)}",
-                )
+        task.update(status="running", progress=1, message="正在标准化素材")
+        for index, material in enumerate(materials, start=1):
+            segment_path = temp_dir / f"segment_{index:02d}.mp4"
+            await run_blocking("media",
+                template_production.prepare_material_segment,
+                material["input_path"],
+                segment_path,
+                media_type=material["media_type"],
+                ratio=ratio,
+            )
+            prepared_segments.append(segment_path)
+            task.update(
+                progress=max(2, round(index / len(materials) * 10)),
+                message=f"正在处理素材 {index}/{len(materials)}",
+            )
         common.persist_task_update(
             task_id,
             status="running",
@@ -815,46 +808,28 @@ async def _run_task(
             audio_path = temp_dir / f"audio_{index:03d}.mp3"
             output_path = output_dir / f"template_video_{index:03d}.mp4"
             try:
-                tts_text = template_production.script_text_for_tts(item["script"]) if is_zhongyi else item["script"]
                 tts_result = await tts_service.synthesize(
                     EDGE_TTS_MODEL,
-                    _template_tts_request(tts_text),
+                    _template_tts_request(item["script"]),
                     audio_path,
                 )
                 audio_duration = tts_result.duration or await run_blocking("media", template_production.probe_duration, audio_path)
                 item["message"] = "正在合成视频"
-                if is_zhongyi:
-                    await run_blocking("media",
-                        template_production.compose_zhongyi_video,
-                        materials,
-                        audio_path,
-                        output_path,
-                        script=item["script"],
-                        work_dir=temp_dir / f"video_{index:03d}",
-                        seed=f"{task_id}:{index}",
-                        ratio=ratio,
-                        audio_duration=audio_duration,
-                        timings=tts_result.timings,
-                        subtitle_replacements=subtitle_replacements,
-                        subtitle_style=subtitle_style,
-                        bgm_path=bgm_path,
-                    )
-                else:
-                    await run_blocking("media",
-                        template_production.compose_video,
-                        prepared_segments,
-                        audio_path,
-                        output_path,
-                        seed=f"{task_id}:{index}",
-                        audio_duration=audio_duration,
-                        script=item["script"],
-                        work_dir=temp_dir / f"video_{index:03d}",
-                        ratio=ratio,
-                        timings=tts_result.timings,
-                        subtitle_replacements=subtitle_replacements,
-                        subtitle_style=subtitle_style,
-                        bgm_path=bgm_path,
-                    )
+                await run_blocking("media",
+                    template_production.compose_video,
+                    prepared_segments,
+                    audio_path,
+                    output_path,
+                    seed=f"{task_id}:{index}",
+                    audio_duration=audio_duration,
+                    script=item["script"],
+                    work_dir=temp_dir / f"video_{index:03d}",
+                    ratio=ratio,
+                    timings=tts_result.timings,
+                    subtitle_replacements=subtitle_replacements,
+                    subtitle_style=subtitle_style,
+                    bgm_path=bgm_path,
+                )
                 completed_outputs.append(output_path)
                 item.update(
                     status="completed",

@@ -5,66 +5,96 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from PIL import Image
 
+from app.schemas.template_definition import TemplateDefinition
 from app.services import template_production
+
+
+def _generic_template(response_format: str = "plain_scripts_v1") -> TemplateDefinition:
+    return TemplateDefinition.model_validate({
+        "schema_version": 1,
+        "template_version": 1,
+        "id": "generic-test-template",
+        "name": "通用测试模板",
+        "description": "用于服务层单元测试。",
+        "content_fields": [
+            {
+                "key": "tone",
+                "label": "表达风格",
+                "input_type": "select",
+                "required": True,
+                "default": "calm",
+                "options": [
+                    {"value": "calm", "label": "克制"},
+                    {"value": "warm", "label": "温暖"},
+                ],
+            },
+            {
+                "key": "subject",
+                "label": "介绍对象",
+                "required": True,
+                "min_length": 2,
+                "max_length": 100,
+            },
+        ],
+        "material_requirements": [
+            {
+                "key": "main-image",
+                "label": "主体图片",
+                "description": "用于视频主体画面的图片。",
+                "media_type": "image",
+                "min_count": 1,
+                "max_count": 2,
+            }
+        ],
+        "script_generation": {
+            "system_prompt": "你是短视频文案编导。",
+            "prompt_template": "生成 {{candidate_count}} 条文案。\n{{content_context}}\n{{material_context}}\n{{response_contract}}",
+            "rewrite_prompt_template": "重写 {{original_script}}\n{{content_context}}\n{{response_contract}}",
+            "response_format": response_format,
+            "default_candidate_count": 3,
+            "temperature": 0.75,
+            "max_tokens": 2400,
+        },
+        "production": {
+            "pipeline_id": "generic_concat_v1",
+            "default_ratio": "9:16",
+            "default_batch_size": 5,
+            "max_batch_size": 50,
+        },
+    })
 
 
 class TemplateProductionTests(unittest.TestCase):
     def test_prompt_and_script_parser(self):
         prompt = template_production.build_script_prompt(
-            "zhongyi-xunfang",
-            {"address": "武汉", "name": "李医生", "specialty": "中医内科", "feature": "三代从医"},
+            _generic_template(),
+            {"subject": "王医生"},
             3,
         )
-        self.assertIn("生成 3 条", prompt)
-        self.assertIn("李医生", prompt)
+        self.assertIn("生成 3 条文案", prompt)
+        self.assertIn("介绍对象：王医生", prompt)
         scripts = template_production.parse_generated_scripts(json.dumps(["这是第一条足够长的测试文案。", "这是第二条足够长的测试文案。"], ensure_ascii=False))
         self.assertEqual(len(scripts), 2)
 
-    def test_zhongyi_prompt_and_structured_script_parsing(self):
+    def test_segmented_prompt_and_structured_script_parsing(self):
+        template = _generic_template(response_format="segmented_scripts_v1")
         prompt = template_production.build_script_prompt(
-            "zhongyi-xunfang",
-            {"address": "湖北阳新老街", "name": "马医生", "specialty": "痛风调理", "feature": ""},
-            3,
-            {"doctor-scene": 2, "clinic-scene": 1},
+            template,
+            {"subject": "王医生"},
+            1,
+            {"main-image": 2},
         )
-        self.assertIn("医生专长：痛风调理", prompt)
-        self.assertIn("医生特点：未提供", prompt)
-        self.assertIn("中医师问诊画面：2 个", prompt)
-        self.assertIn("诊所环境画面：1 个", prompt)
-        self.assertNotIn("寻访人出镜", prompt)
-        self.assertNotIn("患者或候诊", prompt)
-        self.assertIn("不得编造中医世家", prompt)
-        self.assertIn("150-180 个汉字", prompt)
-        self.assertIn("14-18 个短句", prompt)
+        self.assertIn("介绍对象：王医生", prompt)
+        self.assertIn("主体图片：2 个", prompt)
+        self.assertIn("文案风格", prompt)
 
-        sentences = ["中医寻访问诊画面真实" for _ in range(16)]
-        content = json.dumps({"scripts": [{"style": "寻访过程", "sentences": sentences}]}, ensure_ascii=False)
+        sentences = ["这条口播内容真实自然且完整" for _ in range(16)]
+        content = json.dumps({"scripts": [{"style": "口播", "sentences": sentences}]}, ensure_ascii=False)
         scripts = template_production.parse_generated_scripts(content)
         self.assertEqual(len(template_production.split_script_sentences(scripts[0])), 16)
-
-    def test_zhongyi_timeline_uses_two_material_groups_and_matches_duration(self):
-        materials = [
-            {"input_path": Path("doctor-a.mp4"), "media_type": "video", "requirement_id": "doctor-scene"},
-            {"input_path": Path("doctor-b.mp4"), "media_type": "video", "requirement_id": "doctor-scene"},
-            {"input_path": Path("clinic.mp4"), "media_type": "video", "requirement_id": "clinic-scene"},
-        ]
-        with patch.object(template_production, "probe_duration", return_value=30.0):
-            first = template_production.build_zhongyi_timeline(materials, 40.0, seed="task-1")
-            second = template_production.build_zhongyi_timeline(materials, 40.0, seed="task-1")
-        self.assertEqual(first, second)
-        self.assertEqual(len(first), 7)
-        self.assertEqual(first[1].requirement_id, "clinic-scene")
-        self.assertEqual(first[2].requirement_id, "doctor-scene")
-        self.assertEqual(
-            {item.requirement_id for item in first},
-            {"doctor-scene", "clinic-scene"},
-        )
-        visible_duration = sum(item.duration for item in first) - 6 * template_production.ZHONGYI_TRANSITION_DURATION
-        self.assertAlmostEqual(visible_duration, 40.0, places=5)
 
     def test_subtitle_fallback_covers_full_audio(self):
         cues = template_production.build_subtitle_cues("第一句\n这是稍长一些的第二句\n最后一句", 9.0)
@@ -112,7 +142,8 @@ class TemplateProductionTests(unittest.TestCase):
             self.assertIn("yi生介绍", content)
             self.assertIn("yi生问诊", content)
             self.assertIn("Style: Notice,", content)
-            self.assertIn(template_production.TEMPLATE_SAFETY_NOTICE, content)
+            notice = template_production.DEFAULT_SUBTITLE_STYLE["notice_text"]
+            self.assertIn(notice.replace("\n", "\\N"), content)
 
     def test_shared_safety_notice_uses_lower_top_margin(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -291,27 +322,9 @@ class TemplateProductionTests(unittest.TestCase):
             self.assertGreater(template_production.probe_duration(output_path), 1.8)
             self.assertFalse((root / "generic-work" / "subtitles.ass").exists())
 
-            zhongyi_output = root / "zhongyi-output.mp4"
-            materials = [
-                {"input_path": source_video, "media_type": "video", "requirement_id": "doctor-scene"},
-                {"input_path": source_video, "media_type": "video", "requirement_id": "clinic-scene"},
-            ]
-            with patch.object(template_production, "ratio_size", return_value=(180, 320)):
-                template_production.compose_zhongyi_video(
-                    materials,
-                    audio_path,
-                    zhongyi_output,
-                    script="走在湖北阳新的老街上\n我终于找到了马医生\n这里保留着真实的问诊日常",
-                    work_dir=root / "zhongyi-work",
-                    seed="zhongyi-integration",
-                    audio_duration=2.2,
-                )
-            self.assertTrue(zhongyi_output.exists())
-            self.assertAlmostEqual(template_production.probe_duration(zhongyi_output), 2.2, delta=0.15)
-
             subtitle_frame = root / "subtitle-frame.png"
             subprocess.run(
-                [ffmpeg, "-y", "-ss", "1", "-i", str(zhongyi_output), "-frames:v", "1", str(subtitle_frame)],
+                [ffmpeg, "-y", "-ss", "1", "-i", str(output_path), "-frames:v", "1", str(subtitle_frame)],
                 check=True,
                 capture_output=True,
             )

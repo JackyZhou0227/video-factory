@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Button from "@mui/material/Button";
-import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
@@ -184,7 +183,7 @@ function ContentFieldControl({ field, value, onChange }) {
       <TextField
         {...sharedProps}
         multiline
-        rows={4}
+        rows={3}
         slotProps={{ htmlInput: { minLength: field.min_length ?? undefined, maxLength: field.max_length ?? undefined } }}
         placeholder={field.placeholder || "请输入内容"}
       />
@@ -363,20 +362,17 @@ export default function TemplateProduction({ currentUser }) {
   }, [selectedTemplate?.id, stopPolling, taskStorageKey]);
 
   useEffect(() => {
-    if (!subtitleStyleDialogOpen || !selectedTemplate) return undefined;
+    if (!subtitleStyleDialogOpen) return undefined;
 
-    const previousOverflow = document.body.style.overflow;
     const handleKeyDown = (event) => {
       if (event.key === "Escape") setSubtitleStyleDialogOpen(false);
     };
 
-    document.body.style.overflow = "hidden";
     document.addEventListener("keydown", handleKeyDown);
     return () => {
-      document.body.style.overflow = previousOverflow;
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [selectedTemplate, subtitleStyleDialogOpen]);
+  }, [subtitleStyleDialogOpen]);
 
   useEffect(() => {
     if (!selectedTemplate && subtitleStyleDialogOpen) setSubtitleStyleDialogOpen(false);
@@ -698,69 +694,7 @@ export default function TemplateProduction({ currentUser }) {
 
   return (
     <section className="workspace-panel template-production-panel" aria-label="模板量产工作区">
-      <div className="panel-heading">
-        <div className="template-heading-actions">
-          {currentUser?.is_admin ? <>
-            <input ref={templateFileInputRef} hidden type="file" accept="application/json,.json" onChange={importTemplate} />
-            <Button type="button" variant="outlined" size="small" onClick={() => templateFileInputRef.current?.click()} disabled={submitting || importingTemplate} title="导入共享模板 JSON"
-              startIcon={<Icon name={importingTemplate ? "loading" : "upload"} size={15} />}>
-              {importingTemplate ? "导入中" : "导入模板"}
-            </Button>
-          </> : null}
-          <Button
-            type="button"
-            variant="outlined"
-            size="small"
-            onClick={exportTemplate}
-            disabled={!selectedTemplate || exportingTemplate}
-            title="导出当前模板 JSON"
-            startIcon={<Icon name={exportingTemplate ? "loading" : "download"} size={15} />}
-          >
-            {exportingTemplate ? "导出中" : "导出模板"}
-          </Button>
-          <Chip
-            size="small"
-            icon={
-              <Icon
-                name={
-                  templatesLoading || submitting
-                    ? "loading"
-                    : task?.status === "completed"
-                      ? "check"
-                      : task?.status === "partial_failed"
-                        ? "alert"
-                        : "template"
-                }
-                size={14}
-              />
-            }
-            label={
-              templatesLoading
-                ? "加载模板"
-                : task
-                  ? statusLabel(task.status)
-                  : !selectedTemplate
-                    ? "暂无模板"
-                    : canSubmit
-                      ? "可以生成"
-                      : "准备素材"
-            }
-            sx={{
-              backgroundColor: statusChipColors[task?.status || (canSubmit ? "ready" : "pending")]?.bg || "#f3f1e9",
-              color: statusChipColors[task?.status || (canSubmit ? "ready" : "pending")]?.fg || "#68645b",
-              fontWeight: 600,
-              "& .vf-icon": { color: statusChipColors[task?.status || (canSubmit ? "ready" : "pending")]?.fg || "#68645b" },
-            }}
-          />
-        </div>
-      </div>
-
-      <div
-        className="template-selector"
-        role={templates.length ? "tablist" : "status"}
-        aria-label="模板选择"
-        aria-busy={templatesLoading}
-      >
+      <div className="panel-heading template-production-toolbar">
         {templatesLoading && !templates.length ? (
           <div className="template-empty-state"><Icon name="loading" size={20} />正在加载模板...</div>
         ) : templateError && !templates.length ? (
@@ -777,27 +711,58 @@ export default function TemplateProduction({ currentUser }) {
             <Icon name="template" size={20} />
             <span>还没有可用模板，请导入模板 JSON。</span>
           </div>
-        ) : templates.map((item) => (
-          <Button
-            className={`template-choice ${item.id === templateId ? "is-active" : ""}`}
-            key={item.id}
-            onClick={() => switchTemplate(item)}
-            role="tab"
-            type="button"
-            variant="outlined"
-            color="inherit"
-            aria-selected={item.id === templateId}
-            disabled={submitting}
-            sx={{ justifyContent: "flex-start", textTransform: "none" }}
-          >
-            <span className="template-choice-icon"><Icon name="template" size={20} /></span>
-            <span>
-              <strong>{item.name}</strong>
-              <small>{item.description || "暂无模板说明"}</small>
-            </span>
-            {item.id === templateId ? <Icon name="check" size={17} /> : null}
-          </Button>
-        ))}
+        ) : (
+          <>
+            <TextField
+              className="template-select-field"
+              label="选择模板"
+              size="small"
+              select
+              value={templateId}
+              onChange={(event) => {
+                const nextTemplate = templates.find((item) => item.id === event.target.value);
+                if (nextTemplate) switchTemplate(nextTemplate);
+              }}
+              disabled={submitting}
+              sx={{ width: "min(100%, 360px)" }}
+              slotProps={{
+                select: {
+                  renderValue: (value) => templates.find((item) => item.id === value)?.name || "",
+                  MenuProps: {
+                    PaperProps: { className: "template-select-menu" },
+                  },
+                },
+              }}
+            >
+              {templates.map((item) => (
+                <MenuItem key={item.id} value={item.id} className="template-select-option">
+                  <span className="template-select-option-name">{item.name}</span>
+                  <small>{item.description || "暂无模板说明"}</small>
+                </MenuItem>
+              ))}
+            </TextField>
+            <div className="template-heading-actions">
+              {currentUser?.is_admin ? <>
+                <input ref={templateFileInputRef} hidden type="file" accept="application/json,.json" onChange={importTemplate} />
+                <Button type="button" variant="outlined" size="small" onClick={() => templateFileInputRef.current?.click()} disabled={submitting || importingTemplate} title="导入共享模板 JSON"
+                  startIcon={<Icon name={importingTemplate ? "loading" : "upload"} size={15} />}>
+                  {importingTemplate ? "导入中" : "导入模板"}
+                </Button>
+              </> : null}
+              <Button
+                type="button"
+                variant="outlined"
+                size="small"
+                onClick={exportTemplate}
+                disabled={!selectedTemplate || exportingTemplate}
+                title="导出当前模板 JSON"
+                startIcon={<Icon name={exportingTemplate ? "loading" : "download"} size={15} />}
+              >
+                {exportingTemplate ? "导出中" : "导出模板"}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
 
       {templateError && templates.length ? <div className="form-alert failed">{templateError}</div> : null}
@@ -948,9 +913,9 @@ export default function TemplateProduction({ currentUser }) {
               placeholder="选择上方候选，或直接在这里输入最终用于配音和生成视频的文案"
               fullWidth
               multiline
-              rows={5}
+              minRows={3}
+              maxRows={6}
               value={finalScript}
-              placeholder="选择上方候选，或直接在这里输入最终用于配音和生成视频的文案"
               onChange={(event) => {
                 setFinalScript(event.target.value);
                 setSelectedCandidateId("");

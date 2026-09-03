@@ -12,18 +12,29 @@ from app.services import smart_editing, template_production
 
 
 class SmartEditingTests(unittest.TestCase):
-    def test_normalize_keywords_preserves_order_and_rejects_invalid_values(self):
+    def test_normalize_keywords_preserves_order_and_allows_duplicates(self):
         self.assertEqual(
-            smart_editing.normalize_keywords([" 医院 ", "医生", "问诊"]),
-            ["医院", "医生", "问诊"],
+            smart_editing.normalize_keywords([" 医院 ", "医生", "医院", "问诊"]),
+            ["医院", "医生", "医院", "问诊"],
         )
 
-        for values in (["医院", "医院"], ["医院", " 医院 "], ["医院", ""]):
+        for values in (["医院", ""],):
             with self.subTest(values=values), self.assertRaises(smart_editing.SmartEditingError):
                 smart_editing.normalize_keywords(values)
 
         with self.assertRaises(smart_editing.SmartEditingError):
             smart_editing.normalize_keywords("医院,医生")
+
+    def test_parse_keyword_response_preserves_duplicates_and_code_fences(self):
+        content = "```json\n[\"诊所\", \"医生\", \"医生\"]\n```"
+        self.assertEqual(
+            smart_editing.parse_keyword_response(content),
+            ["诊所", "医生", "医生"],
+        )
+
+    def test_normalize_keywords_rejects_non_chinese_terms(self):
+        with self.assertRaisesRegex(smart_editing.SmartEditingError, "必须使用中文"):
+            smart_editing.normalize_keywords(["clinic"])
 
     def test_timeline_is_round_robin_deterministic_and_uses_pacing_range(self):
         materials = [

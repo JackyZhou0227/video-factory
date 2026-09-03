@@ -10,12 +10,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from pydantic import BaseModel, Field
 
 from app.api import common
 from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
 from app.services import settings_store, smart_editing, task_store, template_production
+from app.services.llm import LLMConfig, LLMMessage, LLMServiceError, llm_service
 from app.services.task_runtime import run_blocking
 from app.services.tts import EDGE_TTS_MODEL, TTSRequest, tts_service
 
@@ -25,11 +27,60 @@ MIN_SCRIPT_LENGTH = 10
 MAX_SCRIPT_LENGTH = 5000
 MAX_GENERATE_COUNT = 10
 MAX_MATERIAL_FILE_SIZE = uploads.MAX_VIDEO_FILE_SIZE
+MAX_KEYWORDS = smart_editing.MAX_KEYWORDS
 SMART_EDITING_TTS_VOICE_ID = "zh-CN-YunjianNeural"
 SMART_EDITING_TTS_SPEED = 1.0
 SMART_EDITING_TTS_VOLUME = 100
+DEFAULT_KEYWORD_COUNT = 8
 
 _tasks: dict[str, dict[str, Any]] = {}
+
+
+class KeywordExtractRequest(BaseModel):
+    script: str = Field(..., min_length=MIN_SCRIPT_LENGTH, max_length=MAX_SCRIPT_LENGTH)
+    count: int = Field(default=DEFAULT_KEYWORD_COUNT, ge=1, le=MAX_KEYWORDS)
+
+
+@router.post("/keywords/extract")
+async def extract_keywords(
+    payload: KeywordExtractRequest,
+    user: dict = Depends(require_current_user),
+):
+    script = payload.script.strip()
+    if not MIN_SCRIPT_LENGTH <= len(script) <= MAX_SCRIPT_LENGTH:
+        raise HTTPException(
+            status_code=422,
+            detail=f"script 长度必须在 {MIN_SCRIPT_LENGTH}-{MAX_SCRIPT_LENGTH} 个字符之间",
+        )
+    config = LLMConfig(**settings_store.get_llm_settings(user["id"]))
+    try:
+        content = await llm_service.generate(
+            config,
+            [
+                LLMMessage(
+                    role="system",
+                    content="你是专业的视频素材搜索关键词提取器，只输出符合要求的 JSON 字符串数组。",
+                ),
+                LLMMessage(
+                    role="user",
+                    content=smart_editing.keyword_extraction_prompt(script, payload.count),
+                ),
+            ],
+            temperature=0.3,
+            max_tokens=600,
+        )
+    except LLMServiceError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
+
+    try:
+        keywords = smart_editing.parse_keyword_response(content)
+    except smart_editing.SmartEditingError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    if not keywords:
+        raise HTTPException(status_code=502, detail="LLM 没有返回可用关键词，请重试")
+    if len(keywords) > MAX_KEYWORDS:
+        raise HTTPException(status_code=502, detail=f"LLM 返回的关键词超过 {MAX_KEYWORDS} 个")
+    return {"keywords": keywords}
 
 
 def _task_payload(record: dict[str, Any], cached: dict[str, Any] | None = None) -> dict[str, Any]:
