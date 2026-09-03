@@ -3749,6 +3749,23 @@ a {
   animation: vf-spin 0.9s linear infinite;
 }
 
+.template-empty-copy {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+}
+
+.template-empty-copy strong {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.template-empty-copy span {
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
 .material-preview-media img,
 .material-preview-media video {
   width: 100%;
@@ -3898,8 +3915,7 @@ a {
 .script-candidate-select {
   min-width: 0;
   display: grid;
-  grid-template-rows: 1fr auto;
-  gap: 10px;
+  grid-template-rows: 1fr;
   padding: 12px;
   border: 0;
   background: transparent;
@@ -3912,20 +3928,6 @@ a {
   overflow-wrap: anywhere;
   font-size: 12px;
   line-height: 1.65;
-}
-
-.script-candidate-select small {
-  min-height: 18px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-
-.script-candidate-card.is-selected .script-candidate-select small {
-  color: var(--accent-dark);
-  font-weight: 700;
 }
 
 .final-script-field textarea {

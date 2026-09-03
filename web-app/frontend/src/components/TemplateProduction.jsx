@@ -467,7 +467,6 @@ export default function TemplateProduction({ currentUser }) {
     setSelectedCandidateId(candidate.id);
     setFinalScript(candidate.content);
     setError("");
-    showSuccess("已将候选文案填入最终文案。");
   }, []);
 
   const rewriteCandidate = useCallback(async (candidate) => {
@@ -590,6 +589,15 @@ export default function TemplateProduction({ currentUser }) {
   return (
     <section className="workspace-panel template-production-panel" aria-label="模板量产工作区">
       <div className="panel-heading template-production-toolbar">
+        {currentUser?.is_admin ? (
+          <input
+            ref={templateFileInputRef}
+            hidden
+            type="file"
+            accept="application/json,.json"
+            onChange={importTemplate}
+          />
+        ) : null}
         {templatesLoading && !templates.length ? (
           <div className="template-empty-state"><Icon name="loading" size={20} />正在加载模板...</div>
         ) : templateError && !templates.length ? (
@@ -604,7 +612,23 @@ export default function TemplateProduction({ currentUser }) {
         ) : !templates.length ? (
           <div className="template-empty-state">
             <Icon name="template" size={20} />
-            <span>还没有可用模板，请导入模板 JSON。</span>
+            <div className="template-empty-copy">
+              <strong>还没有可用模板</strong>
+              <span>导入模板 JSON 后开始模板量产。</span>
+            </div>
+            {currentUser?.is_admin ? (
+              <Button
+                type="button"
+                variant="outlined"
+                size="small"
+                onClick={() => templateFileInputRef.current?.click()}
+                disabled={importingTemplate}
+                title="导入共享模板 JSON"
+                startIcon={<Icon name={importingTemplate ? "loading" : "upload"} size={15} />}
+              >
+                {importingTemplate ? "导入中" : "导入模板"}
+              </Button>
+            ) : null}
           </div>
         ) : (
           <>
@@ -638,7 +662,6 @@ export default function TemplateProduction({ currentUser }) {
             </TextField>
             <div className="template-heading-actions">
               {currentUser?.is_admin ? <>
-                <input ref={templateFileInputRef} hidden type="file" accept="application/json,.json" onChange={importTemplate} />
                 <Button type="button" variant="outlined" size="small" onClick={() => templateFileInputRef.current?.click()} disabled={submitting || importingTemplate} title="导入共享模板 JSON"
                   startIcon={<Icon name={importingTemplate ? "loading" : "upload"} size={15} />}>
                   {importingTemplate ? "导入中" : "导入模板"}
@@ -792,7 +815,6 @@ export default function TemplateProduction({ currentUser }) {
                       sx={{ display: "block", textAlign: "left", textTransform: "none" }}
                     >
                       <span>{candidate.content}</span>
-                      <small>{candidate.id === selectedCandidateId ? <><Icon name="check" size={13} />已选为最终文案</> : "点击选用"}</small>
                     </Button>
                   </article>
                 ))}
