@@ -126,7 +126,7 @@ def register(payload: AuthPayload, request: Request, response: Response):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前未开放注册")
 
     if not payload.org_id:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="请选择所属组织")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="请选择所属组织")
 
     try:
         auth_store.check_registration_rate_limit(_client_ip(request), payload.username)
@@ -142,7 +142,7 @@ def register(payload: AuthPayload, request: Request, response: Response):
             status=auth_store.STATUS_PENDING,
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from None
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from None
 
     # 注册账号进入待审批状态，不建立会话，等待组织管理员或超管批准。
     return {"user": user, "pending": True}
@@ -196,7 +196,7 @@ def change_password(payload: ChangePasswordPayload, user: dict = Depends(require
         code = (
             status.HTTP_401_UNAUTHORIZED
             if detail == "当前密码不正确"
-            else status.HTTP_422_UNPROCESSABLE_ENTITY
+            else status.HTTP_422_UNPROCESSABLE_CONTENT
         )
         raise HTTPException(status_code=code, detail=detail) from None
 
@@ -208,7 +208,7 @@ def update_profile(payload: ProfilePayload, user: dict = Depends(require_current
     try:
         updated_user = auth_store.update_user_profile(user["id"], payload.display_name)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from None
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from None
 
     return {"user": updated_user}
 

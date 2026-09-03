@@ -10,9 +10,11 @@ web-app/
   config.example.yaml     本地配置模板
   config.yaml             本地私有配置，已被 .gitignore 忽略
   requirements.txt        Python 后端依赖
-  init_default_admin.bat  Windows 初始管理员账号脚本
-  start_with_venv.bat     创建/准备并启动虚拟环境，再启动应用
-  start_without_venv.bat  不处理虚拟环境，构建前端并启动应用
+  bootstrap.bat            创建/准备 .venv，安装 Python/前端依赖并构建前端
+  start.bat                使用已有环境启动生产模式应用
+  build.bat                只构建前端静态文件
+  dev.bat                  启动后端热重载和 Vite 开发服务器
+  init-admin.bat           初始化本机管理员账号
   app/                    FastAPI 后端包
   data/                   本机运行数据与迁移备份，已被 .gitignore 忽略
   frontend/               React + Vite 前端
@@ -251,7 +253,7 @@ CPU 模式使用 `float32` 加载；CUDA 模式使用 `bfloat16`。不支持 BF1
 
 ```powershell
 cd D:\project\video-factory\web-app
-.\init_default_admin.bat
+.\init-admin.bat
 ```
 
 默认账号：
@@ -261,7 +263,7 @@ cd D:\project\video-factory\web-app
 密码：脚本会生成并打印一次性随机密码
 ```
 
-`init_default_admin.bat` 只会在没有任何账号时创建初始管理员；用户表已有账号时，脚本不会覆盖已有数据。
+`init-admin.bat` 只会在没有任何账号时创建初始管理员；用户表已有账号时，脚本不会覆盖已有数据。
 
 如果需要自定义用户名或密码，可以直接调用底层脚本：
 
@@ -344,18 +346,38 @@ Alembic 是数据库结构和种子数据的唯一来源，不维护 `sql` 目�
 
 ## 启动应用
 
-完整启动（推荐）：创建或准备 `.venv`、激活标准 Python 虚拟环境（或直接使用已有 Conda 环境）、安装 Python 依赖，然后构建前端并启动服务：
+项目推荐使用项目级 `.venv`，但启动脚本不会在每次启动时创建环境或联网安装依赖。你也可以先激活已有的 venv/Conda 环境，或通过 `PYTHON_EXE` 指定 Python 解释器。
+
+首次运行、依赖文件更新或需要修复环境时执行 `bootstrap.bat`。它会创建（或复用）仓库根目录的 `.venv`，安装 Python 依赖和前端依赖，并构建前端；这一步可能需要联网，且 `torch`/`qwen-tts` 等依赖可能耗时较长：
 
 ```powershell
 cd D:\project\video-factory\web-app
-.\start_with_venv.bat
+.\bootstrap.bat
 ```
 
-如果当前命令行已经激活了正确的 Python 虚拟环境，也可以直接启动。`start_without_venv.bat` 不会创建或激活虚拟环境，但会检查并安装前端依赖、执行 `npm run build`，再启动 FastAPI：
+日常生产模式启动执行 `start.bat`。它只使用已有环境；如果前端 `dist` 不存在，会调用 `build.bat`，但不会自动执行 `npm install` 或 `pip install`：
 
 ```powershell
-cd D:\project\video-factory\web-app
-.\start_without_venv.bat
+.\start.bat
+```
+
+仅修改前端后，可以单独构建：
+
+```powershell
+.\build.bat
+```
+
+开发时执行 `dev.bat`，脚本会在两个独立窗口中启动 FastAPI 热重载服务和 Vite 开发服务器：
+
+```powershell
+.\dev.bat
+```
+
+开发地址为 `http://127.0.0.1:5173`，生产模式地址为 `http://127.0.0.1:18888`。可通过 `APP_HOST`、`APP_PORT` 和 `PYTHON_EXE` 覆盖监听地址、端口和 Python 解释器，例如：
+
+```powershell
+$env:PYTHON_EXE = 'C:\Users\me\miniconda3\envs\video\python.exe'
+./start.bat
 ```
 
 访问：
@@ -375,7 +397,7 @@ cd D:\project\video-factory
 git pull
 ```
 
-如果只修改了前端代码，可以直接重新运行 `start_without_venv.bat`，脚本会自动重新构建；也可以手动构建：
+如果只修改了前端代码，可以运行 `build.bat` 重新构建；也可以手动执行：
 
 ```powershell
 cd web-app\frontend
@@ -383,11 +405,11 @@ npm install
 npm run build
 ```
 
-如果 Python 依赖有更新：
+如果 Python 依赖有更新，重新运行 `bootstrap.bat`：
 
 ```powershell
 cd D:\project\video-factory\web-app
-pip install -r requirements.txt
+.\bootstrap.bat
 ```
 
 ## 常见检查

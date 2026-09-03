@@ -42,7 +42,7 @@ class OrganizationPayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=64)
 
 
-def _http_error(exc: ValueError, code: int = status.HTTP_422_UNPROCESSABLE_ENTITY) -> HTTPException:
+def _http_error(exc: ValueError, code: int = status.HTTP_422_UNPROCESSABLE_CONTENT) -> HTTPException:
     return HTTPException(status_code=code, detail=str(exc))
 
 
@@ -149,7 +149,7 @@ def update_user_role(
     user_id: str, payload: UpdateRolePayload, admin_user: dict = Depends(require_admin_user)
 ):
     if user_id == admin_user["id"] and payload.role != "admin":
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="不能修改自己的管理员角色")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="不能修改自己的管理员角色")
 
     try:
         user = auth_store.update_user_role(user_id, payload.role)
