@@ -4,7 +4,8 @@ chcp 65001 >nul 2>&1
 
 set "APP_DIR=%~dp0"
 set "VENV_PYTHON=%APP_DIR%..\.venv\Scripts\python.exe"
-if not defined APP_HOST set "APP_HOST=127.0.0.1"
+if not exist "%VENV_PYTHON%" set "VENV_PYTHON=%APP_DIR%..\.venv\python.exe"
+if not defined APP_HOST set "APP_HOST=0.0.0.0"
 if not defined APP_PORT set "APP_PORT=18888"
 
 if not defined PYTHON_EXE if exist "%VENV_PYTHON%" set "PYTHON_EXE=%VENV_PYTHON%"
@@ -51,7 +52,10 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%APP_PORT% .*LISTENIN
 set "VIDEO_FACTORY_ENV=production"
 set "VIDEO_FACTORY_RELOAD=0"
 set "VIDEO_FACTORY_HOST=%APP_HOST%"
-echo Video Factory: http://127.0.0.1:%APP_PORT%
+set "LAN_IP="
+for /f "delims=" %%I in ('powershell -NoProfile -Command "$ip = $null; foreach ($c in Get-NetIPConfiguration) { if ($c.IPv4DefaultGateway -and $c.IPv4Address) { $ip = $c.IPv4Address[0].IPAddress; break } }; if ($ip) { Write-Output $ip }"') do if not defined LAN_IP set "LAN_IP=%%I"
+if not defined LAN_IP set "LAN_IP=127.0.0.1"
+echo Video Factory: http://%LAN_IP%:%APP_PORT%
 pushd "%APP_DIR%"
 "%PYTHON_EXE%" -m uvicorn main:app --host "%APP_HOST%" --port "%APP_PORT%"
 set "EXIT_CODE=%ERRORLEVEL%"
