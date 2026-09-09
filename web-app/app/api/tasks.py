@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 
 from app.api.auth import require_current_user
-from app.services import task_store
+from app.services import storage_cleanup, task_store
 from app.services.task_runtime import get_task_runtime
 
 router = APIRouter(prefix="/tasks", tags=["tasks"], dependencies=[Depends(require_current_user)])
@@ -59,6 +59,10 @@ def get_task_summary(user: dict = Depends(require_current_user)):
         summary["runtime"] = get_task_runtime().snapshot()
     except RuntimeError:
         summary["runtime"] = None
+    try:
+        summary["disk"] = storage_cleanup.disk_status()
+    except OSError:
+        summary["disk"] = None
     return summary
 
 

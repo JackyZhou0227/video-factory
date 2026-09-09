@@ -14,7 +14,7 @@ import TemplateProduction from "./components/TemplateProduction";
 import TTSStudio from "./components/TTSStudio";
 import TaskCenter from "./components/TaskCenter";
 import Settings from "./components/Settings";
-import UserManagement from "./components/UserManagement";
+import SystemManagement from "./components/SystemManagement";
 import DataDashboard from "./components/DataDashboard";
 import UserProfile from "./components/UserProfile";
 import SkillHeaderCard from "./components/SkillHeaderCard";
@@ -88,9 +88,9 @@ const NAV_ITEMS = [
     icon: "user",
   },
   {
-    id: "users",
-    label: "用户管理",
-    description: "账号与密码",
+    id: "system-management",
+    label: "系统管理",
+    description: "用户、组织与存储",
     icon: "shield",
     minRole: 1,
   },
@@ -142,10 +142,10 @@ const PAGE_META = {
     title: "数据看板",
     description: "按时间、组织和成员维度查看任务量与产物量统计。",
   },
-  users: {
-    eyebrow: PAGE_NAMES.userManagement,
-    title: "用户管理",
-    description: "查看用户列表，管理用户账号角色与登录密码。",
+  "system-management": {
+    eyebrow: "System",
+    title: "系统管理",
+    description: "统一管理用户、组织和输出存储。",
   },
 };
 
@@ -153,7 +153,7 @@ const DEFAULT_PAGE = "digital-human";
 
 function pageFromPathname(pathname) {
   const id = pathname.replace(/^\/+|\/+$/g, "");
-  if (id === "organizations") return "users"; // 组织管理已并入用户管理页
+  if (id === "users" || id === "organizations") return "system-management"; // 兼容旧入口
   return PAGE_META[id] ? id : null;
 }
 
@@ -518,8 +518,8 @@ export default function App() {
           <div className={`settings-main page-panel ${activePage === "profile" ? "is-active" : ""}`}>
             <UserProfile currentUser={currentUser} onUserUpdated={setCurrentUser} onLoggedOut={handleLogout} />
           </div>
-          <div className={`settings-main page-panel ${activePage === "users" ? "is-active" : ""}`}>
-            <UserManagement currentUser={currentUser} />
+          <div className={`settings-main page-panel ${activePage === "system-management" ? "is-active" : ""}`}>
+            <SystemManagement currentUser={currentUser} />
           </div>
           <div className={`settings-main page-panel ${activePage === "dashboard" ? "is-active" : ""}`}>
             <DataDashboard currentUser={currentUser} />

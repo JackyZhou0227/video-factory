@@ -2249,6 +2249,81 @@ a {
   grid-template-columns: 160px;
 }
 
+.system-management-shell {
+  overflow: hidden;
+}
+
+.storage-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 16px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+}
+
+.storage-summary > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.storage-summary-status {
+  align-content: start;
+  justify-items: start;
+}
+
+.storage-summary strong {
+  color: var(--text);
+  font-size: 20px;
+}
+
+.storage-summary small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.storage-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+}
+
+.storage-actions > div {
+  display: grid;
+  gap: 4px;
+}
+
+.storage-actions strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+.storage-actions span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .storage-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .storage-summary > button {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .storage-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 .poster-layout {
   display: grid;
   grid-template-columns: minmax(560px, 1fr) minmax(430px, 0.86fr);

@@ -353,7 +353,14 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
             <div className="control-section-heading digital-human-audio-heading">
               <span>02</span>
               <strong>口播音频</strong>
-              <Button className="digital-human-tts-link" type="button" variant="text" size="small" onClick={onOpenTtsStudio}>
+              <Button
+                className="digital-human-tts-link"
+                type="button"
+                variant="text"
+                size="small"
+                disableRipple
+                onClick={onOpenTtsStudio}
+              >
                 前往语音合成
                 <Icon name="arrowRight" size={14} />
               </Button>

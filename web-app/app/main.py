@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -22,6 +23,7 @@ from app.core.config import ROOT, app_config
 from app.core.security import install_security_middleware
 from app.db.engine import require_postgresql_url
 from app.services import auth_store, settings_store, task_store
+from app.services import storage_cleanup
 from app.services.task_runtime import TaskExecutionManager, configure_task_runtime
 from app.services.tts import tts_service
 
@@ -42,6 +44,10 @@ async def lifespan(application: FastAPI):
     configure_task_runtime(runtime)
     await runtime.start()
     application.state.task_runtime = runtime
+    cleanup_worker = asyncio.create_task(
+        storage_cleanup.periodic_cleanup_loop(),
+        name="vf-storage-cleanup",
+    )
     try:
         await tts_service.prewarm_provider_statuses_async()
     except Exception:
@@ -49,6 +55,8 @@ async def lifespan(application: FastAPI):
     try:
         yield
     finally:
+        cleanup_worker.cancel()
+        await asyncio.gather(cleanup_worker, return_exceptions=True)
         await runtime.stop()
         configure_task_runtime(None)
 

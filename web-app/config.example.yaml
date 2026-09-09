@@ -9,6 +9,15 @@ tasks:
   # 全局任务池：最多同时执行 max_active_jobs 个，另允许 max_queued_jobs 个等待；全局接纳上限自动为二者之和。
   max_active_jobs: 10
   max_queued_jobs: 10
+  # 磁盘低水位保护：输出目录所在磁盘低于任一阈值时拒绝创建新任务（429），不影响运行中任务。
+  disk:
+    min_free_bytes: 5368709120 # 5 GiB；0 表示不按字节数检查。
+    min_free_percent: 5.0 # 剩余百分比；0 表示不按百分比检查。
+  # 输出目录清理：孤儿任务目录、遗留 .part 临时文件和失败任务目录按保留期自动删除（每日一次，启动后延迟 5 分钟首跑）。
+  cleanup:
+    enabled: true
+    orphan_retention_days: 7 # 数据库无记录的任务目录保留天数。
+    failed_task_retention_days: 7 # failed/cancelled 任务产物目录保留天数（保留数据库记录）。
   # Qwen-TTS 的并发限制在 tts.qwen3_tts_base.concurrent_limit 中配置。
 
 tts:

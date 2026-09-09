@@ -214,3 +214,29 @@ def reject_pending_user(
     except ValueError as exc:
         raise _http_error(exc, status.HTTP_404_NOT_FOUND) from None
     return {"ok": True}
+
+
+# --- 存储清理（RESOURCE-04）--------------------------------------------------
+
+
+class StorageCleanupPayload(BaseModel):
+    dry_run: bool = Field(default=True, description="true 时只统计不删除")
+
+
+@router.get("/storage/report")
+def storage_report(_: dict = Depends(require_admin_user)):
+    """只读扫描输出目录，返回孤儿文件/缺失目录/BGM 孤儿报告。"""
+    from app.services import storage_cleanup
+
+    return storage_cleanup.scan()
+
+
+@router.post("/storage/cleanup")
+def run_storage_cleanup(
+    payload: Optional[StorageCleanupPayload] = None,
+    _: dict = Depends(require_admin_user),
+):
+    """执行输出目录清理；默认 dry_run=true，需显式传 false 才会真正删除。"""
+    from app.services import storage_cleanup
+
+    return storage_cleanup.cleanup(dry_run=payload.dry_run if payload else True)

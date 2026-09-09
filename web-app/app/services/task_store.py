@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from app.core.config import app_config, resolve_output_dir
 from app.db.models import GenerationTask, User
-from app.services import settings_store
+from app.services import settings_store, storage_cleanup
 
 TASK_TYPE_DIGITAL_HUMAN = "digital_human"
 TASK_TYPE_VOICE = "voice_generation"
@@ -417,6 +417,7 @@ def create_task(
     created_at = _normalize_timestamp(created_at or _now_iso())
     normalized_extra_info = _normalize_extra_info(extra_info)
     enforce_task_quota(str(user.get("id") or ""))
+    storage_cleanup.enforce_disk_space(output_root)
     _ensure_db()
     with _orm_session() as session:
         username, display_name = _task_owner_snapshot(session, user)

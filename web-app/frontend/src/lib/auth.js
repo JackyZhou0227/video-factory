@@ -163,3 +163,18 @@ export async function updateUserRole(userId, role) {
     }
   );
 }
+
+export async function getStorageReport() {
+  return apiJson("/api/admin/storage/report");
+}
+
+export async function cleanupStorage(dryRun = true) {
+  return apiJson(
+    "/api/admin/storage/cleanup",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ dry_run: dryRun }),
+    }
+  );
+}
