@@ -842,7 +842,7 @@ async def _run_task(
                 item.update(
                     status="completed",
                     message="生成完成",
-                    video_url=_artifact_url(task_id, item["id"]),
+                    video_url=common.artifact_url(task_id, item["id"]),
                     error=None,
                 )
                 common.persist_artifact(
@@ -873,7 +873,7 @@ async def _run_task(
             zip_path = task_dir / "template_videos.zip"
             await run_blocking("media", common.create_output_zip, zip_path, completed_outputs)
             archive_id = f"{task_id}-archive"
-            task["zip_url"] = _artifact_url(task_id, archive_id, "download")
+            task["zip_url"] = common.artifact_url(task_id, archive_id, "download")
             common.persist_artifact(
                 task_id,
                 artifact_id=archive_id,

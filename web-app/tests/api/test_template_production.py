@@ -847,6 +847,17 @@ class TemplateProductionApiTests(unittest.TestCase):
             )
 
         self.assertIsNone(compose.call_args.kwargs["bgm_path"])
+        task = template_api._tasks[task_id]
+        self.assertEqual(task["status"], "completed")
+        self.assertEqual(task["items"][0]["status"], "completed")
+        self.assertEqual(
+            task["items"][0]["video_url"],
+            f"/api/tasks/{task_id}/artifacts/item-1/preview",
+        )
+        self.assertEqual(
+            task["zip_url"],
+            f"/api/tasks/{task_id}/artifacts/{task_id}-archive/download",
+        )
 
 
 if __name__ == "__main__":
