@@ -166,12 +166,6 @@ def _create_speech_rate_variant(audio_path: Path, speech_rate: float) -> Path:
     if rate == NORMAL_SPEECH_RATE:
         return audio_path
 
-    try:
-        from pydub import AudioSegment
-        from pydub.effects import speedup
-    except ImportError:
-        raise HTTPException(status_code=500, detail="pydub is required for speech speed adjustment") from None
-
     rate_label = f"{rate:.1f}".replace(".", "_")
     variant_path = audio_path.with_name(f"preview_{rate_label}x{audio_path.suffix}")
     temp_path = audio_path.with_name(f".{variant_path.stem}.tmp{audio_path.suffix}")
@@ -179,39 +173,38 @@ def _create_speech_rate_variant(audio_path: Path, speech_rate: float) -> Path:
         return variant_path
 
     output_format = audio_path.suffix.removeprefix(".") or "wav"
-    audio = AudioSegment.from_file(audio_path)
-    if rate > NORMAL_SPEECH_RATE:
-        speedup(audio, playback_speed=rate, chunk_size=50, crossfade=25).export(
-            temp_path,
-            format=output_format,
-        )
-    else:
+    # Use the same FFmpeg discovery path as the rest of the application.  In
+    # particular, imageio-ffmpeg provides a bundled executable on Windows,
+    # where relying on pydub's ``ffprobe`` lookup causes WinError 2.
+    try:
+        from app.services.poster_video import ffmpeg_executable
+
+        ffmpeg_path = ffmpeg_executable()
+    except (ImportError, RuntimeError):
         ffmpeg_path = shutil.which("ffmpeg")
-        if ffmpeg_path:
-            try:
-                subprocess.run(
-                    [
-                        ffmpeg_path,
-                        "-y",
-                        "-i",
-                        str(audio_path),
-                        "-filter:a",
-                        f"atempo={rate:.2f}",
-                        str(temp_path),
-                    ],
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                )
-            except subprocess.CalledProcessError as exc:
-                detail = exc.stderr.strip() or exc.stdout.strip() or "speech slowdown failed"
-                raise HTTPException(status_code=500, detail=detail) from None
-        else:
-            slowed = audio._spawn(
-                audio.raw_data,
-                overrides={"frame_rate": max(1, int(audio.frame_rate * rate))},
-            ).set_frame_rate(audio.frame_rate)
-            slowed.export(temp_path, format=output_format)
+    if not ffmpeg_path:
+        raise HTTPException(status_code=500, detail="缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
+
+    try:
+        subprocess.run(
+            [
+                ffmpeg_path,
+                "-y",
+                "-i",
+                str(audio_path),
+                "-filter:a",
+                f"atempo={rate:.2f}",
+                "-f",
+                output_format,
+                str(temp_path),
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.strip() or exc.stdout.strip() or "speech speed adjustment failed"
+        raise HTTPException(status_code=500, detail=detail) from None
 
     temp_path.replace(variant_path)
     return variant_path

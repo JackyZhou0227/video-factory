@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import importlib.util
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -107,18 +108,38 @@ def _model_config_error(model_path: Path) -> str | None:
 
 
 def _probe_duration(path: Path) -> float:
-    if shutil.which("ffprobe") is None:
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        result = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        try:
+            return max(0.0, float(result.stdout.strip())) if result.returncode == 0 else 0.0
+        except ValueError:
+            return 0.0
+
+    from app.services.poster_video import ffmpeg_executable
+
+    executable = ffmpeg_executable()
+    if executable is None:
         return 0.0
-    result = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", str(path)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
     try:
-        return max(0.0, float(result.stdout.strip())) if result.returncode == 0 else 0.0
-    except ValueError:
+        result = subprocess.run(
+            [executable, "-hide_banner", "-i", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError:
         return 0.0
+    match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", result.stderr or "")
+    if not match:
+        return 0.0
+    hours, minutes, seconds = match.groups()
+    return max(0.0, int(hours) * 3600 + int(minutes) * 60 + float(seconds))
 
 
 class Qwen3TtsBaseProvider:

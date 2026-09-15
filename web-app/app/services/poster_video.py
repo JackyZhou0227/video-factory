@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import textwrap
@@ -309,21 +310,53 @@ def process_video(input_path: Path, overlay_path: Path, output_path: Path) -> No
 
 
 def probe_video(path: Path) -> dict[str, Any]:
-    command = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "stream=width,height,duration",
-        "-of",
-        "json",
-        str(path),
-    ]
+    ffprobe = shutil.which("ffprobe")
+    if ffprobe:
+        command = [
+            ffprobe,
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height,duration",
+            "-of",
+            "json",
+            str(path),
+        ]
+        try:
+            result = subprocess.run(command, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            detail = exc.stderr.strip() or exc.stdout.strip() or "ffprobe failed"
+            raise PosterVideoError(detail) from exc
+        return json.loads(result.stdout or "{}")
+
+    executable = ffmpeg_executable()
+    if executable is None:
+        raise PosterVideoError("缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
     try:
-        result = _run_ffmpeg(command)
-    except subprocess.CalledProcessError as exc:
-        detail = exc.stderr.strip() or exc.stdout.strip() or "ffprobe failed"
-        raise PosterVideoError(detail) from exc
-    return json.loads(result.stdout or "{}")
+        result = subprocess.run(
+            [executable, "-hide_banner", "-i", str(path)],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        raise PosterVideoError(f"媒体命令不可用：{executable}") from exc
+    stderr = result.stderr or ""
+    info: dict[str, Any] = {}
+    duration_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
+    if duration_match:
+        hours, minutes, seconds = duration_match.groups()
+        info["streams"] = [{"duration": str(int(hours) * 3600 + int(minutes) * 60 + float(seconds))}]
+    resolution_match = re.search(r"Stream #\d+:\d+.*?, (\d{2,5})x(\d{2,5})", stderr)
+    if resolution_match:
+        width, height = int(resolution_match.group(1)), int(resolution_match.group(2))
+        if info.get("streams"):
+            info["streams"][0]["width"] = width
+            info["streams"][0]["height"] = height
+        else:
+            info["streams"] = [{"width": width, "height": height}]
+    if not info.get("streams"):
+        raise PosterVideoError(f"无法读取视频信息：{path.name}")
+    return info
