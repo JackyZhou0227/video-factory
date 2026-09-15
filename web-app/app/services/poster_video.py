@@ -30,10 +30,21 @@ class PosterVideoError(RuntimeError):
     pass
 
 
+def ffmpeg_executable() -> str | None:
+    executable = shutil.which("ffmpeg")
+    if executable:
+        return executable
+    try:
+        import imageio_ffmpeg
+
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except (ImportError, RuntimeError):
+        return None
+
+
 def require_ffmpeg() -> None:
-    missing = [name for name in ("ffmpeg", "ffprobe") if shutil.which(name) is None]
-    if missing:
-        raise PosterVideoError(f"Missing required command: {', '.join(missing)}")
+    if ffmpeg_executable() is None:
+        raise PosterVideoError("缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
 
 
 def discover_fonts() -> list[dict[str, str]]:
@@ -231,7 +242,13 @@ def process_image(input_path: Path, overlay_path: Path, output_path: Path) -> No
 
 
 def _run_ffmpeg(command: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(command, check=True, capture_output=True, text=True)
+    resolved = list(command)
+    if resolved and resolved[0] == "ffmpeg":
+        executable = ffmpeg_executable()
+        if executable is None:
+            raise PosterVideoError("缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
+        resolved[0] = executable
+    return subprocess.run(resolved, check=True, capture_output=True, text=True)
 
 
 def _compose_command(input_path: Path, overlay_path: Path, output_path: Path, audio_codec: str) -> list[str]:
