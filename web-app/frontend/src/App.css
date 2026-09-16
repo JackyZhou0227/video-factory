@@ -2263,6 +2263,62 @@ a {
   background: var(--surface-muted);
 }
 
+.poster-output-type-card {
+  gap: 12px;
+}
+
+.poster-output-type-control {
+  gap: 4px;
+  padding: 4px;
+  border-color: var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.poster-output-type-control .MuiToggleButton-root {
+  min-height: 44px;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.poster-output-type-control .MuiToggleButton-root:hover:not(.Mui-disabled) {
+  background: var(--bg-200);
+  color: var(--text);
+}
+
+.poster-output-type-control .MuiToggleButton-root.Mui-selected {
+  border-color: var(--brand-600) !important;
+  background: var(--brand-500) !important;
+  color: var(--primary-foreground) !important;
+  box-shadow: 0 2px 5px rgba(88, 46, 29, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.poster-output-type-control .MuiToggleButton-root.Mui-selected:hover:not(.Mui-disabled) {
+  background: var(--brand-600) !important;
+}
+
+.poster-output-type-control .MuiToggleButton-root.Mui-focusVisible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.poster-output-type-control .MuiToggleButton-root.Mui-disabled {
+  color: var(--text-soft);
+  opacity: 0.65;
+}
+
+.poster-output-type-control .MuiToggleButton-root.Mui-selected.Mui-disabled {
+  border-color: var(--border-strong) !important;
+  background: var(--surface-strong) !important;
+  color: var(--text-muted) !important;
+  box-shadow: none;
+}
+
 .storage-summary > div {
   display: grid;
   gap: 4px;
@@ -2339,9 +2395,16 @@ a {
 }
 
 .poster-preview-column {
-  position: relative;
-  display: block;
-  align-self: stretch;
+  position: sticky;
+  top: 24px;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-content: start;
+  gap: 12px;
+  align-self: start;
+  height: calc(100vh - 48px);
+  max-height: calc(100vh - 48px);
+  min-height: 0;
   min-width: 0;
 }
 
@@ -2360,11 +2423,33 @@ a {
 }
 
 .poster-preview-column .workflow-card {
-  position: sticky;
-  top: 24px;
-  max-height: calc(100vh - 112px);
+  position: static;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   box-shadow: 0 14px 36px rgba(62, 55, 39, 0.09);
+}
+
+.poster-preview-actions {
+  position: static;
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: 0 14px 36px rgba(62, 55, 39, 0.09);
+}
+
+.poster-preview-actions > .MuiButton-root {
+  width: 100%;
+  min-height: 42px;
+}
+
+.poster-preview-actions .progress-area,
+.poster-preview-actions .form-alert {
+  max-height: 120px;
+  overflow: auto;
 }
 
 .poster-upload {
@@ -2378,7 +2463,7 @@ a {
 
 .poster-file-row {
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto auto;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   min-height: 34px;
@@ -2401,6 +2486,73 @@ a {
 .poster-file-row small {
   color: var(--text-soft);
   white-space: nowrap;
+}
+
+.poster-file-copy {
+  display: grid;
+  gap: var(--spacing);
+  min-width: 0;
+}
+
+.poster-file-row .poster-estimate {
+  font-size: 12px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.poster-file-row > .MuiIconButton-root {
+  width: 28px;
+  height: 28px;
+}
+
+.poster-upload[aria-disabled="true"] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.poster-narration,
+.poster-narration-file {
+  display: grid;
+  gap: calc(var(--spacing) * 2);
+  min-width: 0;
+}
+
+.poster-narration-meta {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: calc(var(--spacing) * 2);
+}
+
+.poster-narration-meta strong {
+  overflow-wrap: anywhere;
+}
+
+.poster-narration-meta small,
+.poster-result-metadata {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.poster-result-metadata {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing);
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
+}
+
+.poster-narration-file audio {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+}
+
+.poster-audio-settings .template-work-section {
+  padding-top: calc(var(--spacing) * 3);
+  border-top: 1px solid var(--border);
 }
 
 .poster-block-list {
@@ -2737,12 +2889,19 @@ a {
   .poster-preview-column {
     position: static;
     align-self: auto;
+    height: auto;
+    max-height: none;
+    grid-template-rows: none;
   }
 
   .poster-preview-column .workflow-card {
     position: static;
     max-height: none;
     overflow: visible;
+  }
+
+  .poster-preview-actions {
+    position: static;
   }
 
   .poster-preview-card {
@@ -2915,6 +3074,57 @@ a {
 
 .tts-studio-mode-control {
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.tts-studio-mode-control .MuiToggleButton-root {
+  min-height: 72px;
+  display: grid;
+  align-content: center;
+  gap: 5px;
+  padding: 10px 12px;
+  border: 1px solid transparent !important;
+  border-radius: 6px !important;
+  color: var(--text-muted);
+  letter-spacing: 0;
+  transition: background-color 160ms ease, border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.tts-studio-mode-control .MuiToggleButton-root:hover:not(.Mui-disabled) {
+  background: var(--bg-200);
+  color: var(--text);
+}
+
+.tts-studio-mode-control .MuiToggleButton-root.Mui-selected {
+  border-color: var(--brand-600) !important;
+  background: var(--brand-500) !important;
+  color: var(--primary-foreground) !important;
+  box-shadow: 0 2px 5px rgba(88, 46, 29, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.tts-studio-mode-control .MuiToggleButton-root.Mui-selected:hover:not(.Mui-disabled) {
+  background: var(--brand-600) !important;
+}
+
+.tts-studio-mode-control .MuiToggleButton-root.Mui-focusVisible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+.tts-studio-mode-control .MuiToggleButton-root.Mui-disabled {
+  color: var(--text-soft);
+  opacity: 0.65;
+}
+
+.tts-studio-mode-control .MuiToggleButton-root.Mui-selected.Mui-disabled {
+  border-color: var(--border-strong) !important;
+  background: var(--surface-strong) !important;
+  color: var(--text-muted) !important;
+  box-shadow: none;
 }
 
 .tts-studio-mode-heading {
@@ -2937,6 +3147,10 @@ a {
   font-size: 11px;
   font-weight: 560;
   line-height: 1.35;
+}
+
+.tts-studio-mode-control .MuiToggleButton-root.Mui-selected .tts-studio-mode-detail {
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .tts-studio-mode-description {

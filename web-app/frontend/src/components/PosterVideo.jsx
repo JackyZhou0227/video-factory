@@ -8,15 +8,35 @@ import MenuItem from "@mui/material/MenuItem";
 import LinearProgress from "@mui/material/LinearProgress";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import ToggleButton from "@mui/material/ToggleButton";
+import Box from "@mui/material/Box";
+import FormControlLabel from "@mui/material/FormControlLabel";
+import IconButton from "@mui/material/IconButton";
+import Switch from "@mui/material/Switch";
+import AudioFileOutlined from "@mui/icons-material/AudioFileOutlined";
+import ImageOutlined from "@mui/icons-material/ImageOutlined";
+import VideoFileOutlined from "@mui/icons-material/VideoFileOutlined";
+import DeleteOutlined from "@mui/icons-material/DeleteOutlined";
+import UploadFileOutlined from "@mui/icons-material/UploadFileOutlined";
 import { statusChipColors } from "../theme";
+import BgmManager from "./BgmManager";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
+import {
+  classifySource,
+  estimatePosterAsset,
+  IMAGE_EXTENSIONS,
+  isTerminalPosterStatus,
+  MAX_BATCH_SIZE,
+  NARRATION_EXTENSIONS,
+  narrationFileError,
+  posterDownloadFilename,
+  selectSourceFiles,
+  sourceFileError,
+  VIDEO_EXTENSIONS,
+} from "../lib/posterVideo";
 
 const PREVIEW_SCALE = 0.3;
-const MAX_BATCH_SIZE = 50;
-const VIDEO_EXTENSIONS = [".mp4", ".mov", ".m4v", ".webm", ".mkv", ".avi"];
-const IMAGE_EXTENSIONS = [".jpg", ".jpeg", ".png", ".webp", ".bmp"];
 
 const OUTPUT_MODES = [
   { value: "video", label: "批量出视频" },
@@ -31,6 +51,7 @@ const STATUS_LABELS = {
   completed: "处理完成",
   partial_failed: "部分完成",
   failed: "处理失败",
+  cancelled: "已取消",
 };
 
 const DEFAULT_BLOCKS = [
@@ -122,11 +143,12 @@ function makeId() {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
-function isMediaFile(file, outputMode) {
-  const name = file.name.toLowerCase();
-  const extensions = outputMode === "image" ? IMAGE_EXTENSIONS : VIDEO_EXTENSIONS;
-  const expectedType = outputMode === "image" ? "image/" : "video/";
-  return file.type.startsWith(expectedType) || extensions.some((extension) => name.endsWith(extension));
+function formatDuration(value) {
+  return Number.isFinite(Number(value)) && Number(value) > 0 ? `${Number(value).toFixed(1)} 秒` : "后端待确认";
+}
+
+function formatSpeed(value) {
+  return Number.isFinite(Number(value)) && Number(value) > 0 ? `${Number(value).toFixed(2)}x` : "后端待确认";
 }
 
 function pollTask(taskId, signal, backendBaseUrl) {
@@ -159,10 +181,11 @@ function blockPreviewStyle(block) {
   };
 }
 
-export default function PosterVideo() {
+export default function PosterVideo({ currentUser }) {
   const backendBaseUrl = useBackendBaseUrl();
   const [outputMode, setOutputMode] = useState("video");
   const [videos, setVideos] = useState([]);
+  const [previewId, setPreviewId] = useState("");
   const [fonts, setFonts] = useState([]);
   const [blocks, setBlocks] = useState(DEFAULT_BLOCKS);
   const [taskStatus, setTaskStatus] = useState("idle");
@@ -172,15 +195,35 @@ export default function PosterVideo() {
   const [zipUrl, setZipUrl] = useState("");
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [narration, setNarration] = useState(null);
+  const [narrationError, setNarrationError] = useState("");
+  const [selectedBgmId, setSelectedBgmId] = useState("");
+  const [selectedBgmTrack, setSelectedBgmTrack] = useState(null);
+  const [bgmBusy, setBgmBusy] = useState(false);
+  const [muteOriginalAudio, setMuteOriginalAudio] = useState(true);
 
   const videoInputRef = useRef(null);
+  const narrationInputRef = useRef(null);
+  const narrationRef = useRef(null);
   const pollRef = useRef(null);
   const mediaItemsRef = useRef([]);
+  const requestRef = useRef({ token: 0, controller: null });
+  const generatingRef = useRef(false);
+  const bgmBusyRef = useRef(false);
 
   const isImageMode = outputMode === "image";
-  const mediaLabel = isImageMode ? "图片" : "视频";
+  const mediaLabel = isImageMode ? "图片" : "图片 / 视频";
   const outputLabel = isImageMode ? "大字报图片" : "大字报视频";
-  const acceptTypes = isImageMode ? "image/*" : "video/*";
+  const acceptTypes = isImageMode
+    ? `image/*,${IMAGE_EXTENSIONS.join(",")}`
+    : `image/*,video/*,${[...IMAGE_EXTENSIONS, ...VIDEO_EXTENSIONS].join(",")}`;
+  const hasVideoSources = videos.some((item) => item.sourceType === "video");
+  const previewSource = videos.find((item) => item.id === previewId) || videos[0];
+  const estimates = useMemo(() => videos.map((item) => estimatePosterAsset(item, {
+    narration,
+    bgm: selectedBgmId ? selectedBgmTrack || {} : null,
+  })), [narration, selectedBgmId, selectedBgmTrack, videos]);
+  const audioRequired = !isImageMode && estimates.some((estimate) => estimate.requiresAudio);
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +232,7 @@ export default function PosterVideo() {
         if (cancelled) return;
         const nextFonts = Array.isArray(list) ? list : [];
         setFonts(nextFonts);
+        if (generatingRef.current) return;
         setBlocks((current) =>
           current.map((block) => ({
             ...block,
@@ -208,17 +252,26 @@ export default function PosterVideo() {
     mediaItemsRef.current = videos;
   }, [videos]);
 
-  useEffect(() => {
-    return () => {
-      if (pollRef.current) clearTimeout(pollRef.current);
-      mediaItemsRef.current.forEach((item) => URL.revokeObjectURL(item.localUrl));
-    };
+  const cancelRequest = useCallback(() => {
+    clearTimeout(pollRef.current);
+    pollRef.current = null;
+    requestRef.current.controller?.abort();
+    requestRef.current = { token: requestRef.current.token + 1, controller: null };
+    generatingRef.current = false;
   }, []);
 
-  const canGenerate = Boolean(videos.length > 0 && blocks.some((block) => block.text.trim()) && !generating);
+  useEffect(() => () => {
+    cancelRequest();
+    mediaItemsRef.current.forEach((item) => URL.revokeObjectURL(item.localUrl));
+    if (narrationRef.current) URL.revokeObjectURL(narrationRef.current.localUrl);
+  }, [cancelRequest]);
+
+  const canGenerate = Boolean(
+    videos.length > 0 && blocks.some((block) => block.text.trim()) && !audioRequired && !generating && !bgmBusy
+  );
 
   const videoPanelStatus = useMemo(() => {
-    if (["pending", "running", "completed", "partial_failed", "failed"].includes(taskStatus)) {
+    if (["pending", "running"].includes(taskStatus) || isTerminalPosterStatus(taskStatus)) {
       return taskStatus;
     }
     if (videos.length > 0) return "ready";
@@ -247,16 +300,18 @@ export default function PosterVideo() {
             ? "部分成品可下载"
             : taskStatus === "failed"
               ? "需要检查失败项"
-              : isImageMode
-                ? "本地图片合成"
-                : "FFmpeg 转码",
+              : taskStatus === "cancelled"
+                ? "已取消"
+                : isImageMode
+                  ? "本地图片合成"
+                  : "FFmpeg 转码",
       state: ["pending", "running"].includes(taskStatus) ? "running" : taskStatus,
       icon: "wand",
     },
   ];
 
   const resetTask = useCallback(() => {
-    if (pollRef.current) clearTimeout(pollRef.current);
+    cancelRequest();
     setTaskStatus("idle");
     setProgress(0);
     setStatusMsg("");
@@ -264,32 +319,47 @@ export default function PosterVideo() {
     setZipUrl("");
     setError("");
     setGenerating(false);
-  }, []);
+  }, [cancelRequest]);
+
+  useEffect(() => {
+    resetTask();
+    return cancelRequest;
+  }, [backendBaseUrl, currentUser?.id, cancelRequest, resetTask]);
 
   const addVideoFiles = useCallback(
     (files) => {
-      const selected = Array.from(files || []).filter((file) => isMediaFile(file, outputMode));
-      if (!selected.length) return;
-
-      setVideos((current) => {
-        const existingKeys = new Set(current.map((item) => `${item.file.name}:${item.file.size}:${item.file.lastModified}`));
-        const additions = selected
-          .filter((file) => !existingKeys.has(`${file.name}:${file.size}:${file.lastModified}`))
-          .slice(0, Math.max(0, MAX_BATCH_SIZE - current.length))
-          .map((file) => ({
-            id: makeId(),
-            file,
-            localUrl: URL.createObjectURL(file),
-          }));
-
-        if (!additions.length) return current;
-        return [...current, ...additions];
-      });
-
+      if (generatingRef.current) return;
+      const incoming = Array.from(files || []);
       if (videoInputRef.current) videoInputRef.current.value = "";
+      if (!incoming.length) return;
       resetTask();
+      const current = mediaItemsRef.current;
+      const additions = selectSourceFiles(current.map((item) => item.file), incoming, outputMode)
+        .map((file) => ({
+          id: makeId(),
+          file,
+          sourceType: classifySource(file, outputMode),
+          duration: null,
+          localUrl: URL.createObjectURL(file),
+        }));
+      mediaItemsRef.current = [...current, ...additions];
+      setVideos(mediaItemsRef.current);
+      const rejected = incoming.find((file) => sourceFileError(file, outputMode));
+      if (rejected) {
+        const issue = sourceFileError(rejected, outputMode);
+        const messages = {
+          type: "格式不支持，仅支持 JPG、JPEG、PNG、WEBP、BMP、MP4、MOV、M4V、WEBM、MKV、AVI",
+          mime: "文件扩展名与媒体 MIME 类型不匹配或 MIME 类型不支持",
+          mode: "图片输出只能添加图片",
+          size: `${classifySource(rejected, outputMode) === "image" ? "图片不能超过 20 MB" : "视频不能超过 500 MB"}`,
+          empty: "文件不能为空",
+        };
+        setError(`已跳过“${rejected.name}”：${messages[issue]}。`);
+      } else if (current.length + incoming.length > MAX_BATCH_SIZE && mediaItemsRef.current.length === MAX_BATCH_SIZE) {
+        setError(`每批最多 ${MAX_BATCH_SIZE} 个素材，超出的文件未添加。`);
+      }
     },
-    [outputMode, resetTask]
+    [isImageMode, outputMode, resetTask]
   );
 
   const handleVideoChange = useCallback(
@@ -308,32 +378,86 @@ export default function PosterVideo() {
   );
 
   const clearVideos = useCallback(() => {
-    setVideos((current) => {
-      current.forEach((item) => URL.revokeObjectURL(item.localUrl));
-      return [];
-    });
+    if (generatingRef.current) return;
+    mediaItemsRef.current.forEach((item) => URL.revokeObjectURL(item.localUrl));
+    mediaItemsRef.current = [];
+    setVideos([]);
     if (videoInputRef.current) videoInputRef.current.value = "";
     resetTask();
   }, [resetTask]);
 
   const removeVideo = useCallback(
     (id) => {
-      setVideos((current) => {
-        const target = current.find((item) => item.id === id);
-        if (target) URL.revokeObjectURL(target.localUrl);
-        return current.filter((item) => item.id !== id);
-      });
+      if (generatingRef.current) return;
+      const target = mediaItemsRef.current.find((item) => item.id === id);
+      if (target) URL.revokeObjectURL(target.localUrl);
+      mediaItemsRef.current = mediaItemsRef.current.filter((item) => item.id !== id);
+      setVideos(mediaItemsRef.current);
       resetTask();
     },
     [resetTask]
   );
 
-  const updateBlock = useCallback((id, patch) => {
-    setBlocks((current) => current.map((block) => (block.id === id ? { ...block, ...patch } : block)));
-    setTaskStatus((current) => (current === "completed" || current === "failed" ? "idle" : current));
-    setZipUrl("");
-    setError("");
+  const updateSourceMetadata = useCallback((id, duration) => {
+    const value = Number.isFinite(duration) && duration > 0 ? duration : null;
+    setVideos((current) => current.map((item) => (
+      item.id === id && item.duration !== value ? { ...item, duration: value } : item
+    )));
   }, []);
+
+  const handleNarrationChange = useCallback((event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || generatingRef.current) return;
+    const issue = narrationFileError(file);
+    if (issue) {
+      setNarrationError(issue === "size"
+        ? "口播文件不能超过 50 MB。"
+        : issue === "empty" ? "口播文件不能为空。"
+          : issue === "mime" ? "口播文件 MIME 类型不支持，须为音频文件。"
+            : "口播格式须为 MP3、WAV、AAC、M4A、OGG 或 FLAC。");
+      return;
+    }
+    const next = { id: makeId(), file, duration: null, localUrl: URL.createObjectURL(file) };
+    if (narrationRef.current) URL.revokeObjectURL(narrationRef.current.localUrl);
+    narrationRef.current = next;
+    setNarration(next);
+    setNarrationError("");
+    resetTask();
+  }, [resetTask]);
+
+  const removeNarration = useCallback(() => {
+    if (generatingRef.current) return;
+    if (narrationRef.current) URL.revokeObjectURL(narrationRef.current.localUrl);
+    narrationRef.current = null;
+    setNarration(null);
+    setNarrationError("");
+    resetTask();
+  }, [resetTask]);
+
+  const updateNarrationMetadata = useCallback((id, duration) => {
+    const value = Number.isFinite(duration) && duration > 0 ? duration : null;
+    setNarration((current) => current?.id === id && current.duration !== value
+      ? { ...current, duration: value } : current);
+  }, []);
+
+  const handleBgmSelectionChange = useCallback((id) => {
+    if (generatingRef.current) return;
+    setSelectedBgmId(id);
+    setSelectedBgmTrack(null);
+    resetTask();
+  }, [resetTask]);
+
+  const handleBgmBusyChange = useCallback((busy) => {
+    bgmBusyRef.current = busy;
+    setBgmBusy(busy);
+  }, []);
+
+  const updateBlock = useCallback((id, patch) => {
+    if (generatingRef.current) return;
+    setBlocks((current) => current.map((block) => (block.id === id ? { ...block, ...patch } : block)));
+    resetTask();
+  }, [resetTask]);
 
   const centerBlockX = useCallback(
     (block) => {
@@ -344,6 +468,7 @@ export default function PosterVideo() {
   );
 
   const addBlock = useCallback(() => {
+    if (generatingRef.current) return;
     const firstFont = fonts[0]?.path || "";
     setBlocks((current) => [
       ...current,
@@ -355,89 +480,107 @@ export default function PosterVideo() {
         fontPath: firstFont,
       },
     ]);
-  }, [fonts]);
+    resetTask();
+  }, [fonts, resetTask]);
 
   const removeBlock = useCallback((id) => {
+    if (generatingRef.current) return;
     setBlocks((current) => current.filter((block) => block.id !== id));
-  }, []);
+    resetTask();
+  }, [resetTask]);
 
   const handleOutputModeChange = useCallback(
     (nextMode) => {
-      if (nextMode === outputMode) return;
+      if (generatingRef.current || bgmBusyRef.current || nextMode === outputMode) return;
       setOutputMode(nextMode);
-      setVideos((current) => {
-        current.forEach((item) => URL.revokeObjectURL(item.localUrl));
-        return [];
-      });
-      if (videoInputRef.current) videoInputRef.current.value = "";
-      resetTask();
+      clearVideos();
     },
-    [outputMode, resetTask]
+    [clearVideos, outputMode]
   );
 
   const handleGenerate = useCallback(async () => {
-    if (!canGenerate) return;
+    if (!canGenerate || generatingRef.current || bgmBusyRef.current) return;
 
+    cancelRequest();
+    const controller = new AbortController();
+    const token = requestRef.current.token;
+    requestRef.current.controller = controller;
+    const isCurrentRequest = () => token === requestRef.current.token && !controller.signal.aborted;
+    generatingRef.current = true;
     setGenerating(true);
     setError("");
     setZipUrl("");
     setItems([]);
     setProgress(0);
     setTaskStatus("pending");
-    setStatusMsg("正在上传视频并创建批量任务...");
+    setStatusMsg("正在上传素材并创建批量任务...");
 
     try {
       const formData = new FormData();
       videos.forEach((item) => formData.append("assets", item.file));
       formData.append("media_type", outputMode);
       formData.append("template", JSON.stringify({ blocks }));
+      if (!isImageMode) {
+        if (narration) formData.append("narration_audio", narration.file);
+        if (selectedBgmId) formData.append("bgm_id", selectedBgmId);
+        formData.append("mute_original_audio", String(muteOriginalAudio));
+      }
 
       const data = await apiJson(
         "/api/poster-videos/generate",
         {
           method: "POST",
           body: formData,
+          signal: controller.signal,
           silentError: true,
         },
         backendBaseUrl
       );
 
+      if (!isCurrentRequest()) return;
       const { task_id: taskId } = data;
+      if (!taskId) throw new Error("服务端未返回任务编号。");
       setTaskStatus("running");
       setStatusMsg(`${mediaLabel}已上传，正在本地处理...`);
 
-      const controller = new AbortController();
       const poll = async () => {
+        if (!isCurrentRequest()) return;
         try {
           const data = await pollTask(taskId, controller.signal, backendBaseUrl);
+          if (!isCurrentRequest()) return;
           setTaskStatus(data.status || "running");
           setProgress(data.progress ?? 0);
-          setStatusMsg(data.message || "");
+          setStatusMsg(data.message || data.error || (data.status === "cancelled" ? "任务已取消。" : ""));
           setItems(Array.isArray(data.items) ? data.items : []);
           setZipUrl(data.zip_url || "");
 
-          if (["completed", "partial_failed", "failed"].includes(data.status)) {
+          if (isTerminalPosterStatus(data.status)) {
+            cancelRequest();
             setGenerating(false);
             if (data.status === "failed") setError(data.error || data.message || "批量处理失败");
+            if (data.status === "cancelled") setError(data.error || data.message || "任务已取消，可重新生成。");
             return;
           }
 
           pollRef.current = setTimeout(poll, 1800);
         } catch (err) {
-          if (err.name === "AbortError") return;
+          if (!isCurrentRequest() || err.name === "AbortError") return;
           setTaskStatus("failed");
           setError(err.message);
           setGenerating(false);
+          generatingRef.current = false;
         }
       };
 
       pollRef.current = setTimeout(poll, 900);
     } catch (err) {
+      if (!isCurrentRequest() || err.name === "AbortError") return;
       setTaskStatus("failed");
       setError(err.message);
       setGenerating(false);
+      generatingRef.current = false;
     }
-  }, [backendBaseUrl, blocks, canGenerate, mediaLabel, outputMode, videos]);
+  }, [backendBaseUrl, blocks, canGenerate, cancelRequest, isImageMode, mediaLabel, muteOriginalAudio, narration, outputMode, selectedBgmId, videos]);
 
   return (
     <>
@@ -459,15 +602,16 @@ export default function PosterVideo() {
 
         <div className="poster-layout">
           <div className="poster-controls">
-            <div className="workflow-card">
+            <div className="workflow-card poster-output-type-card">
               <div className="control-section-heading">
                 <span>00</span>
                 <strong>输出类型</strong>
               </div>
               <ToggleButtonGroup
-                className="segmented-control"
+                className="segmented-control poster-output-type-control"
                 exclusive
                 fullWidth
+                disabled={generating || bgmBusy}
                 value={outputMode}
                 onChange={(_, nextMode) => nextMode && handleOutputModeChange(nextMode)}
               >
@@ -487,6 +631,7 @@ export default function PosterVideo() {
 
               <label
                 className={`upload-dropzone compact poster-upload ${videos.length ? "is-filled" : ""}`}
+                aria-disabled={generating}
                 onDragOver={(event) => event.preventDefault()}
                 onDrop={handleVideoDrop}
               >
@@ -495,34 +640,165 @@ export default function PosterVideo() {
                   <strong>{videos.length ? `已加入 ${videos.length} 个${mediaLabel}` : `选择或拖入多个${mediaLabel}`}</strong>
                   <small>可一次多选，也可重复添加；最多 {MAX_BATCH_SIZE} 个</small>
                 </span>
-                <input
+                <Box
+                  component="input"
                   ref={videoInputRef}
                   name="assets"
                   type="file"
                   accept={acceptTypes}
                   multiple
+                  disabled={generating}
+                  aria-label={`批量${mediaLabel}素材`}
                   onChange={handleVideoChange}
                 />
               </label>
 
               {videos.length > 0 && (
                 <div className="poster-file-list">
-                  {videos.map((item) => (
+                  {videos.map((item, index) => (
                     <div className="poster-file-row" key={item.id}>
-                      <Icon name="video" size={15} />
-                      <span title={item.file.name}>{item.file.name}</span>
+                      <IconButton
+                        size="small"
+                        title={`预览${item.sourceType === "image" ? "图片" : "视频"}：${item.file.name}`}
+                        aria-label={`预览 ${item.file.name}`}
+                        aria-pressed={previewSource?.id === item.id}
+                        onClick={() => {
+                          if (!generatingRef.current) setPreviewId(item.id);
+                        }}
+                        disabled={generating}
+                      >
+                        {item.sourceType === "image" ? <ImageOutlined fontSize="inherit" /> : <VideoFileOutlined fontSize="inherit" />}
+                      </IconButton>
+                      <Box className="poster-file-copy">
+                        <span title={item.file.name}>{item.file.name}</span>
+                        {!isImageMode && (
+                          <Typography component="small" className="poster-estimate">
+                            预计时长 {formatDuration(estimates[index].targetDuration)}
+                            {item.sourceType === "video" && ` · 视频 ${formatSpeed(estimates[index].videoSpeed)}`}
+                            {narration && ` · 口播 ${formatSpeed(estimates[index].narrationSpeed)}`}
+                          </Typography>
+                        )}
+                        {item.sourceType === "video" && (
+                          <Box
+                            component="video"
+                            hidden
+                            src={item.localUrl}
+                            preload="metadata"
+                            muted
+                            onLoadedMetadata={(event) => updateSourceMetadata(item.id, event.currentTarget.duration)}
+                            onDurationChange={(event) => updateSourceMetadata(item.id, event.currentTarget.duration)}
+                            onError={() => updateSourceMetadata(item.id, null)}
+                          />
+                        )}
+                      </Box>
                       <small>{formatFileSize(item.file.size)}</small>
-                      <Button variant="text" size="small" type="button" onClick={() => removeVideo(item.id)}>
-                        移除
-                      </Button>
+                      <IconButton
+                        size="small"
+                        title={`移除 ${item.file.name}`}
+                        aria-label={`移除 ${item.file.name}`}
+                        disabled={generating}
+                        onClick={() => removeVideo(item.id)}
+                      >
+                        <DeleteOutlined fontSize="small" />
+                      </IconButton>
                     </div>
                   ))}
-                  <Button variant="text" size="small" type="button" onClick={clearVideos}>
+                  <Button variant="text" size="small" type="button" disabled={generating} onClick={clearVideos}>
                     清空素材
                   </Button>
                 </div>
               )}
             </div>
+
+            {!isImageMode && (
+              <Box className="workflow-card poster-audio-settings">
+                <Box className="control-section-heading">
+                  <AudioFileOutlined fontSize="small" />
+                  <strong>音频</strong>
+                </Box>
+                <Box component="section" className="poster-narration" aria-labelledby="poster-narration-title">
+                  <Box className="poster-block-heading">
+                    <Typography id="poster-narration-title" component="strong">口播音频</Typography>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      disabled={generating}
+                      startIcon={<UploadFileOutlined fontSize="small" />}
+                      onClick={() => narrationInputRef.current?.click()}
+                    >
+                      {narration ? "替换口播" : "上传口播"}
+                    </Button>
+                    <Box
+                      component="input"
+                      ref={narrationInputRef}
+                      type="file"
+                      hidden
+                      accept={NARRATION_EXTENSIONS.join(",")}
+                      disabled={generating}
+                      aria-label="上传单个口播文件"
+                      onChange={handleNarrationChange}
+                    />
+                  </Box>
+                  {narration && (
+                    <Box className="poster-narration-file">
+                      <Box className="poster-narration-meta">
+                        <AudioFileOutlined fontSize="small" />
+                        <Box className="poster-file-copy">
+                          <Typography component="strong" title={narration.file.name}>{narration.file.name}</Typography>
+                          <Typography component="small">
+                            {formatFileSize(narration.file.size)} · {formatDuration(narration.duration)}
+                          </Typography>
+                        </Box>
+                        <IconButton
+                          size="small"
+                          title="移除口播"
+                          aria-label="移除口播"
+                          disabled={generating}
+                          onClick={removeNarration}
+                        >
+                          <DeleteOutlined fontSize="small" />
+                        </IconButton>
+                      </Box>
+                      <Box
+                        component="audio"
+                        key={narration.id}
+                        src={narration.localUrl}
+                        controls
+                        preload="metadata"
+                        aria-label={`口播试听：${narration.file.name}`}
+                        onLoadedMetadata={(event) => updateNarrationMetadata(narration.id, event.currentTarget.duration)}
+                        onDurationChange={(event) => updateNarrationMetadata(narration.id, event.currentTarget.duration)}
+                        onError={() => updateNarrationMetadata(narration.id, null)}
+                      />
+                    </Box>
+                  )}
+                  {narrationError && <Box className="form-alert failed" role="alert">{narrationError}</Box>}
+                </Box>
+                <BgmManager
+                  currentUserId={currentUser?.id}
+                  selectedBgmId={selectedBgmId}
+                  onSelectionChange={handleBgmSelectionChange}
+                  onSelectedTrackChange={setSelectedBgmTrack}
+                  onBusyChange={handleBgmBusyChange}
+                  disabled={generating}
+                  idPrefix="poster"
+                />
+                <FormControlLabel
+                  label="关闭视频原声"
+                  control={(
+                    <Switch
+                      checked={muteOriginalAudio}
+                      disabled={generating || !hasVideoSources}
+                      onChange={(_, checked) => {
+                        if (generatingRef.current) return;
+                        setMuteOriginalAudio(checked);
+                        resetTask();
+                      }}
+                    />
+                  )}
+                />
+              </Box>
+            )}
 
             <div className="workflow-card">
               <div className="control-section-heading">
@@ -535,7 +811,7 @@ export default function PosterVideo() {
                   <div className="poster-block-card" key={block.id}>
                     <div className="poster-block-heading">
                       <strong>文字块 {index + 1}</strong>
-                      <Button variant="text" size="small" type="button" onClick={() => removeBlock(block.id)}>
+                      <Button variant="text" size="small" type="button" disabled={generating} onClick={() => removeBlock(block.id)}>
                         删除
                       </Button>
                     </div>
@@ -547,6 +823,7 @@ export default function PosterVideo() {
                       multiline
                       rows={3}
                       size="small"
+                      disabled={generating}
                       value={block.text}
                       onChange={(event) => updateBlock(block.id, { text: event.target.value })}
                     />
@@ -558,6 +835,7 @@ export default function PosterVideo() {
                         fullWidth
                         size="small"
                         select
+                        disabled={generating}
                         value={block.fontPath}
                         onChange={(event) => updateBlock(block.id, { fontPath: event.target.value })}
                       >
@@ -575,6 +853,7 @@ export default function PosterVideo() {
                         fullWidth
                         size="small"
                         select
+                        disabled={generating}
                         value={block.align}
                         onChange={(event) => updateBlock(block.id, { align: event.target.value })}
                       >
@@ -588,56 +867,56 @@ export default function PosterVideo() {
                       <div className="field">
                         <span className="field-label with-inline-action">
                           <span>X {block.x}%</span>
-                          <Button variant="text" size="small" onClick={() => centerBlockX(block)}>
+                          <Button variant="text" size="small" disabled={generating} onClick={() => centerBlockX(block)}>
                             一键居中
                           </Button>
                         </span>
-                        <Slider size="small" min={0} max={90} value={block.x} onChange={(_, value) => updateBlock(block.id, { x: value })} />
+                        <Slider disabled={generating} size="small" min={0} max={90} value={block.x} onChange={(_, value) => updateBlock(block.id, { x: value })} />
                       </div>
                       <div className="field">
                         <span className="field-label">Y {block.y}%</span>
-                        <Slider size="small" min={0} max={92} value={block.y} onChange={(_, value) => updateBlock(block.id, { y: value })} />
+                        <Slider disabled={generating} size="small" min={0} max={92} value={block.y} onChange={(_, value) => updateBlock(block.id, { y: value })} />
                       </div>
                       <div className="field">
                         <span className="field-label">宽度 {block.width}%</span>
-                        <Slider size="small" min={20} max={100} value={block.width} onChange={(_, value) => updateBlock(block.id, { width: value })} />
+                        <Slider disabled={generating} size="small" min={20} max={100} value={block.width} onChange={(_, value) => updateBlock(block.id, { width: value })} />
                       </div>
                     </div>
 
                     <div className="poster-control-grid three">
                       <div className="field">
                         <span className="field-label">字号 {block.fontSize}</span>
-                        <Slider size="small" min={24} max={120} value={block.fontSize} onChange={(_, value) => updateBlock(block.id, { fontSize: value })} />
+                        <Slider disabled={generating} size="small" min={24} max={120} value={block.fontSize} onChange={(_, value) => updateBlock(block.id, { fontSize: value })} />
                       </div>
                       <div className="field">
                         <span className="field-label">描边 {block.strokeWidth}</span>
-                        <Slider size="small" min={0} max={12} value={block.strokeWidth} onChange={(_, value) => updateBlock(block.id, { strokeWidth: value })} />
+                        <Slider disabled={generating} size="small" min={0} max={12} value={block.strokeWidth} onChange={(_, value) => updateBlock(block.id, { strokeWidth: value })} />
                       </div>
                       <div className="field">
                         <span className="field-label">背景 {Math.round(block.backgroundOpacity * 100)}%</span>
-                        <Slider size="small" min={0} max={1} step={0.05} value={block.backgroundOpacity} onChange={(_, value) => updateBlock(block.id, { backgroundOpacity: value })} />
+                        <Slider disabled={generating} size="small" min={0} max={1} step={0.05} value={block.backgroundOpacity} onChange={(_, value) => updateBlock(block.id, { backgroundOpacity: value })} />
                       </div>
                     </div>
 
                     <div className="poster-swatch-grid">
                       <label>
                         <span>文字</span>
-                        <input type="color" value={block.color} onChange={(event) => updateBlock(block.id, { color: event.target.value })} />
+                        <Box component="input" type="color" aria-label="文字颜色" disabled={generating} value={block.color} onChange={(event) => updateBlock(block.id, { color: event.target.value })} />
                       </label>
                       <label>
                         <span>描边</span>
-                        <input type="color" value={block.strokeColor} onChange={(event) => updateBlock(block.id, { strokeColor: event.target.value })} />
+                        <Box component="input" type="color" aria-label="描边颜色" disabled={generating} value={block.strokeColor} onChange={(event) => updateBlock(block.id, { strokeColor: event.target.value })} />
                       </label>
                       <label>
                         <span>背景</span>
-                        <input type="color" value={block.backgroundColor} onChange={(event) => updateBlock(block.id, { backgroundColor: event.target.value })} />
+                        <Box component="input" type="color" aria-label="背景颜色" disabled={generating} value={block.backgroundColor} onChange={(event) => updateBlock(block.id, { backgroundColor: event.target.value })} />
                       </label>
                     </div>
                   </div>
                 ))}
               </div>
 
-              <Button type="button" variant="outlined" onClick={addBlock} startIcon={<Icon name="sparkles" size={16} />}>
+              <Button type="button" variant="outlined" disabled={generating} onClick={addBlock} startIcon={<Icon name="sparkles" size={16} />}>
                 新增文字块
               </Button>
             </div>
@@ -653,11 +932,11 @@ export default function PosterVideo() {
               <div className="poster-preview-stage">
                 <div className="poster-phone-frame">
                   <div className="poster-video-bg">
-                    {videos[0]?.localUrl ? (
-                      isImageMode ? (
-                        <img src={videos[0].localUrl} alt="预览素材" />
+                    {previewSource?.localUrl ? (
+                      previewSource.sourceType === "image" ? (
+                        <img src={previewSource.localUrl} alt={previewSource.file.name} />
                       ) : (
-                        <video src={videos[0].localUrl} muted playsInline />
+                        <video src={previewSource.localUrl} muted playsInline />
                       )
                     ) : (
                       <div className="poster-empty-bg">
@@ -672,11 +951,19 @@ export default function PosterVideo() {
                   </div>
                 </div>
               </div>
+            </div>
 
+            <div className="poster-preview-actions">
               <Button type="button" variant="contained" disabled={!canGenerate} onClick={handleGenerate}
                 startIcon={<Icon name={generating ? "loading" : "wand"} size={16} />}>
                 {generating ? "正在批量生成" : `生成${outputLabel}`}
               </Button>
+
+              {audioRequired && (
+                <Box className="form-alert failed" role="alert">
+                  本批包含图片，须选择口播或背景音乐后才能生成视频。
+                </Box>
+              )}
 
               {(taskStatus === "running" || taskStatus === "pending") && (
                 <div className="progress-area" aria-label="批量处理进度">
@@ -704,7 +991,7 @@ export default function PosterVideo() {
             icon={
               <Icon
                 name={
-                  ["failed", "partial_failed"].includes(videoPanelStatus)
+                  ["failed", "partial_failed", "cancelled"].includes(videoPanelStatus)
                     ? "alert"
                     : videoPanelStatus === "completed"
                       ? "check"
@@ -754,6 +1041,19 @@ export default function PosterVideo() {
                     <div>
                       <strong title={item.filename}>{item.filename}</strong>
                       <span>{item.error || item.message}</span>
+                      {item.source_type && (
+                        <Typography component="small" className="poster-result-metadata">
+                          {item.source_type === "image" ? <ImageOutlined fontSize="inherit" /> : <VideoFileOutlined fontSize="inherit" />}
+                          {item.source_type === "image" ? "图片素材" : "视频素材"}
+                        </Typography>
+                      )}
+                      {!isImageMode && (item.target_duration != null || item.video_speed != null || item.narration_speed != null) && (
+                        <Typography component="small" className="poster-result-metadata">
+                          时长 {formatDuration(item.target_duration)}
+                          {item.source_type !== "image" && item.video_speed != null && ` · 视频 ${formatSpeed(item.video_speed)}`}
+                          {narration && item.narration_speed != null && ` · 口播 ${formatSpeed(item.narration_speed)}`}
+                        </Typography>
+                      )}
                     </div>
                   </div>
                   {(item.asset_url || item.video_url || item.image_url) && (
@@ -766,7 +1066,7 @@ export default function PosterVideo() {
                       />
                       <ProtectedDownloadButton
                         path={item.asset_url || item.video_url || item.image_url}
-                        filename={item.filename}
+                        filename={posterDownloadFilename(item.filename, outputMode)}
                         backendBaseUrl={backendBaseUrl}
                       >
                         <Icon name="download" size={15} />

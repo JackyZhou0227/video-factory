@@ -501,7 +501,7 @@ export default function App() {
             <TTSStudio active={activePage === "tts-studio"} />
           </div>
           <div className={`app-main page-panel ${activePage === "poster-video" ? "is-active" : ""}`}>
-            <PosterVideo />
+            <PosterVideo currentUser={currentUser} />
           </div>
           <div className={`app-main page-panel ${activePage === "template-production" ? "is-active" : ""}`}>
             <TemplateProduction currentUser={currentUser} />

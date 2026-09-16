@@ -1,20 +1,49 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from app.api import digital_human, tts_studio
 from app.api.auth import require_current_user
 from app.services.tts import EDGE_TTS_MODEL
-from app.services import settings_store, task_store
+from app.services import poster_video, settings_store, task_store
 from tests.pg_test_utils import ensure_test_user
+
+
+class TTSStudioSpeedTests(unittest.TestCase):
+    def test_variant_reuses_tempo_builder_and_preserves_original(self):
+        ffmpeg = poster_video.ffmpeg_executable()
+        if ffmpeg is None:
+            self.skipTest("FFmpeg is not installed")
+        with tempfile.TemporaryDirectory() as directory:
+            original = Path(directory) / "preview_original.wav"
+            subprocess.run(
+                [ffmpeg, "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=1.2", str(original)],
+                check=True, capture_output=True,
+            )
+            original_bytes = original.read_bytes()
+            with patch.object(
+                poster_video, "build_atempo_filter", wraps=poster_video.build_atempo_filter
+            ) as tempo:
+                adjusted = tts_studio._create_speech_rate_variant(original, 1.2)
+            self.assertEqual(original.read_bytes(), original_bytes)
+            self.assertEqual(adjusted.name, "preview_1_2x.wav")
+            self.assertAlmostEqual(poster_video.probe_audio_duration(adjusted), 1.0, delta=0.1)
+            tempo.assert_called_once_with(1.2)
+
+    def test_tts_keeps_existing_rate_limits(self):
+        for rate in (0.9, 1.51, 3, float("nan"), float("inf")):
+            with self.subTest(rate=rate), self.assertRaises(HTTPException) as error:
+                tts_studio._normalize_speech_rate(rate)
+            self.assertEqual(error.exception.status_code, 422)
 
 
 class TTSStudioApiTests(unittest.TestCase):

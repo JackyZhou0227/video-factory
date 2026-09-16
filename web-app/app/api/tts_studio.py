@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 import re
-import shutil
 import subprocess
 import uuid
 from pathlib import Path
@@ -15,7 +14,7 @@ from app.api import common
 from app.api.auth import require_current_user
 from app.core import uploads
 from app.core.config import app_config, resolve_output_dir
-from app.services import task_store, tts_qwen, voice_profiles
+from app.services import poster_video, task_store, tts_qwen, voice_profiles
 from app.services.tts import (
     EDGE_TTS_MODEL,
     QWEN3_TTS_BASE_MODEL,
@@ -173,15 +172,7 @@ def _create_speech_rate_variant(audio_path: Path, speech_rate: float) -> Path:
         return variant_path
 
     output_format = audio_path.suffix.removeprefix(".") or "wav"
-    # Use the same FFmpeg discovery path as the rest of the application.  In
-    # particular, imageio-ffmpeg provides a bundled executable on Windows,
-    # where relying on pydub's ``ffprobe`` lookup causes WinError 2.
-    try:
-        from app.services.poster_video import ffmpeg_executable
-
-        ffmpeg_path = ffmpeg_executable()
-    except (ImportError, RuntimeError):
-        ffmpeg_path = shutil.which("ffmpeg")
+    ffmpeg_path = poster_video.ffmpeg_executable()
     if not ffmpeg_path:
         raise HTTPException(status_code=500, detail="缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
 
@@ -193,7 +184,7 @@ def _create_speech_rate_variant(audio_path: Path, speech_rate: float) -> Path:
                 "-i",
                 str(audio_path),
                 "-filter:a",
-                f"atempo={rate:.2f}",
+                poster_video.build_atempo_filter(rate),
                 "-f",
                 output_format,
                 str(temp_path),

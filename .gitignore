@@ -26,6 +26,7 @@ web-app/frontend/dist/
 web-app/frontend/public/skills/
 
 # Local OS/editor files
+.vscode/
 .DS_Store
 Thumbs.db
 *.log

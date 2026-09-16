@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import shutil
 import subprocess
+import tempfile
 import textwrap
 from pathlib import Path
 from typing import Any
@@ -252,84 +254,240 @@ def _run_ffmpeg(command: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(resolved, check=True, capture_output=True, text=True)
 
 
-def _compose_command(input_path: Path, overlay_path: Path, output_path: Path, audio_codec: str) -> list[str]:
-    filter_complex = (
-        f"[0:v]split=2[bgsrc][fgsrc];"
-        f"[bgsrc]scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
-        f"crop={TARGET_WIDTH}:{TARGET_HEIGHT},gblur=sigma=24[bg];"
-        f"[fgsrc]scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease,"
-        f"pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0[fg];"
-        f"[bg][fg]overlay=0:0[base];"
-        f"[base][1:v]overlay=0:0:format=auto[outv]"
-    )
-    command = [
-        "ffmpeg",
-        "-y",
-        "-i",
-        str(input_path),
-        "-i",
-        str(overlay_path),
-        "-filter_complex",
-        filter_complex,
-        "-map",
-        "[outv]",
-        "-map",
-        "0:a?",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "veryfast",
-        "-crf",
-        "23",
-        "-pix_fmt",
-        "yuv420p",
-        "-shortest",
-    ]
-    if audio_codec == "copy":
-        command.extend(["-c:a", "copy"])
+def _positive_duration(value: Any, label: str) -> float:
+    try:
+        duration = float(value)
+    except (TypeError, ValueError, OverflowError):
+        raise PosterVideoError(f"{label}时长无效") from None
+    if not math.isfinite(duration) or duration <= 0:
+        raise PosterVideoError(f"{label}时长必须是有效正数")
+    return duration
+
+
+def calculate_timing(
+    source_type: str,
+    *,
+    video_duration: float | None = None,
+    narration_duration: float | None = None,
+    bgm_duration: float | None = None,
+) -> dict[str, Any]:
+    if source_type not in {"image", "video"}:
+        raise PosterVideoError("素材类型必须是图片或视频")
+    if narration_duration is not None:
+        narration_duration = _positive_duration(narration_duration, "口播")
+    if bgm_duration is not None:
+        bgm_duration = _positive_duration(bgm_duration, "BGM")
+    if source_type == "image":
+        target = narration_duration if narration_duration is not None else bgm_duration
+        if target is None:
+            raise PosterVideoError("图片转视频必须提供口播音频或背景音乐")
     else:
-        command.extend(["-c:a", "aac", "-b:a", "192k"])
-    command.extend(["-movflags", "+faststart", str(output_path)])
+        video_duration = _positive_duration(video_duration, "视频")
+        target = min(video_duration, narration_duration) if narration_duration is not None else video_duration
+    return {
+        "source_type": source_type,
+        "target_duration": target,
+        "video_speed": video_duration / target if source_type == "video" else 1.0,
+        "narration_speed": narration_duration / target if narration_duration is not None else 1.0,
+    }
+
+
+def build_atempo_filter(rate: float) -> str:
+    speed = _positive_duration(rate, "变速倍率")
+    if speed < 1:
+        raise PosterVideoError("只支持大于或等于 1 的加速倍率")
+    filters = []
+    # Small atempo stages avoid sample skipping at high speech speed.
+    while speed > 2:
+        filters.append("atempo=2")
+        speed /= 2
+    filters.append(f"atempo={speed:.12g}")
+    return ",".join(filters)
+
+
+def _compose_command(
+    input_path: Path,
+    overlay_path: Path,
+    output_path: Path,
+    *,
+    timing: dict[str, Any],
+    has_original_audio: bool,
+    narration_path: Path | None,
+    bgm_path: Path | None,
+    original_audio_offset: float = 0.0,
+) -> list[str]:
+    duration = f"{timing['target_duration']:.6f}"
+    command = ["ffmpeg", "-y"]
+    filters: list[str] = []
+    audio_inputs: list[tuple[int, float, float]] = []
+    if timing["source_type"] == "image":
+        command.extend(["-loop", "1", "-framerate", "30", "-i", str(input_path)])
+        filters.append("[0:v:0]setsar=1,format=yuv420p[outv]")
+        next_index = 1
+    else:
+        command.extend(["-i", str(input_path), "-i", str(overlay_path)])
+        filters.extend([
+            f"[0:V:0]setpts=(PTS-STARTPTS)/{timing['video_speed']:.12g},fps=30,split=2[bgsrc][fgsrc]",
+            f"[bgsrc]scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=increase,"
+            f"crop={TARGET_WIDTH}:{TARGET_HEIGHT},gblur=sigma=24[bg]",
+            f"[fgsrc]scale={TARGET_WIDTH}:{TARGET_HEIGHT}:force_original_aspect_ratio=decrease,"
+            f"format=rgba,pad={TARGET_WIDTH}:{TARGET_HEIGHT}:(ow-iw)/2:(oh-ih)/2:color=black@0[fg]",
+            "[bg][fg]overlay=0:0[base]",
+            "[base][1:v:0]overlay=0:0:format=auto,setsar=1[outv]",
+        ])
+        next_index = 2
+        if has_original_audio:
+            audio_inputs.append((0, timing["video_speed"], 1.0))
+    if narration_path is not None:
+        command.extend(["-i", str(narration_path)])
+        audio_inputs.append((next_index, timing["narration_speed"], 1.0))
+        next_index += 1
+    if bgm_path is not None:
+        command.extend(["-stream_loop", "-1", "-i", str(bgm_path)])
+        audio_inputs.append((next_index, 1.0, 0.6))
+
+    for index, (input_index, speed, weight) in enumerate(audio_inputs):
+        alignment = ""
+        if input_index == 0 and timing["source_type"] == "video":
+            offset = original_audio_offset / speed
+            if offset > 0:
+                # adelay can emit leading silence before an input PTS is available.
+                alignment = f"adelay={round(offset * 48000)}S:all=1,asetpts=N/SR/TB,"
+            elif offset < 0:
+                alignment = f"atrim=start={-offset:.12g},asetpts=PTS-STARTPTS,"
+        filters.append(
+            f"[{input_index}:a:0]asetpts=PTS-STARTPTS,{build_atempo_filter(speed)},"
+            f"aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,"
+            f"{alignment}volume={weight},apad,atrim=duration={duration}[audio{index}]"
+        )
+    if audio_inputs:
+        labels = "".join(f"[audio{index}]" for index in range(len(audio_inputs)))
+        filters.append(
+            f"{labels}amix=inputs={len(audio_inputs)}:duration=longest:"
+            "dropout_transition=0:normalize=0[outa]"
+        )
+    command.extend(["-filter_complex", ";".join(filters), "-map", "[outv]"])
+    if audio_inputs:
+        command.extend(["-map", "[outa]", "-c:a", "aac", "-b:a", "192k"])
+    else:
+        command.append("-an")
+    command.extend([
+        "-t", duration, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output_path),
+    ])
     return command
 
 
-def process_video(input_path: Path, overlay_path: Path, output_path: Path) -> None:
+def process_video(
+    input_path: Path,
+    overlay_path: Path,
+    output_path: Path,
+    *,
+    source_type: str = "video",
+    narration_path: Path | None = None,
+    bgm_path: Path | None = None,
+    mute_original_audio: bool = True,
+    narration_duration: float | None = None,
+    bgm_duration: float | None = None,
+) -> dict[str, Any]:
     require_ffmpeg()
     output_path.parent.mkdir(parents=True, exist_ok=True)
-
     try:
-        _run_ffmpeg(_compose_command(input_path, overlay_path, output_path, "copy"))
-    except subprocess.CalledProcessError:
-        if output_path.exists():
-            output_path.unlink()
-        try:
-            _run_ffmpeg(_compose_command(input_path, overlay_path, output_path, "aac"))
-        except subprocess.CalledProcessError as exc:
-            detail = exc.stderr.strip() or exc.stdout.strip() or "ffmpeg failed"
-            raise PosterVideoError(textwrap.shorten(detail, width=900, placeholder="...")) from exc
+        video_info = probe_media(input_path) if source_type == "video" else {}
+        if source_type == "video" and not video_info["has_video"]:
+            raise PosterVideoError(f"素材没有视频轨道：{input_path.name}")
+        if narration_path is not None and narration_duration is None:
+            narration_duration = probe_audio_duration(narration_path)
+        if bgm_path is not None and bgm_duration is None:
+            bgm_duration = probe_audio_duration(bgm_path)
+        timing = calculate_timing(
+            source_type,
+            video_duration=video_info.get("video_duration"),
+            narration_duration=narration_duration if narration_path is not None else None,
+            bgm_duration=bgm_duration if bgm_path is not None else None,
+        )
+        with tempfile.TemporaryDirectory(prefix="poster-", dir=output_path.parent) as temp:
+            render_input = input_path
+            if source_type == "image":
+                render_input = Path(temp) / "frame.jpg"
+                process_image(input_path, overlay_path, render_input)
+            _run_ffmpeg(_compose_command(
+                render_input, overlay_path, output_path,
+                timing=timing,
+                has_original_audio=bool(video_info.get("has_audio") and not mute_original_audio),
+                narration_path=narration_path,
+                bgm_path=bgm_path,
+                original_audio_offset=(
+                    video_info.get("audio_start_time", 0) - video_info.get("video_start_time", 0)
+                ),
+            ))
+        return timing
+    except Exception as exc:
+        output_path.unlink(missing_ok=True)
+        if isinstance(exc, PosterVideoError):
+            raise
+        if isinstance(exc, subprocess.CalledProcessError):
+            detail = (exc.stderr or "").strip() or (exc.stdout or "").strip() or "FFmpeg 执行失败"
+        else:
+            detail = str(exc)
+        raise PosterVideoError(textwrap.shorten(detail, width=900, placeholder="...")) from exc
 
 
-def probe_video(path: Path) -> dict[str, Any]:
+def _decode_stream_timing(path: Path, selector: str, kind: str) -> dict[str, float]:
+    executable = ffmpeg_executable()
+    if executable is None:
+        raise PosterVideoError("缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
+    command = [
+        executable, "-hide_banner", "-nostdin", "-nostats", "-i", str(path),
+        "-map", selector,
+    ]
+    if kind == "video":
+        command.extend(["-vf", "showinfo=checksum=0", "-fps_mode", "passthrough"])
+    else:
+        command.extend(["-af", "ashowinfo"])
+    command.extend(["-progress", "pipe:1", "-f", "null", "-"])
+    container_start = 0.0
+    first_pts = None
+    end_pts = None
+    try:
+        # Stream diagnostics instead of retaining a line for every decoded frame.
+        with subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, errors="replace",
+        ) as process:
+            for line in process.stdout:
+                start = re.search(r"^\s*Duration:.*,\s*start:\s*([-\d.]+)", line)
+                if start:
+                    container_start = float(start[1])
+                if first_pts is None and "showinfo" in line:
+                    pts = re.search(r"\bpts_time:([-\d.e+]+)", line)
+                    if pts:
+                        first_pts = float(pts[1])
+                progress = re.fullmatch(r"out_time_us=(-?\d+)\s*", line)
+                if progress:
+                    end_pts = int(progress[1]) / 1_000_000
+            returncode = process.wait()
+    except OSError as exc:
+        raise PosterVideoError(f"无法读取媒体时长：{path.name}") from exc
+    if returncode or first_pts is None or end_pts is None:
+        raise PosterVideoError(f"无法读取媒体时长：{path.name}")
+    return {
+        "start_time": container_start + first_pts,
+        "duration": _positive_duration(end_pts - first_pts, "媒体"),
+    }
+
+
+def _probe_streams(path: Path) -> dict[str, Any]:
     ffprobe = shutil.which("ffprobe")
     if ffprobe:
         command = [
-            ffprobe,
-            "-v",
-            "error",
-            "-select_streams",
-            "v:0",
-            "-show_entries",
-            "stream=width,height,duration",
-            "-of",
-            "json",
-            str(path),
+            ffprobe, "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path),
         ]
         try:
             result = subprocess.run(command, check=True, capture_output=True, text=True)
-        except subprocess.CalledProcessError as exc:
-            detail = exc.stderr.strip() or exc.stdout.strip() or "ffprobe failed"
-            raise PosterVideoError(detail) from exc
-        return json.loads(result.stdout or "{}")
+            return json.loads(result.stdout or "{}")
+        except (OSError, subprocess.CalledProcessError, json.JSONDecodeError) as exc:
+            raise PosterVideoError(f"无法读取媒体信息：{path.name}") from exc
 
     executable = ffmpeg_executable()
     if executable is None:
@@ -341,22 +499,95 @@ def probe_video(path: Path) -> dict[str, Any]:
             text=True,
             check=False,
         )
-    except FileNotFoundError as exc:
+    except OSError as exc:
         raise PosterVideoError(f"媒体命令不可用：{executable}") from exc
     stderr = result.stderr or ""
-    info: dict[str, Any] = {}
-    duration_match = re.search(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)", stderr)
-    if duration_match:
-        hours, minutes, seconds = duration_match.groups()
-        info["streams"] = [{"duration": str(int(hours) * 3600 + int(minutes) * 60 + float(seconds))}]
-    resolution_match = re.search(r"Stream #\d+:\d+.*?, (\d{2,5})x(\d{2,5})", stderr)
-    if resolution_match:
-        width, height = int(resolution_match.group(1)), int(resolution_match.group(2))
-        if info.get("streams"):
-            info["streams"][0]["width"] = width
-            info["streams"][0]["height"] = height
-        else:
-            info["streams"] = [{"width": width, "height": height}]
-    if not info.get("streams"):
-        raise PosterVideoError(f"无法读取视频信息：{path.name}")
+    streams = []
+    # The bundled FFmpeg may have no ffprobe. Decode each primary stream to a
+    # null sink so a longer audio track cannot incorrectly set video duration.
+    for kind, selector in (("video", "V"), ("audio", "a")):
+        line = next(
+            (line for line in stderr.splitlines()
+             if re.search(rf"Stream #.*: {kind.title()}:", line) and "(attached pic)" not in line),
+            None,
+        )
+        if line is None:
+            continue
+        stream: dict[str, Any] = {
+            "codec_type": kind,
+            **_decode_stream_timing(path, f"0:{selector}:0", kind),
+        }
+        resolution = re.search(r"\b(\d{2,5})x(\d{2,5})\b", line)
+        if kind == "video" and resolution:
+            stream.update(width=int(resolution[1]), height=int(resolution[2]))
+        streams.append(stream)
+    return {"streams": streams}
+
+
+def _stream_duration(
+    path: Path, stream: dict[str, Any], container: dict[str, Any], label: str,
+) -> float:
+    duration = stream.get("duration")
+    if duration is not None and duration != "N/A":
+        return _positive_duration(duration, label)
+    tagged = (stream.get("tags") or {}).get("DURATION")
+    if tagged is not None and tagged != "N/A":
+        match = re.fullmatch(r"(\d+):(\d+):(\d+(?:\.\d+)?)", str(tagged))
+        if not match:
+            raise PosterVideoError(f"{label}时长无效")
+        _positive_duration(int(match[1]) * 3600 + int(match[2]) * 60 + float(match[3]), label)
+    if container.get("duration") is not None and container["duration"] != "N/A":
+        _positive_duration(container["duration"], label)
+    # Tags can be end timestamps, and container duration can belong to another track.
+    selector = f"0:{stream['index']}"
+    stream.update(_decode_stream_timing(path, selector, stream["codec_type"]))
+    return stream["duration"]
+
+
+def probe_media(path: Path) -> dict[str, Any]:
+    raw = _probe_streams(path)
+    streams = raw.get("streams") or []
+    video = next(
+        (stream for stream in streams if stream.get("codec_type") == "video"
+         and not (stream.get("disposition") or {}).get("attached_pic")),
+        None,
+    )
+    audio = next((stream for stream in streams if stream.get("codec_type") == "audio"), None)
+    container = raw.get("format") or {}
+    if video is None and audio is None:
+        raise PosterVideoError(f"文件没有可用的音视频轨道：{path.name}")
+    video_duration = _stream_duration(path, video, container, "视频") if video is not None else None
+    audio_duration = _stream_duration(path, audio, container, "音频") if audio is not None else None
+    info = {
+        "has_video": video is not None,
+        "has_audio": audio is not None,
+        "video_duration": video_duration,
+        "audio_duration": audio_duration,
+    }
+    for kind, stream in (("video", video), ("audio", audio)):
+        value = stream.get("start_time") if stream is not None else None
+        try:
+            start = 0.0 if value is None or value == "N/A" else float(value)
+        except (TypeError, ValueError, OverflowError):
+            raise PosterVideoError(f"媒体起始时间无效：{path.name}") from None
+        if not math.isfinite(start):
+            raise PosterVideoError(f"媒体起始时间无效：{path.name}")
+        info[f"{kind}_start_time"] = start
     return info
+
+
+def probe_audio_duration(path: Path) -> float:
+    info = probe_media(path)
+    if not info["has_audio"]:
+        raise PosterVideoError(f"文件没有音频轨道：{path.name}")
+    return info["audio_duration"]
+
+
+def probe_video(path: Path) -> dict[str, Any]:
+    raw = _probe_streams(path)
+    return {
+        "streams": [
+            stream for stream in raw.get("streams", []) if stream.get("codec_type") == "video"
+            and not (stream.get("disposition") or {}).get("attached_pic")
+        ]
+    }
