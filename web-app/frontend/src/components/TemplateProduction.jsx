@@ -12,9 +12,12 @@ import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import SubtitleSettings, { cloneDefaultSubtitleStyle } from "./SubtitleSettings";
 import { apiFetch, apiJson, useBackendBaseUrl } from "../lib/backend";
+import {
+  FINAL_TASK_STATUSES as FINAL_STATUSES,
+  shouldRestoreTask,
+} from "../lib/taskRecovery";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 
-const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
 function templateContentDefaults(template) {
   return Object.fromEntries(
     (template?.content_fields || [])
@@ -283,16 +286,26 @@ export default function TemplateProduction({ currentUser }) {
   }, [selectedTemplate?.id, stopPolling, taskStorageKey]);
 
   const pollTask = useCallback(
-    async (taskId) => {
+    async (taskId, { restoring = false } = {}) => {
       try {
         const nextTask = await apiJson(
           `/api/template-production/tasks/${taskId}`,
           { silentError: true },
           backendBaseUrl
         );
+
+        const isTerminal = FINAL_STATUSES.has(nextTask.status);
+        if (isTerminal) {
+          localStorage.removeItem(taskStorageKey);
+          if (restoring && !shouldRestoreTask(nextTask)) {
+            setTask(null);
+            setSubmitting(false);
+            return;
+          }
+        }
         setTask(nextTask);
-        setSubmitting(!FINAL_STATUSES.has(nextTask.status));
-        if (!FINAL_STATUSES.has(nextTask.status)) {
+        setSubmitting(!isTerminal);
+        if (!isTerminal) {
           pollRef.current = setTimeout(() => pollTask(taskId), 1500);
         }
       } catch (err) {
@@ -311,7 +324,7 @@ export default function TemplateProduction({ currentUser }) {
 
   useEffect(() => {
     const storedTaskId = localStorage.getItem(taskStorageKey);
-    if (storedTaskId) pollTask(storedTaskId);
+    if (storedTaskId) pollTask(storedTaskId, { restoring: true });
     return stopPolling;
   }, [pollTask, stopPolling, taskStorageKey]);
 

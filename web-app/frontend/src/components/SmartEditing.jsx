@@ -19,9 +19,9 @@ import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import SubtitleSettings, { cloneDefaultSubtitleStyle } from "./SubtitleSettings";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
+import { FINAL_TASK_STATUSES as FINAL_STATUSES, shouldRestoreTask } from "../lib/taskRecovery";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 
-const FINAL_STATUSES = new Set(["completed", "partial_failed", "failed"]);
 const MAX_KEYWORDS = 20;
 const MAX_MATERIALS = 20;
 const MAX_MATERIAL_FILE_SIZE = 500 * 1024 * 1024;
@@ -156,16 +156,25 @@ export default function SmartEditing({ currentUser }) {
     pollRef.current = null;
   }, []);
 
-  const pollTask = useCallback(async (taskId) => {
+  const pollTask = useCallback(async (taskId, { restoring = false } = {}) => {
     try {
       const nextTask = await apiJson(
         `/api/smart-editing/tasks/${encodeURIComponent(taskId)}`,
         { silentError: true },
         backendBaseUrl
       );
+      const isTerminal = FINAL_STATUSES.has(nextTask.status);
+      if (isTerminal) {
+        localStorage.removeItem(taskStorageKey);
+        if (restoring && !shouldRestoreTask(nextTask)) {
+          setTask(null);
+          setSubmitting(false);
+          return;
+        }
+      }
       setTask(nextTask);
-      setSubmitting(!FINAL_STATUSES.has(nextTask.status));
-      if (!FINAL_STATUSES.has(nextTask.status)) {
+      setSubmitting(!isTerminal);
+      if (!isTerminal) {
         pollRef.current = window.setTimeout(() => pollTask(taskId), 1500);
       }
     } catch (pollError) {
@@ -182,7 +191,7 @@ export default function SmartEditing({ currentUser }) {
 
   useEffect(() => {
     const storedTaskId = localStorage.getItem(taskStorageKey);
-    if (storedTaskId) pollTask(storedTaskId);
+    if (storedTaskId) pollTask(storedTaskId, { restoring: true });
     return stopPolling;
   }, [pollTask, stopPolling, taskStorageKey]);
 
