@@ -10,6 +10,7 @@ from typing import Any
 from starlette.datastructures import Headers, MutableHeaders
 from starlette.middleware.cors import CORSMiddleware
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 ASGIApp = Callable[[dict[str, Any], Callable[..., Awaitable[dict[str, Any]]], Callable[..., Awaitable[None]]], Awaitable[None]]
 
@@ -76,6 +77,13 @@ def get_security_settings(config: dict[str, Any]) -> dict[str, Any]:
         # CORS. Public cross-origin clients must be explicitly allow-listed.
         cors_allowed_origins = []
 
+    configured_proxies = security.get("trusted_proxies")
+    trusted_proxies = (
+        _as_list(configured_proxies)
+        if configured_proxies is not None
+        else ["127.0.0.0/8", "::1"]
+    )
+
     try:
         max_request_body_bytes = int(security.get("max_request_body_bytes", 512 * 1024 * 1024))
     except (TypeError, ValueError):
@@ -89,6 +97,7 @@ def get_security_settings(config: dict[str, Any]) -> dict[str, Any]:
     return {
         "environment": environment,
         "allowed_hosts": allowed_hosts,
+        "trusted_proxies": trusted_proxies,
         "cors_allowed_origins": cors_allowed_origins,
         "max_request_body_bytes": max_request_body_bytes,
         "csrf_enabled": _as_bool(csrf.get("enabled"), False),
@@ -289,5 +298,9 @@ def install_security_middleware(application: Any, config: dict[str, Any]) -> dic
         SecurityHeadersMiddleware,
         hsts_enabled=settings["hsts_enabled"],
         content_security_policy=settings["content_security_policy"],
+    )
+    application.add_middleware(
+        ProxyHeadersMiddleware,
+        trusted_hosts=settings["trusted_proxies"],
     )
     return settings

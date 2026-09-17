@@ -52,12 +52,13 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr /r /c:":%APP_PORT% .*LISTENIN
 set "VIDEO_FACTORY_ENV=production"
 set "VIDEO_FACTORY_RELOAD=0"
 set "VIDEO_FACTORY_HOST=%APP_HOST%"
+set "VIDEO_FACTORY_PORT=%APP_PORT%"
 set "LAN_IP="
 for /f "delims=" %%I in ('powershell -NoProfile -Command "$ip = $null; foreach ($c in Get-NetIPConfiguration) { if ($c.IPv4DefaultGateway -and $c.IPv4Address) { $ip = $c.IPv4Address[0].IPAddress; break } }; if ($ip) { Write-Output $ip }"') do if not defined LAN_IP set "LAN_IP=%%I"
 if not defined LAN_IP set "LAN_IP=127.0.0.1"
 echo Video Factory: http://%LAN_IP%:%APP_PORT%
 pushd "%APP_DIR%"
-"%PYTHON_EXE%" -m uvicorn main:app --host "%APP_HOST%" --port "%APP_PORT%"
+"%PYTHON_EXE%" main.py
 set "EXIT_CODE=%ERRORLEVEL%"
 popd
 endlocal

@@ -62,6 +62,13 @@ server:
   output_dir: "output"
 
 security:
+  # 允许这些可信反向代理通过 X-Forwarded-For 传递真实客户端 IP。
+  # 本机运行的内网穿透客户端通常无需修改；若代理从其他地址连接，添加其固定 IP 或 CIDR。
+  # 切勿使用 "*"，否则客户端可伪造 IP 绕过限流。
+  trusted_proxies:
+    - "127.0.0.0/8"
+    - "::1"
+
   # HTTP Host 头白名单，生产环境请勿使用 "*"。
   allowed_hosts:
     - "127.0.0.1"

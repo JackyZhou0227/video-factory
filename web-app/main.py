@@ -1,4 +1,4 @@
-"""Compatibility entry point for `uvicorn main:app`."""
+"""Application export and controlled Uvicorn entry point."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ def _as_bool(value: str | None, default: bool = False) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-if __name__ == "__main__":
+def run_server() -> None:
     import uvicorn
 
     cfg = app_config.get("server") or {}
@@ -31,6 +31,11 @@ if __name__ == "__main__":
     uvicorn.run(
         "main:app",
         host=os.getenv("VIDEO_FACTORY_HOST") or cfg.get("host", "127.0.0.1"),
-        port=cfg.get("port", 18888),
+        port=int(os.getenv("VIDEO_FACTORY_PORT") or cfg.get("port", 18888)),
         reload=is_development and configured_reload,
+        proxy_headers=False,
     )
+
+
+if __name__ == "__main__":
+    run_server()

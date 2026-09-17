@@ -7,6 +7,7 @@ set "FRONTEND_DIR=%APP_DIR%frontend"
 set "VENV_PYTHON=%APP_DIR%..\.venv\Scripts\python.exe"
 if not defined APP_HOST set "APP_HOST=127.0.0.1"
 if not defined APP_PORT set "APP_PORT=18888"
+set "VIDEO_FACTORY_PORT=%APP_PORT%"
 if not defined PYTHON_EXE if exist "%VENV_PYTHON%" set "PYTHON_EXE=%VENV_PYTHON%"
 if not defined PYTHON_EXE if defined VIRTUAL_ENV if exist "%VIRTUAL_ENV%\Scripts\python.exe" set "PYTHON_EXE=%VIRTUAL_ENV%\Scripts\python.exe"
 if not defined PYTHON_EXE set "PYTHON_EXE=python"
@@ -43,7 +44,7 @@ echo API:      http://%APP_HOST%:%APP_PORT%
 echo Frontend: http://%APP_HOST%:5173
 echo Close the API and frontend windows to stop development mode.
 
-start "Video Factory API" /D "%APP_DIR%" "%PYTHON_EXE%" -m uvicorn main:app --host "%APP_HOST%" --port "%APP_PORT%" --reload
+start "Video Factory API" /D "%APP_DIR%" "%PYTHON_EXE%" main.py
 start "Video Factory Frontend" /D "%FRONTEND_DIR%" cmd /k npm run dev -- --host "%APP_HOST%"
 endlocal
 exit /b 0

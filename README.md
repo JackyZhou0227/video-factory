@@ -380,6 +380,12 @@ $env:PYTHON_EXE = 'C:\Users\me\miniconda3\envs\video\python.exe'
 ./start.bat
 ```
 
+若进程管理器需要直接启动 Uvicorn，必须关闭 Uvicorn 自带的代理头处理，让 `config.yaml` 中的 `security.trusted_proxies` 成为唯一信任策略：
+
+```powershell
+python -m uvicorn main:app --host 127.0.0.1 --port 18888 --no-proxy-headers
+```
+
 访问：
 
 ```text

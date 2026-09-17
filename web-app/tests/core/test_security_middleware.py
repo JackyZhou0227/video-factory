@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 from app.core.security import install_security_middleware
@@ -30,6 +30,10 @@ def make_app(**security_overrides: object) -> FastAPI:
     @application.post("/echo")
     async def echo(payload: dict[str, str]) -> dict[str, str]:
         return payload
+
+    @application.get("/client-ip")
+    def client_ip(request: Request) -> dict[str, str]:
+        return {"client_ip": request.client.host if request.client else "unknown"}
 
     return application
 
@@ -87,3 +91,45 @@ def test_csrf_validates_unsafe_requests() -> None:
 
     assert accepted.status_code == 200
     assert accepted.json() == {"value": "accepted"}
+
+
+def test_trusted_proxy_sets_forwarded_client_ip() -> None:
+    client = TestClient(
+        make_app(trusted_proxies=["127.0.0.0/8", "::1"]),
+        client=("127.0.0.1", 50000),
+    )
+
+    response = client.get(
+        "/client-ip",
+        headers={"X-Forwarded-For": "203.0.113.9, 198.51.100.24"},
+    )
+
+    assert response.json() == {"client_ip": "198.51.100.24"}
+
+
+def test_untrusted_client_cannot_spoof_forwarded_client_ip() -> None:
+    client = TestClient(
+        make_app(trusted_proxies=["127.0.0.0/8", "::1"]),
+        client=("198.51.100.24", 50000),
+    )
+
+    response = client.get(
+        "/client-ip",
+        headers={"X-Forwarded-For": "203.0.113.9"},
+    )
+
+    assert response.json() == {"client_ip": "198.51.100.24"}
+
+
+def test_empty_trusted_proxy_list_disables_forwarded_client_ip() -> None:
+    client = TestClient(
+        make_app(trusted_proxies=[]),
+        client=("127.0.0.1", 50000),
+    )
+
+    response = client.get(
+        "/client-ip",
+        headers={"X-Forwarded-For": "203.0.113.9"},
+    )
+
+    assert response.json() == {"client_ip": "127.0.0.1"}
