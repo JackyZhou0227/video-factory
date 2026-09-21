@@ -17,6 +17,7 @@ from app.db.models import (
     SubtitleReplacement,
     User,
     Template,
+    VoiceProfile,
 )
 from app.db.engine import get_database_url
 from app.db.session import get_session_factory, session_scope
@@ -33,6 +34,7 @@ TABLE_NAMES = {
     "generation_tasks",
     "templates",
     "organizations",
+    "voice_profiles",
 }
 CREATED_AT = "2026-08-23T00:00:00+00:00"
 EXPIRES_AT = "2026-09-22T00:00:00+00:00"
@@ -159,6 +161,24 @@ class DbModelsTests(unittest.TestCase):
             updated_at=CREATED_AT,
         )
 
+    @staticmethod
+    def _voice_profile(
+        user_id: str = "user-1",
+        profile_id: str = "voice-1",
+        relative_path: str = "voice_profiles/user-1/voice-1/reference-1.wav",
+    ) -> VoiceProfile:
+        return VoiceProfile(
+            id=profile_id,
+            user_id=user_id,
+            name="Narrator",
+            language="Chinese",
+            ref_text="Reference transcript",
+            relative_path=relative_path,
+            file_size=1024,
+            created_at=CREATED_AT,
+            updated_at=CREATED_AT,
+        )
+
     def test_store_sessions_share_database_url_and_engine(self):
         database_url = TEST_DATABASE_URL
         settings_factory = get_session_factory(database_url)
@@ -178,17 +198,19 @@ class DbModelsTests(unittest.TestCase):
         setting = self._setting()
         replacement = self._subtitle_replacement()
         bgm_track = self._bgm_track()
+        voice_profile = self._voice_profile()
         generation_task = self._generation_task()
         user_id = user.id
         session_id = auth_session.id
         bgm_track_id = bgm_track.id
+        voice_profile_id = voice_profile.id
         generation_task_id = generation_task.id
 
         with session_scope(self.session_factory) as db_session:
             db_session.add(user)
             db_session.flush()
             db_session.add_all(
-                [auth_session, setting, replacement, bgm_track, generation_task]
+                [auth_session, setting, replacement, bgm_track, voice_profile, generation_task]
             )
             db_session.flush()
             setting_id = setting.id
@@ -210,6 +232,9 @@ class DbModelsTests(unittest.TestCase):
             loaded_bgm_track = db_session.scalar(
                 select(BgmTrack).where(BgmTrack.id == bgm_track_id)
             )
+            loaded_voice_profile = db_session.scalar(
+                select(VoiceProfile).where(VoiceProfile.id == voice_profile_id)
+            )
             loaded_generation_task = db_session.scalar(
                 select(GenerationTask).where(GenerationTask.id == generation_task_id)
             )
@@ -219,6 +244,7 @@ class DbModelsTests(unittest.TestCase):
             self.assertEqual(loaded_setting.value, "seed-model")
             self.assertEqual(loaded_replacement.replacement, "yi生")
             self.assertEqual(loaded_bgm_track.name, "Quiet Intro")
+            self.assertEqual(loaded_voice_profile.ref_text, "Reference transcript")
 
             self.assertIsInstance(loaded_generation_task.extra_info_json, str)
             self.assertEqual(
@@ -250,6 +276,10 @@ class DbModelsTests(unittest.TestCase):
                 self._bgm_track(user_id="missing-user", track_id="orphan-bgm"),
             ),
             (
+                "voice_profiles.user_id",
+                self._voice_profile(user_id="missing-user", profile_id="orphan-voice"),
+            ),
+            (
                 "generation_tasks.user_id",
                 self._generation_task(
                     user_id="missing-user",
@@ -271,11 +301,12 @@ class DbModelsTests(unittest.TestCase):
         setting = self._setting()
         replacement = self._subtitle_replacement()
         bgm_track = self._bgm_track()
+        voice_profile = self._voice_profile()
 
         with session_scope(self.session_factory) as db_session:
             db_session.add(user)
             db_session.flush()
-            db_session.add_all([auth_session, setting, replacement, bgm_track])
+            db_session.add_all([auth_session, setting, replacement, bgm_track, voice_profile])
 
         duplicate_rows = (
             (
@@ -301,6 +332,10 @@ class DbModelsTests(unittest.TestCase):
                 "bgm_tracks.id",
                 self._bgm_track(track_id="bgm-1"),
             ),
+            (
+                "voice_profiles.relative_path",
+                self._voice_profile(profile_id="voice-2"),
+            ),
         )
 
         for constraint_name, duplicate_row in duplicate_rows:
@@ -309,6 +344,19 @@ class DbModelsTests(unittest.TestCase):
                     with session_scope(self.session_factory) as db_session:
                         db_session.add(duplicate_row)
                         db_session.flush()
+
+    def test_deleting_user_cascades_personal_voice_profiles(self):
+        with session_scope(self.session_factory) as db_session:
+            db_session.add(self._user())
+            db_session.flush()
+            db_session.add(self._voice_profile())
+
+        with session_scope(self.session_factory) as db_session:
+            user = db_session.get(User, "user-1")
+            db_session.delete(user)
+
+        with session_scope(self.session_factory) as db_session:
+            self.assertIsNone(db_session.get(VoiceProfile, "voice-1"))
 
 
 if __name__ == "__main__":

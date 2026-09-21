@@ -59,6 +59,10 @@ class User(Base):
         back_populates="user",
         passive_deletes=True,
     )
+    voice_profiles: Mapped[list["VoiceProfile"]] = relationship(
+        back_populates="user",
+        passive_deletes=True,
+    )
     generation_tasks: Mapped[list["GenerationTask"]] = relationship(
         back_populates="user",
         passive_deletes=True,
@@ -162,6 +166,30 @@ class BgmTrack(Base):
     user: Mapped[User] = relationship(back_populates="bgm_tracks")
 
 
+class VoiceProfile(Base):
+    __tablename__ = "voice_profiles"
+    __table_args__ = (
+        Index("idx_voice_profiles_user_updated", "user_id", "updated_at"),
+        {"comment": "用户个人音色档案"},
+    )
+
+    id: Mapped[str] = mapped_column(Text, primary_key=True, nullable=False)
+    user_id: Mapped[str] = mapped_column(
+        Text,
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    language: Mapped[str] = mapped_column(Text, nullable=False)
+    ref_text: Mapped[str] = mapped_column(Text, nullable=False)
+    relative_path: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[str] = mapped_column(Text, nullable=False)
+
+    user: Mapped[User] = relationship(back_populates="voice_profiles")
+
+
 class GenerationTask(Base):
     __tablename__ = "generation_tasks"
     __table_args__ = (
@@ -212,6 +240,7 @@ _TABLE_COMMENTS = {
     "settings": "用户配置项",
     "subtitle_replacements": "用户字幕敏感词替换规则",
     "bgm_tracks": "用户背景音乐",
+    "voice_profiles": "用户个人音色档案",
     "generation_tasks": "视频生成任务",
     "templates": "全站共享模板",
 }
@@ -221,6 +250,7 @@ _COLUMN_COMMENTS = {
     "settings": {"id": "配置项 ID", "user_id": "所属用户标识", "namespace": "配置命名空间", "setting_name": "配置名称", "value": "配置值", "value_type": "配置值类型", "is_secret": "是否为敏感配置", "created_at": "创建时间", "updated_at": "更新时间"},
     "subtitle_replacements": {"id": "替换规则 ID", "user_id": "所属用户标识", "source": "需要替换的原词", "replacement": "字幕替换词", "created_at": "创建时间", "updated_at": "更新时间"},
     "bgm_tracks": {"id": "背景音乐唯一标识", "user_id": "所属用户标识", "name": "文件名称", "relative_path": "相对存储路径", "duration": "音频时长", "file_size": "文件大小", "created_at": "创建时间", "updated_at": "更新时间"},
+    "voice_profiles": {"id": "音色档案唯一标识", "user_id": "所属用户标识", "name": "音色名称", "language": "参考音频语言", "ref_text": "参考音频台词", "relative_path": "参考音频相对路径", "file_size": "参考音频文件大小", "created_at": "创建时间", "updated_at": "更新时间"},
     "generation_tasks": {"id": "任务唯一标识", "user_id": "所属用户标识", "creator_username": "创建者用户名", "creator_display_name": "创建者显示名称", "task_type": "任务类型", "generation_type": "生成类型", "requested_count": "请求生成数量", "success_count": "成功数量", "failed_count": "失败数量", "status": "任务状态", "progress": "任务进度", "message": "任务消息", "error": "错误信息", "storage_path": "任务存储路径", "extra_info_json": "任务扩展信息", "artifacts_json": "任务产物信息", "created_at": "创建时间", "started_at": "开始时间", "finished_at": "完成时间", "updated_at": "更新时间"},
     "templates": {"id": "模板唯一标识", "definition": "模板定义 JSON", "created_by": "创建模板的管理员", "created_at": "创建时间", "updated_at": "更新时间"},
     "organizations": {"id": "组织唯一标识", "name": "组织名称", "created_at": "创建时间", "updated_at": "更新时间"},
@@ -241,4 +271,5 @@ __all__ = [
     "SubtitleReplacement",
     "Template",
     "User",
+    "VoiceProfile",
 ]

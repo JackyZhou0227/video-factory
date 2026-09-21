@@ -616,7 +616,7 @@ export default function TTSStudio({ active = false }) {
                   <strong id="tts-studio-step-voice">选择音色</strong>
                 </div>
                 <div className="tts-studio-step-copy">
-                  <p>选择共享克隆音色，或使用 edge-tts 在线音色。</p>
+                  <p>选择个人克隆音色，或使用 edge-tts 在线音色。</p>
                 </div>
               </div>
 
@@ -733,7 +733,7 @@ export default function TTSStudio({ active = false }) {
                       </div>
                     ) : (
                       <div className="audio-empty tts-studio-audio-empty">
-                        从下方音色库选择一个共享档案，或先创建新的克隆音色。
+                        从下方音色库选择一个个人档案，或先创建新的克隆音色。
                       </div>
                     )}
                   </div>
@@ -936,7 +936,7 @@ export default function TTSStudio({ active = false }) {
         <div className="panel-heading tts-studio-library-heading">
           <div>
             <Typography variant="kicker" component="span" className="section-kicker">Voice Library</Typography>
-            <h2 id="tts-studio-library-title">共享克隆音色库</h2>
+            <h2 id="tts-studio-library-title">个人克隆音色库</h2>
           </div>
           <Button type="button" variant="outlined" size="small" onClick={openCreateVoiceProfile}
             startIcon={<Icon name="plus" size={15} />}>
@@ -944,7 +944,7 @@ export default function TTSStudio({ active = false }) {
           </Button>
         </div>
 
-        <p className="tts-studio-library-note">这里保留所有共享音色档案，用于快速切换、试听和维护已有克隆音色。</p>
+        <p className="tts-studio-library-note">这里保留你的个人音色档案，用于快速切换、试听和维护已有克隆音色。</p>
 
         {voiceProfilesLoading ? (
           <div className="tts-studio-library-empty">
@@ -1004,7 +1004,7 @@ export default function TTSStudio({ active = false }) {
         ) : (
           <div className="tts-studio-library-empty">
             <Icon name="audio" size={21} />
-            <span>还没有可用的共享音色档案。</span>
+            <span>还没有可用的个人音色档案。</span>
           </div>
         )}
       </section>
@@ -1016,7 +1016,7 @@ export default function TTSStudio({ active = false }) {
         maxWidth="sm"
         fullWidth
       >
-        <DialogTitle sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", pr: 1.5 }}>
+        <DialogTitle className="form-dialog-title" sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", pr: 1.5 }}>
           <div>
             <Typography variant="kicker" component="span" className="section-kicker">Voice Library</Typography>
             <h3 id="tts-voice-dialog-title">{isEditingVoiceProfile ? "编辑克隆音色" : "新增克隆音色"}</h3>
@@ -1025,7 +1025,7 @@ export default function TTSStudio({ active = false }) {
             <Icon name="x" size={17} />
           </IconButton>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent className="form-dialog-content">
           <div className="modal-body">
             <TextField
               id="tts-voice-profile-name"
@@ -1056,44 +1056,46 @@ export default function TTSStudio({ active = false }) {
               ))}
             </TextField>
 
-            <span className="field-label">参考音频{isEditingVoiceProfile ? "" : "*"}</span>
-            <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
-              <span className="upload-placeholder">
-                <Icon name={refAudioFile ? "audio" : "upload"} size={22} />
-                <strong>{refAudioFile ? refAudioFile.name : "上传参考音频"}</strong>
-                <small>
-                  {refAudioFile
-                    ? formatFileSize(refAudioFile.size)
-                    : isEditingVoiceProfile
-                      ? "不上传则继续保留当前参考音频"
-                      : "用于保存新的克隆音色"}
-                </small>
-              </span>
-              <input ref={refAudioInputRef} type="file" accept="audio/*" onChange={handleReferenceAudioChange} />
-            </label>
+            <div className="form-field-group">
+              <span className="field-label">参考音频{isEditingVoiceProfile ? "" : "*"}</span>
+              <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
+                <span className="upload-placeholder">
+                  <Icon name={refAudioFile ? "audio" : "upload"} size={22} />
+                  <strong>{refAudioFile ? refAudioFile.name : "上传参考音频"}</strong>
+                  <small>
+                    {refAudioFile
+                      ? formatFileSize(refAudioFile.size)
+                      : isEditingVoiceProfile
+                        ? "不上传则继续保留当前参考音频"
+                        : "用于保存新的克隆音色"}
+                  </small>
+                </span>
+                <input ref={refAudioInputRef} type="file" accept="audio/*" onChange={handleReferenceAudioChange} />
+              </label>
 
-            {refAudioFile && (
-              <div className="file-row">
-                <span>{refAudioFile.name}</span>
-                <Button variant="text" size="small" type="button" onClick={clearReferenceAudio}>
-                  移除
-                </Button>
-              </div>
-            )}
+              {refAudioFile && (
+                <div className="file-row">
+                  <span>{refAudioFile.name}</span>
+                  <Button variant="text" size="small" type="button" onClick={clearReferenceAudio}>
+                    移除
+                  </Button>
+                </div>
+              )}
 
-            {refAudioUrl ? (
-              <audio className="audio-player" controls src={refAudioUrl} />
-            ) : (
-              isEditingVoiceProfile &&
-              editingVoiceProfile && (
-                <audio
-                  className="audio-player"
-                  controls
-                  crossOrigin="use-credentials"
-                  src={resolveBackendAssetUrl(editingVoiceProfile.audio_url, backendBaseUrl)}
-                />
-              )
-            )}
+              {refAudioUrl ? (
+                <audio className="audio-player" controls src={refAudioUrl} />
+              ) : (
+                isEditingVoiceProfile &&
+                editingVoiceProfile && (
+                  <audio
+                    className="audio-player"
+                    controls
+                    crossOrigin="use-credentials"
+                    src={resolveBackendAssetUrl(editingVoiceProfile.audio_url, backendBaseUrl)}
+                  />
+                )
+              )}
+            </div>
 
             <TextField
               id="tts-voice-profile-ref-text"
@@ -1112,7 +1114,7 @@ export default function TTSStudio({ active = false }) {
 
             {deleteConfirmation && (
               <div className="delete-confirm-panel" role="alertdialog" aria-labelledby="tts-voice-delete-title">
-                <strong id="tts-voice-delete-title">确认删除这个共享音色？</strong>
+                <strong id="tts-voice-delete-title">确认删除这个个人音色？</strong>
                 <span>删除后会移除参考音频和档案记录，无法恢复。</span>
                 <div className="delete-confirm-actions">
                   <Button

@@ -243,13 +243,13 @@ def get_languages():
 
 
 @router.get("/voice-profiles")
-def get_voice_profiles():
-    return [_with_tts_studio_audio_url(voice) for voice in voice_profiles.list_voice_profiles()]
+def get_voice_profiles(user: dict = Depends(require_current_user)):
+    return [_with_tts_studio_audio_url(voice) for voice in voice_profiles.list_voice_profiles(_user_id(user))]
 
 
 @router.get("/voice-profiles/{voice_profile_id}/audio")
-def get_voice_profile_audio(voice_profile_id: str):
-    return FileResponse(voice_profiles.get_voice_audio_path(voice_profile_id))
+def get_voice_profile_audio(voice_profile_id: str, user: dict = Depends(require_current_user)):
+    return FileResponse(voice_profiles.get_voice_audio_path(_user_id(user), voice_profile_id))
 
 
 @router.post("/voice-profiles")
@@ -258,8 +258,10 @@ async def create_voice_profile(
     language: str = Form("Chinese"),
     ref_text: str = Form(...),
     ref_audio: UploadFile = File(...),
+    user: dict = Depends(require_current_user),
 ):
     voice = await voice_profiles.create_voice_profile(
+        user_id=_user_id(user),
         name=name,
         language=language,
         ref_text=ref_text,
@@ -275,8 +277,10 @@ async def update_voice_profile(
     language: str = Form("Chinese"),
     ref_text: str = Form(...),
     ref_audio: Optional[UploadFile] = File(None),
+    user: dict = Depends(require_current_user),
 ):
     voice = await voice_profiles.update_voice_profile(
+        user_id=_user_id(user),
         voice_id=voice_profile_id,
         name=name,
         language=language,
@@ -287,8 +291,8 @@ async def update_voice_profile(
 
 
 @router.delete("/voice-profiles/{voice_profile_id}")
-async def delete_voice_profile(voice_profile_id: str):
-    await voice_profiles.delete_voice_profile(voice_profile_id)
+async def delete_voice_profile(voice_profile_id: str, user: dict = Depends(require_current_user)):
+    voice_profiles.delete_voice_profile(_user_id(user), voice_profile_id)
     return {"deleted": True}
 
 
@@ -437,7 +441,7 @@ async def preview_voice_clone_tts(
     if not voice_profile_id and not (ref_text and ref_text.strip()):
         raise HTTPException(status_code=422, detail="ref_text is required")
 
-    _user_id(user)
+    user_id = _user_id(user)
     _normalize_speech_rate(speech_rate)
     reference_suffix = None
     if not voice_profile_id:
@@ -450,10 +454,10 @@ async def preview_voice_clone_tts(
             label="参考音频",
         )
     if voice_profile_id:
-        voice = voice_profiles.get_voice_profile(voice_profile_id)
+        voice = voice_profiles.get_voice_profile(user_id, voice_profile_id)
         if voice is None:
             raise HTTPException(status_code=404, detail="Voice profile not found")
-        reference_audio = voice_profiles.get_voice_audio_path(voice_profile_id)
+        reference_audio = voice_profiles.get_voice_audio_path(user_id, voice_profile_id)
         reference_text = voice.get("ref_text")
     task_id, artifact_id, audio_dir, audio_path = _new_voice_task(
         user,

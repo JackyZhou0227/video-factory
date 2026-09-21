@@ -909,8 +909,18 @@ a {
 
 .field {
   display: grid;
-  gap: 8px;
   min-width: 0;
+}
+
+/* Keep labels, values, and helper copy on a predictable vertical rhythm. */
+.field .MuiInputLabel-root,
+.field .MuiFormHelperText-root,
+.field .MuiInputBase-input:not(.MuiInputBase-inputMultiline) {
+  line-height: 1.5;
+}
+
+.field .MuiFormHelperText-root {
+  margin-top: 6px;
 }
 
 .field-grid {
@@ -923,6 +933,7 @@ a {
   color: #38352f;
   font-size: 13px;
   font-weight: 680;
+  line-height: 1.5;
 }
 
 .field-label.with-inline-action {
@@ -2247,6 +2258,43 @@ a {
 
 .admin-actions {
   grid-template-columns: 160px;
+}
+
+.modal-body {
+  display: grid;
+  gap: 20px;
+  padding-top: 12px;
+}
+
+.form-dialog-title.MuiDialogTitle-root {
+  padding-bottom: 8px;
+}
+
+.form-dialog-title h3 {
+  margin: 6px 0 0;
+  line-height: 1.25;
+}
+
+.form-dialog-title p {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.form-dialog-content.MuiDialogContent-root {
+  padding-top: 8px;
+}
+
+.MuiDialogContent-root > form:first-child {
+  padding-top: 12px;
+}
+
+.form-field-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
 }
 
 .system-management-shell {

@@ -10,6 +10,7 @@ from unittest.mock import patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api import output as output_api
 from app.api import tasks as tasks_api
 from app.api.auth import require_current_user
 from app.core.config import app_config
@@ -38,6 +39,7 @@ class TasksApiTests(unittest.TestCase):
 
         app = FastAPI()
         app.include_router(tasks_api.router, prefix="/api")
+        app.include_router(output_api.router)
         app.dependency_overrides[require_current_user] = current_user
         self.client = TestClient(app)
         self.output_root_patch = patch.object(task_store, "_output_root", return_value=self.output_root.resolve())
@@ -146,6 +148,15 @@ class TasksApiTests(unittest.TestCase):
         ):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 404, response.text)
+
+    def test_output_route_does_not_serve_voice_profile_files_directly(self):
+        reference = self.output_root / "voice_profiles" / "user-a" / "voice-1" / "reference.wav"
+        reference.parent.mkdir(parents=True)
+        reference.write_bytes(b"private voice")
+
+        response = self.client.get("/output/voice_profiles/user-a/voice-1/reference.wav")
+
+        self.assertEqual(response.status_code, 404, response.text)
 
     def test_missing_and_malicious_artifact_paths_return_404_without_leaking_paths(self):
         task, artifact_id, path = self.create_completed_voice_task()

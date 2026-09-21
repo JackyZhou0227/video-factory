@@ -110,7 +110,7 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
         fullWidth
         maxWidth="xs"
       >
-        <DialogTitle sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", pr: 1.5 }}>
+        <DialogTitle className="form-dialog-title" sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", pr: 1.5 }}>
           <div>
             <Typography variant="kicker" component="span" className="section-kicker">Account security</Typography>
             <h3 id="profile-password-title">修改密码</h3>
@@ -120,7 +120,7 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
             <Icon name="x" size={17} />
           </IconButton>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent className="form-dialog-content">
           <form className="profile-form" onSubmit={submitPasswordChange}>
             <TextField className="field" label="当前密码" fullWidth size="small" type="password" autoComplete="current-password" value={currentPassword} onChange={(event) => setCurrentPassword(event.target.value)} autoFocus />
             <TextField className="field" label="新密码" fullWidth size="small" type="password" autoComplete="new-password" slotProps={{ htmlInput: { minLength: 8 } }} value={newPassword} onChange={(event) => setNewPassword(event.target.value)} />

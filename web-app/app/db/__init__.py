@@ -14,6 +14,7 @@ from app.db.models import (
     Setting,
     SubtitleReplacement,
     User,
+    VoiceProfile,
 )
 from app.db.session import create_session_factory, get_session_factory, session_scope
 
@@ -25,6 +26,7 @@ __all__ = [
     "Setting",
     "SubtitleReplacement",
     "User",
+    "VoiceProfile",
     "create_engine_from_url",
     "create_session_factory",
     "dispose_engines",

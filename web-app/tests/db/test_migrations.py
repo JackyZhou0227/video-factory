@@ -21,6 +21,7 @@ TABLE_NAMES = {
     "generation_tasks",
     "templates",
     "organizations",
+    "voice_profiles",
 }
 
 
@@ -46,12 +47,33 @@ class AlembicMigrationTests(unittest.TestCase):
                 set(inspector.get_table_names()),
                 TABLE_NAMES | {"alembic_version"},
             )
+            self.assertEqual(
+                {column["name"] for column in inspector.get_columns("voice_profiles")},
+                {
+                    "id",
+                    "user_id",
+                    "name",
+                    "language",
+                    "ref_text",
+                    "relative_path",
+                    "file_size",
+                    "created_at",
+                    "updated_at",
+                },
+            )
+            self.assertIn(
+                "idx_voice_profiles_user_updated",
+                {index["name"] for index in inspector.get_indexes("voice_profiles")},
+            )
+            voice_foreign_keys = inspector.get_foreign_keys("voice_profiles")
+            self.assertEqual(voice_foreign_keys[0]["referred_table"], "users")
+            self.assertEqual(voice_foreign_keys[0]["options"].get("ondelete"), "CASCADE")
             with engine.connect() as connection:
                 self.assertEqual(
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0004",
+                    "0005",
                 )
         finally:
             engine.dispose()
@@ -104,7 +126,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0004",
+                    "0005",
                 )
             with engine.connect() as connection:
                 self.assertEqual(

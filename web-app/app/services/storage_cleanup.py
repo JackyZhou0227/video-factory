@@ -2,12 +2,12 @@
 
 对应运维清单 RESOURCE-04 / RESOURCE-02（磁盘部分）：
 
-- ``scan``             生成只读扫描报告（孤儿任务目录、缺失目录、遗留 .part、BGM 孤儿）。
+- ``scan``             生成只读扫描报告（孤儿任务目录、缺失目录、遗留 .part、业务资源孤儿）。
 - ``cleanup``          执行清理：孤儿目录 / .part 临时文件 / 失败任务目录按保留期删除。
 - ``disk_status``      输出目录所在磁盘的剩余空间与阈值判断。
 - ``enforce_disk_space``  磁盘低于低水位时拒绝创建新任务（429）。
 
-BGM 与公共音色库属于用户/公司资源，本轮只报告、不自动删除。
+BGM 与个人音色库属于用户业务资源，只报告、不自动删除。
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ from fastapi import HTTPException
 from sqlalchemy import select, update
 
 from app.core.config import app_config, resolve_output_dir
-from app.db.models import BgmTrack, GenerationTask
+from app.db.models import BgmTrack, GenerationTask, VoiceProfile
 from app.services import settings_store
 
 logger = logging.getLogger(__name__)
@@ -182,6 +182,18 @@ def _known_bgm_paths(output_root: Path) -> set[str]:
     return known
 
 
+def _known_voice_profile_paths(output_root: Path) -> set[str]:
+    with settings_store._orm_session() as session:
+        rows = session.execute(select(VoiceProfile.relative_path)).all()
+    known: set[str] = set()
+    for row in rows:
+        try:
+            known.add(str((output_root / str(row[0])).resolve()))
+        except (OSError, ValueError):
+            continue
+    return known
+
+
 # --- 磁盘状态 -------------------------------------------------------------------
 
 
@@ -225,6 +237,7 @@ def scan(output_root: Optional[Path] = None, *, now: Optional[datetime] = None) 
     tasks_root = root / "tasks"
     known_paths = _known_task_paths()
     known_bgm = _known_bgm_paths(root)
+    known_voice_profiles = _known_voice_profile_paths(root)
 
     known_count = 0
     orphan_dirs: list[dict[str, Any]] = []
@@ -266,6 +279,16 @@ def scan(output_root: Optional[Path] = None, *, now: Optional[datetime] = None) 
             if str(item.resolve()) in known_bgm:
                 continue
             bgm_orphans.append(_entry(item, now=current))
+
+    voice_profile_orphans: list[dict[str, Any]] = []
+    voice_profiles_root = root / "voice_profiles"
+    if voice_profiles_root.exists():
+        for item in sorted(voice_profiles_root.rglob("*")):
+            if not item.is_file() or item.name.endswith(PART_SUFFIX):
+                continue
+            if str(item.resolve()) in known_voice_profiles:
+                continue
+            voice_profile_orphans.append(_entry(item, now=current))
 
     failed_tasks: list[dict[str, Any]] = []
     failed_cutoff = current - timedelta(days=failed_task_retention_days())
@@ -309,6 +332,7 @@ def scan(output_root: Optional[Path] = None, *, now: Optional[datetime] = None) 
         "part_files": part_files,
         "failed_tasks": failed_tasks,
         "bgm_orphans": bgm_orphans,
+        "voice_profile_orphans": voice_profile_orphans,
         "reclaimable_bytes": reclaimable,
         "retention": {
             "orphan_retention_days": orphan_retention_days(),

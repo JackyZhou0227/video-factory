@@ -105,7 +105,7 @@ const PAGE_META = {
   "tts-studio": {
     eyebrow: PAGE_NAMES.ttsStudio,
     title: "独立语音合成",
-    description: "使用共享克隆音色库或 edge-tts 在线音色生成语音，试听并下载音频文件。",
+    description: "使用个人克隆音色库或 edge-tts 在线音色生成语音，试听并下载音频文件。",
   },
   "poster-video": {
     eyebrow: PAGE_NAMES.posterVideo,

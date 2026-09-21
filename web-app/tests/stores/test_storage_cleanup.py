@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from app.api import admin as admin_api
 from app.api import auth as auth_api
 from app.core.config import app_config
-from app.db.models import BgmTrack, GenerationTask
+from app.db.models import BgmTrack, GenerationTask, VoiceProfile
 from app.services import auth_store, settings_store, storage_cleanup, task_store
 from tests.pg_test_utils import ensure_test_user
 
@@ -169,6 +169,37 @@ class StorageCleanupTests(unittest.TestCase):
         storage_cleanup.cleanup(dry_run=False, output_root=self.output_root, now=NOW)
         self.assertTrue(known.exists())
         self.assertTrue(orphan.exists())  # 仅报告不删除
+
+    def test_voice_profile_orphans_are_reported_but_not_deleted(self):
+        profile_dir = self.output_root / "voice_profiles" / "user-a" / "voice-1"
+        profile_dir.mkdir(parents=True)
+        known = profile_dir / "reference-known.wav"
+        known.write_bytes(b"known")
+        orphan = profile_dir / "reference-orphan.wav"
+        orphan.write_bytes(b"orphan")
+        now_iso = settings_store._now_iso()
+        with settings_store._orm_session() as session:
+            session.add(
+                VoiceProfile(
+                    id="voice-1",
+                    user_id="user-a",
+                    name="Voice",
+                    language="Chinese",
+                    ref_text="Reference",
+                    relative_path="voice_profiles/user-a/voice-1/reference-known.wav",
+                    file_size=5,
+                    created_at=now_iso,
+                    updated_at=now_iso,
+                )
+            )
+
+        report = storage_cleanup.scan(self.output_root, now=NOW)
+        self.assertEqual(len(report["voice_profile_orphans"]), 1)
+        self.assertEqual(Path(report["voice_profile_orphans"][0]["path"]), orphan)
+
+        storage_cleanup.cleanup(dry_run=False, output_root=self.output_root, now=NOW)
+        self.assertTrue(known.exists())
+        self.assertTrue(orphan.exists())
 
     def test_cleanup_disabled_leaves_everything(self):
         app_config["tasks"]["cleanup"]["enabled"] = False

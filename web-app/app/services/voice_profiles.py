@@ -1,117 +1,145 @@
 from __future__ import annotations
 
-import asyncio
-import json
 import shutil
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
+from typing import Iterator, Optional
 
 from fastapi import HTTPException, UploadFile
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session as OrmSession
 
 from app.core import uploads
+from app.core.config import app_config, resolve_output_dir
+from app.db.engine import require_postgresql_url
+from app.db.models import User, VoiceProfile
+from app.db.session import get_session_factory, session_scope as orm_session_scope
 
-_voice_lock = asyncio.Lock()
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"}
+MAX_VOICE_PROFILES_PER_USER = 20
 
 
-def _root() -> Path:
-    from app.core.config import ROOT
-
-    return ROOT
-
-
-def _library_dir() -> Path:
-    return _root() / "data" / "voice_profiles"
+@contextmanager
+def _orm_session() -> Iterator[OrmSession]:
+    database_url = require_postgresql_url(app_config)
+    with orm_session_scope(get_session_factory(database_url)) as session:
+        yield session
 
 
-def _index_path() -> Path:
-    return _library_dir() / "index.json"
+def _output_root() -> Path:
+    return resolve_output_dir(app_config).resolve()
 
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _ensure_library_dir() -> None:
-    _library_dir().mkdir(parents=True, exist_ok=True)
-
-
-def _load_index() -> dict:
-    _ensure_library_dir()
-    path = _index_path()
-    if not path.exists():
-        return {"voices": []}
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return {"voices": []}
-
-
-def _write_index(data: dict) -> None:
-    _ensure_library_dir()
-    path = _index_path()
-    tmp_path = path.with_suffix(".tmp")
-    tmp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(path)
-
-
-def _voice_dir(voice_id: str) -> Path:
-    return _library_dir() / voice_id
-
-
-def _voice_audio_path(voice: dict) -> Path:
-    return _voice_dir(voice["id"]) / (voice.get("audio_filename") or "reference.wav")
-
-
-def _with_audio_url(voice: dict) -> dict:
+def _profile_record(profile: VoiceProfile) -> dict:
     return {
-        **voice,
-        "audio_url": f"/api/tts-studio/voice-profiles/{voice['id']}/audio",
+        "id": profile.id,
+        "name": profile.name,
+        "language": profile.language,
+        "ref_text": profile.ref_text,
+        "audio_filename": Path(profile.relative_path).name,
+        "created_at": profile.created_at,
+        "updated_at": profile.updated_at,
+        "audio_url": f"/api/tts-studio/voice-profiles/{profile.id}/audio",
     }
 
 
-def list_voice_profiles() -> list[dict]:
-    data = _load_index()
-    voices = data.get("voices", [])
-    voices.sort(key=lambda item: item.get("updated_at") or item.get("created_at") or "", reverse=True)
-    return [_with_audio_url(voice) for voice in voices]
+def _profile_audio_path(profile: VoiceProfile) -> Path:
+    output_root = _output_root()
+    path = (output_root / profile.relative_path).resolve()
+    owner_root = (output_root / "voice_profiles" / profile.user_id / profile.id).resolve()
+    try:
+        path.relative_to(owner_root)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Voice audio not found") from None
+    return path
 
 
-def get_voice_profile(voice_id: str) -> Optional[dict]:
-    for voice in _load_index().get("voices", []):
-        if voice.get("id") == voice_id:
-            return _with_audio_url(voice)
-    return None
+def _profile_dir(user_id: str, voice_id: str) -> Path:
+    output_root = _output_root()
+    path = (output_root / "voice_profiles" / user_id / voice_id).resolve()
+    try:
+        path.relative_to(output_root / "voice_profiles")
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid voice profile path") from None
+    return path
 
 
-def get_voice_audio_path(voice_id: str) -> Path:
-    voice = get_voice_profile(voice_id)
-    if voice is None:
-        raise HTTPException(status_code=404, detail="Voice profile not found")
-    audio_path = _voice_audio_path(voice)
-    if not audio_path.exists() or not audio_path.is_file():
+def _relative_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(_output_root()).as_posix()
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid voice profile path") from None
+
+
+def _fetch_profile(
+    session: OrmSession,
+    user_id: str,
+    voice_id: str,
+    *,
+    for_update: bool = False,
+) -> VoiceProfile | None:
+    query = select(VoiceProfile).where(
+        VoiceProfile.id == voice_id,
+        VoiceProfile.user_id == user_id,
+    )
+    if for_update:
+        query = query.with_for_update()
+    return session.scalar(query)
+
+
+def list_voice_profiles(user_id: str) -> list[dict]:
+    with _orm_session() as session:
+        profiles = session.scalars(
+            select(VoiceProfile)
+            .where(VoiceProfile.user_id == user_id)
+            .order_by(VoiceProfile.updated_at.desc())
+        ).all()
+        return [_profile_record(profile) for profile in profiles]
+
+
+def get_voice_profile(user_id: str, voice_id: str) -> Optional[dict]:
+    with _orm_session() as session:
+        profile = _fetch_profile(session, user_id, voice_id)
+        return _profile_record(profile) if profile is not None else None
+
+
+def get_voice_audio_path(user_id: str, voice_id: str) -> Path:
+    with _orm_session() as session:
+        profile = _fetch_profile(session, user_id, voice_id)
+        if profile is None:
+            raise HTTPException(status_code=404, detail="Voice profile not found")
+        audio_path = _profile_audio_path(profile)
+    if not audio_path.is_file():
         raise HTTPException(status_code=404, detail="Voice audio not found")
     return audio_path
 
 
+def _validate_fields(name: str, ref_text: str) -> tuple[str, str]:
+    normalized_name = name.strip()
+    normalized_ref_text = ref_text.strip()
+    if not normalized_name:
+        raise HTTPException(status_code=422, detail="name is required")
+    if not normalized_ref_text:
+        raise HTTPException(status_code=422, detail="ref_text is required")
+    return normalized_name, normalized_ref_text
+
+
 async def create_voice_profile(
+    *,
+    user_id: str,
     name: str,
     language: str,
     ref_text: str,
     ref_audio: UploadFile,
 ) -> dict:
-    if not name.strip():
-        raise HTTPException(status_code=422, detail="name is required")
-    if not ref_text.strip():
-        raise HTTPException(status_code=422, detail="ref_text is required")
-
-    voice_id = uuid.uuid4().hex
-    voice_dir = _voice_dir(voice_id)
-    voice_dir.mkdir(parents=True, exist_ok=True)
-
+    normalized_name, normalized_ref_text = _validate_fields(name, ref_text)
     suffix = uploads.validate_upload(
         ref_audio,
         allowed_extensions=AUDIO_EXTENSIONS,
@@ -120,9 +148,11 @@ async def create_voice_profile(
         default_suffix=".wav",
         label="参考音频",
     )
-    audio_path = voice_dir / f"reference{suffix}"
+    voice_id = uuid.uuid4().hex
+    voice_dir = _profile_dir(user_id, voice_id)
+    audio_path = voice_dir / f"reference-{uuid.uuid4().hex}{suffix}"
     try:
-        await uploads.save_upload(
+        file_size = await uploads.save_upload(
             ref_audio,
             audio_path,
             allowed_extensions=AUDIO_EXTENSIONS,
@@ -131,42 +161,52 @@ async def create_voice_profile(
             default_suffix=".wav",
             label="参考音频",
         )
-
-        voice = {
-            "id": voice_id,
-            "name": name.strip(),
-            "language": language.strip() or "Chinese",
-            "ref_text": ref_text.strip(),
-            "audio_filename": audio_path.name,
-            "created_at": _now_iso(),
-            "updated_at": _now_iso(),
-        }
-
-        async with _voice_lock:
-            data = _load_index()
-            voices = [item for item in data.get("voices", []) if item.get("id") != voice_id]
-            voices.append(voice)
-            data["voices"] = voices
-            _write_index(data)
+        now = _now_iso()
+        with _orm_session() as session:
+            owner = session.scalar(select(User).where(User.id == user_id).with_for_update())
+            if owner is None:
+                raise HTTPException(status_code=404, detail="User not found")
+            count = session.scalar(
+                select(func.count()).select_from(VoiceProfile).where(VoiceProfile.user_id == user_id)
+            ) or 0
+            if count >= MAX_VOICE_PROFILES_PER_USER:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"每个用户最多保存 {MAX_VOICE_PROFILES_PER_USER} 个音色档案",
+                )
+            profile = VoiceProfile(
+                id=voice_id,
+                user_id=user_id,
+                name=normalized_name,
+                language=language.strip() or "Chinese",
+                ref_text=normalized_ref_text,
+                relative_path=_relative_path(audio_path),
+                file_size=file_size,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(profile)
+            session.flush()
+            record = _profile_record(profile)
     except Exception:
         shutil.rmtree(voice_dir, ignore_errors=True)
         raise
-
-    return _with_audio_url(voice)
+    return record
 
 
 async def update_voice_profile(
+    *,
+    user_id: str,
     voice_id: str,
     name: str,
     language: str,
     ref_text: str,
     ref_audio: Optional[UploadFile] = None,
 ) -> dict:
-    if not name.strip():
-        raise HTTPException(status_code=422, detail="name is required")
-    if not ref_text.strip():
-        raise HTTPException(status_code=422, detail="ref_text is required")
-
+    normalized_name, normalized_ref_text = _validate_fields(name, ref_text)
+    with _orm_session() as session:
+        if _fetch_profile(session, user_id, voice_id) is None:
+            raise HTTPException(status_code=404, detail="Voice profile not found")
     suffix = None
     if ref_audio is not None:
         suffix = uploads.validate_upload(
@@ -178,56 +218,52 @@ async def update_voice_profile(
             label="参考音频",
         )
 
-    async with _voice_lock:
-        data = _load_index()
-        voices = data.get("voices", [])
-        voice_index = next((index for index, item in enumerate(voices) if item.get("id") == voice_id), -1)
-        if voice_index < 0:
-            raise HTTPException(status_code=404, detail="Voice profile not found")
-
-        voice = dict(voices[voice_index])
-        voice_dir = _voice_dir(voice_id)
-        voice_dir.mkdir(parents=True, exist_ok=True)
-
-        if suffix is not None:
-            audio_path = voice_dir / f"reference{suffix}"
-            old_audio_path = _voice_audio_path(voice)
-            await uploads.save_upload(
-                ref_audio,
-                audio_path,
-                allowed_extensions=AUDIO_EXTENSIONS,
-                allowed_mime_types=uploads.AUDIO_MIME_TYPES,
-                max_size=uploads.MAX_AUDIO_FILE_SIZE,
-                default_suffix=".wav",
-                label="参考音频",
-            )
-            if old_audio_path != audio_path and old_audio_path.exists():
-                old_audio_path.unlink()
-            voice["audio_filename"] = audio_path.name
-
-        voice.update(
-            {
-                "name": name.strip(),
-                "language": language.strip() or "Chinese",
-                "ref_text": ref_text.strip(),
-                "updated_at": _now_iso(),
-            }
+    voice_dir = _profile_dir(user_id, voice_id)
+    new_audio_path = None
+    file_size = None
+    if suffix is not None:
+        new_audio_path = voice_dir / f"reference-{uuid.uuid4().hex}{suffix}"
+        file_size = await uploads.save_upload(
+            ref_audio,
+            new_audio_path,
+            allowed_extensions=AUDIO_EXTENSIONS,
+            allowed_mime_types=uploads.AUDIO_MIME_TYPES,
+            max_size=uploads.MAX_AUDIO_FILE_SIZE,
+            default_suffix=".wav",
+            label="参考音频",
         )
-        voices[voice_index] = voice
-        data["voices"] = voices
-        _write_index(data)
 
-    return _with_audio_url(voice)
+    old_audio_path = None
+    try:
+        with _orm_session() as session:
+            profile = _fetch_profile(session, user_id, voice_id, for_update=True)
+            if profile is None:
+                raise HTTPException(status_code=404, detail="Voice profile not found")
+            if new_audio_path is not None:
+                old_audio_path = _profile_audio_path(profile)
+                profile.relative_path = _relative_path(new_audio_path)
+                profile.file_size = int(file_size or 0)
+            profile.name = normalized_name
+            profile.language = language.strip() or "Chinese"
+            profile.ref_text = normalized_ref_text
+            profile.updated_at = _now_iso()
+            session.flush()
+            record = _profile_record(profile)
+    except Exception:
+        if new_audio_path is not None:
+            new_audio_path.unlink(missing_ok=True)
+        raise
+
+    if old_audio_path is not None and old_audio_path != new_audio_path:
+        old_audio_path.unlink(missing_ok=True)
+    return record
 
 
-async def delete_voice_profile(voice_id: str) -> None:
-    async with _voice_lock:
-        data = _load_index()
-        voices = data.get("voices", [])
-        next_voices = [item for item in voices if item.get("id") != voice_id]
-        if len(next_voices) == len(voices):
+def delete_voice_profile(user_id: str, voice_id: str) -> None:
+    with _orm_session() as session:
+        profile = _fetch_profile(session, user_id, voice_id, for_update=True)
+        if profile is None:
             raise HTTPException(status_code=404, detail="Voice profile not found")
-        data["voices"] = next_voices
-        _write_index(data)
-
-    shutil.rmtree(_voice_dir(voice_id), ignore_errors=True)
+        voice_dir = _profile_audio_path(profile).parent
+        session.delete(profile)
+    shutil.rmtree(voice_dir, ignore_errors=True)

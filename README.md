@@ -482,12 +482,14 @@ python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_
 - Hugging Face 下载说明: https://huggingface.co/docs/huggingface_hub/en/guides/download
 - PyTorch 安装选择器: https://pytorch.org/get-started/locally/
 
-## 预设音色库
+## 个人克隆音色库
 
-音色克隆模式支持复用本地共享音色档案：
+音色克隆模式支持复用当前登录用户的个人音色档案：
 
 - 切到 `音色克隆 / Qwen3-TTS Base · 本地`
-- 从共享克隆音色库选择已有声音档案
+- 从个人克隆音色库选择已有声音档案
 - 新增音色时上传参考音频和参考文本，保存后即可复用
 
-预设数据默认保存在 `web-app/data/voice_profiles/`。
+档案名称、语言和参考文本保存在 PostgreSQL 的 `voice_profiles` 表；参考音频保存在 `<server.output_dir>/voice_profiles/<user_id>/<profile_id>/`。每位用户最多保存 20 个档案，所有读写和克隆操作均按当前登录用户隔离。
+
+旧版共享档案不会由应用自动认领。升级数据库后，请先备份旧音色文件，再由对应用户在个人音色库中手动重新上传。

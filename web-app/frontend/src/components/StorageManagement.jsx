@@ -43,6 +43,7 @@ const sections = [
   { id: "failed", label: "失败任务产物", get: (report) => report?.failed_tasks || [] },
   { id: "missing", label: "缺失任务目录", get: (report) => (report?.missing_dirs || []).map((path) => ({ path })) },
   { id: "bgm", label: "BGM 孤儿文件", get: (report) => report?.bgm_orphans || [] },
+  { id: "voice", label: "音色孤儿文件", get: (report) => report?.voice_profile_orphans || [] },
 ];
 
 export default function StorageManagement() {
@@ -174,8 +175,8 @@ export default function StorageManagement() {
         </Tabs>
         {activeSection === "missing" ? (
           <Alert severity="info">数据库中仍有任务记录，但对应目录不存在。此类项目不会被清理。</Alert>
-        ) : activeSection === "bgm" ? (
-          <Alert severity="info">BGM 与公共音色属于业务资源，当前只提供报告，不会自动删除。</Alert>
+        ) : activeSection === "bgm" || activeSection === "voice" ? (
+          <Alert severity="info">BGM 与个人音色属于业务资源，当前只提供报告，不会自动删除。</Alert>
         ) : null}
         <TableContainer>
           <Table aria-label="存储扫描结果">

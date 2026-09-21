@@ -1,18 +1,20 @@
 from __future__ import annotations
 
-import json
 import subprocess
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.api import digital_human, tts_studio
 from app.api.auth import require_current_user
+from app.db.models import VoiceProfile
 from app.services.tts import EDGE_TTS_MODEL
 from app.services import poster_video, settings_store, task_store
 from tests.pg_test_utils import ensure_test_user
@@ -54,12 +56,14 @@ class TTSStudioApiTests(unittest.TestCase):
         self.output_root.mkdir()
         settings_store.init_db()
         ensure_test_user(self.user_id, username="user_a", display_name=self.user_id)
-        self.voice_root_patch = patch.object(
+        ensure_test_user("user-b", username="user_b", display_name="user-b")
+        self.voice_output_patch = patch.object(
             tts_studio.voice_profiles,
-            "_root",
-            return_value=Path(self.temp_dir.name),
+            "_output_root",
+            return_value=self.output_root,
+            create=True,
         )
-        self.voice_root_patch.start()
+        self.voice_output_patch.start()
 
         app = FastAPI()
         app.include_router(tts_studio.router, prefix="/api")
@@ -68,7 +72,7 @@ class TTSStudioApiTests(unittest.TestCase):
 
     def tearDown(self):
         self.client.close()
-        self.voice_root_patch.stop()
+        self.voice_output_patch.stop()
         self.temp_dir.cleanup()
 
     def _current_user(self):
@@ -280,12 +284,12 @@ class TTSStudioApiTests(unittest.TestCase):
             response = client.post("/api/generate-video")
         self.assertEqual(response.status_code, 422, response.text)
 
-    def test_voice_profile_crud_uses_the_shared_voice_profile_library(self):
+    def test_voice_profile_crud_is_private_and_stores_transcript_in_database(self):
         reference_audio = b"reference audio"
         response = self.client.post(
             "/api/tts-studio/voice-profiles",
             data={
-                "name": "Shared voice",
+                "name": "Personal voice",
                 "language": "English",
                 "ref_text": "Original reference text",
             },
@@ -293,14 +297,19 @@ class TTSStudioApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 200, response.text)
         profile = response.json()
+        self.assertNotIn("user_id", profile)
+        self.assertNotIn("relative_path", profile)
+        self.assertRegex(profile["audio_filename"], r"^reference-[0-9a-f]+\.wav$")
 
-        index_path = Path(self.temp_dir.name) / "data" / "voice_profiles" / "index.json"
-        self.assertTrue(index_path.is_file())
-        self.assertFalse((Path(self.temp_dir.name) / "data" / "tts_studio_voice_profiles").exists())
-        stored_profiles = json.loads(index_path.read_text(encoding="utf-8"))["voices"]
-        self.assertEqual([item["id"] for item in stored_profiles], [profile["id"]])
-        self.assertEqual(stored_profiles[0]["name"], "Shared voice")
-        self.assertEqual(stored_profiles[0]["ref_text"], "Original reference text")
+        with settings_store._orm_session() as session:
+            stored = session.scalar(select(VoiceProfile).where(VoiceProfile.id == profile["id"]))
+            self.assertEqual(stored.user_id, "user-a")
+            self.assertEqual(stored.name, "Personal voice")
+            self.assertEqual(stored.ref_text, "Original reference text")
+            stored_path = self.output_root / stored.relative_path
+        self.assertEqual(stored_path.read_bytes(), reference_audio)
+        self.assertRegex(stored_path.name, r"^reference-[0-9a-f]+\.wav$")
+        self.assertEqual([item.name for item in stored_path.parent.iterdir()], [stored_path.name])
 
         response = self.client.get("/api/tts-studio/voice-profiles")
         self.assertEqual(response.status_code, 200, response.text)
@@ -309,7 +318,29 @@ class TTSStudioApiTests(unittest.TestCase):
         self.user_id = "user-b"
         response = self.client.get("/api/tts-studio/voice-profiles")
         self.assertEqual(response.status_code, 200, response.text)
-        self.assertEqual([item["id"] for item in response.json()], [profile["id"]])
+        self.assertEqual(response.json(), [])
+        self.assertEqual(
+            self.client.get(f"/api/tts-studio/voice-profiles/{profile['id']}/audio").status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.put(
+                f"/api/tts-studio/voice-profiles/{profile['id']}",
+                data={"name": "Stolen", "language": "Chinese", "ref_text": "No"},
+            ).status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.delete(f"/api/tts-studio/voice-profiles/{profile['id']}").status_code,
+            404,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/tts-studio/voice-clone/preview",
+                data={"text": "No access", "voice_profile_id": profile["id"]},
+            ).status_code,
+            404,
+        )
 
         self.user_id = "user-a"
         response = self.client.get(f"/api/tts-studio/voice-profiles/{profile['id']}/audio")
@@ -335,37 +366,14 @@ class TTSStudioApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json(), [])
 
-    def test_existing_profile_is_available_for_clone_without_migration(self):
-        voice_id = "be551487b21e49be8cc13da0c5a97694"
-        voice_dir = Path(self.temp_dir.name) / "data" / "voice_profiles" / voice_id
-        voice_dir.mkdir(parents=True)
-        reference_path = voice_dir / "reference.mp3"
-        reference_path.write_bytes(b"legacy reference")
-        index_path = Path(self.temp_dir.name) / "data" / "voice_profiles" / "index.json"
-        index_path.write_text(
-            json.dumps(
-                {
-                    "voices": [
-                        {
-                            "id": voice_id,
-                            "name": "Legacy voice",
-                            "language": "Chinese",
-                            "ref_text": "Legacy reference text",
-                            "audio_filename": reference_path.name,
-                        }
-                    ]
-                },
-                ensure_ascii=False,
-            ),
-            encoding="utf-8",
+    def test_personal_profile_is_available_for_clone_from_database(self):
+        created = self.client.post(
+            "/api/tts-studio/voice-profiles",
+            data={"name": "My voice", "language": "Chinese", "ref_text": "Database reference text"},
+            files={"ref_audio": ("reference.mp3", b"database reference", "audio/mpeg")},
         )
-
-        response = self.client.get("/api/tts-studio/voice-profiles")
-        self.assertEqual(response.status_code, 200, response.text)
-        profile = response.json()[0]
-        self.assertEqual(profile["id"], voice_id)
-        self.assertEqual(profile["audio_url"], f"/api/tts-studio/voice-profiles/{voice_id}/audio")
-        self.assertEqual(self.client.get(profile["audio_url"]).content, b"legacy reference")
+        self.assertEqual(created.status_code, 200, created.text)
+        profile = created.json()
 
         async def write_audio(model_name, request, output_path):
             output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -377,13 +385,144 @@ class TTSStudioApiTests(unittest.TestCase):
         ) as synthesize:
             response = self.client.post(
                 "/api/tts-studio/voice-clone/preview",
-                data={"text": "Use the shared voice", "voice_profile_id": voice_id, "language": "Chinese"},
+                data={"text": "Use my voice", "voice_profile_id": profile["id"], "language": "Chinese"},
             )
 
         self.assertEqual(response.status_code, 200, response.text)
         request = synthesize.await_args.args[1]
-        self.assertEqual(request.reference_audio, reference_path)
-        self.assertEqual(request.reference_text, "Legacy reference text")
+        self.assertEqual(request.reference_audio.read_bytes(), b"database reference")
+        self.assertEqual(request.reference_text, "Database reference text")
+
+    def test_replacing_profile_audio_removes_old_revision_and_rolls_back_failed_database_update(self):
+        created = self.client.post(
+            "/api/tts-studio/voice-profiles",
+            data={"name": "Voice", "language": "Chinese", "ref_text": "First text"},
+            files={"ref_audio": ("reference.wav", b"first audio", "audio/wav")},
+        ).json()
+        with settings_store._orm_session() as session:
+            profile = session.get(VoiceProfile, created["id"])
+            first_path = self.output_root / profile.relative_path
+
+        response = self.client.put(
+            f"/api/tts-studio/voice-profiles/{created['id']}",
+            data={"name": "Updated", "language": "English", "ref_text": "Second text"},
+            files={"ref_audio": ("reference.mp3", b"second audio", "audio/mpeg")},
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        with settings_store._orm_session() as session:
+            profile = session.get(VoiceProfile, created["id"])
+            second_path = self.output_root / profile.relative_path
+            self.assertEqual(profile.ref_text, "Second text")
+        self.assertFalse(first_path.exists())
+        self.assertEqual(second_path.read_bytes(), b"second audio")
+
+        real_orm_session = tts_studio.voice_profiles._orm_session
+        session_calls = 0
+
+        def fail_second_session():
+            nonlocal session_calls
+            session_calls += 1
+            if session_calls == 2:
+                raise RuntimeError("database unavailable")
+            return real_orm_session()
+
+        with patch.object(
+            tts_studio.voice_profiles,
+            "_orm_session",
+            side_effect=fail_second_session,
+        ), self.assertRaisesRegex(RuntimeError, "database unavailable"):
+            self.client.put(
+                f"/api/tts-studio/voice-profiles/{created['id']}",
+                data={"name": "Broken", "language": "Chinese", "ref_text": "Broken text"},
+                files={"ref_audio": ("reference.flac", b"third audio", "audio/flac")},
+            )
+
+        with settings_store._orm_session() as session:
+            profile = session.get(VoiceProfile, created["id"])
+            self.assertEqual(profile.name, "Updated")
+            self.assertEqual(profile.ref_text, "Second text")
+        self.assertEqual(second_path.read_bytes(), b"second audio")
+        self.assertEqual([item.name for item in second_path.parent.iterdir()], [second_path.name])
+
+    def test_missing_profile_audio_returns_404_for_preview_and_clone(self):
+        created = self.client.post(
+            "/api/tts-studio/voice-profiles",
+            data={"name": "Voice", "language": "Chinese", "ref_text": "Reference"},
+            files={"ref_audio": ("reference.wav", b"audio", "audio/wav")},
+        ).json()
+        with settings_store._orm_session() as session:
+            profile = session.get(VoiceProfile, created["id"])
+            (self.output_root / profile.relative_path).unlink()
+
+        self.assertEqual(self.client.get(created["audio_url"]).status_code, 404)
+        response = self.client.post(
+            "/api/tts-studio/voice-clone/preview",
+            data={"text": "Generate", "voice_profile_id": created["id"]},
+        )
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_voice_profile_limit_rejects_twenty_first_without_leaving_a_file(self):
+        now = settings_store._now_iso()
+        with settings_store._orm_session() as session:
+            session.add_all(
+                VoiceProfile(
+                    id=f"voice-{index}",
+                    user_id=self.user_id,
+                    name=f"Voice {index}",
+                    language="Chinese",
+                    ref_text="Reference",
+                    relative_path=f"voice_profiles/{self.user_id}/voice-{index}/reference-{index}.wav",
+                    file_size=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                for index in range(20)
+            )
+
+        response = self.client.post(
+            "/api/tts-studio/voice-profiles",
+            data={"name": "Overflow", "language": "Chinese", "ref_text": "Reference"},
+            files={"ref_audio": ("reference.wav", b"audio", "audio/wav")},
+        )
+
+        self.assertEqual(response.status_code, 422, response.text)
+        voice_root = self.output_root / "voice_profiles" / self.user_id
+        self.assertFalse(any(path.is_file() for path in voice_root.rglob("*")))
+
+    def test_concurrent_creates_at_nineteen_allow_exactly_one_profile(self):
+        now = settings_store._now_iso()
+        with settings_store._orm_session() as session:
+            session.add_all(
+                VoiceProfile(
+                    id=f"voice-{index}",
+                    user_id=self.user_id,
+                    name=f"Voice {index}",
+                    language="Chinese",
+                    ref_text="Reference",
+                    relative_path=f"voice_profiles/{self.user_id}/voice-{index}/reference-{index}.wav",
+                    file_size=1,
+                    created_at=now,
+                    updated_at=now,
+                )
+                for index in range(19)
+            )
+
+        def create(index: int) -> int:
+            with TestClient(self.client.app) as client:
+                response = client.post(
+                    "/api/tts-studio/voice-profiles",
+                    data={"name": f"Concurrent {index}", "language": "Chinese", "ref_text": "Reference"},
+                    files={"ref_audio": (f"reference-{index}.wav", b"audio", "audio/wav")},
+                )
+                return response.status_code
+
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            statuses = sorted(executor.map(create, (1, 2)))
+
+        self.assertEqual(statuses, [200, 422])
+        with settings_store._orm_session() as session:
+            count = len(session.scalars(select(VoiceProfile).where(VoiceProfile.user_id == self.user_id)).all())
+        self.assertEqual(count, 20)
 
 
 if __name__ == "__main__":
