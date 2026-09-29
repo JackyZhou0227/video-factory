@@ -2,6 +2,8 @@ import { useCallback, useState } from "react";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import IconButton from "@mui/material/IconButton";
+import Tab from "@mui/material/Tab";
+import Tabs from "@mui/material/Tabs";
 import TextField from "@mui/material/TextField";
 import Chip from "@mui/material/Chip";
 import Dialog from "@mui/material/Dialog";
@@ -11,8 +13,16 @@ import Icon from "./Icon";
 import Alert from "./Alert";
 import { changePassword, updateProfile } from "../lib/auth";
 import { useGlobalMessage } from "./GlobalMessageProvider";
+import VoiceProfileLibrary from "./VoiceProfileLibrary";
+import BgmLibrary from "./BgmLibrary";
 
-export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut }) {
+const PROFILE_TABS = [
+  { id: "profile", label: "账号信息" },
+  { id: "profile-bgm", label: "BGM 库" },
+  { id: "profile-voices", label: "音色库" },
+];
+
+export default function UserProfile({ currentUser, profilePage = "profile", onNavigate, onUserUpdated, onLoggedOut }) {
   const [passwordView, setPasswordView] = useState(false);
   const [displayName, setDisplayName] = useState(currentUser?.display_name || currentUser?.username || "");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -22,6 +32,9 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
   const [changingPassword, setChangingPassword] = useState(false);
   const [error, setError] = useState("");
   const { showSuccess } = useGlobalMessage();
+  const isOverview = profilePage === "profile";
+  const isBgmPage = profilePage === "profile-bgm";
+  const isVoicePage = profilePage === "profile-voices";
 
   const saveProfile = useCallback(async (event) => {
     event.preventDefault();
@@ -64,44 +77,62 @@ export default function UserProfile({ currentUser, onUserUpdated, onLoggedOut })
   }, []);
 
   return (
-    <section className="workspace-panel profile-panel" aria-label="个人资料工作区">
-      <div className="profile-content">
-        <form className="profile-form" onSubmit={saveProfile}>
-          <TextField
-            className="field"
-            label="用户名"
-            fullWidth
-            size="small"
-            value={currentUser?.username || ""}
-            slotProps={{ input: { readOnly: true } }}
-            sx={{ "& .MuiOutlinedInput-root": { backgroundColor: "var(--surface-muted)" } }}
-          />
-          <TextField className="field" label="显示名称" fullWidth size="small" slotProps={{ htmlInput: { maxLength: 64 } }} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
-          <div className="profile-role">
-            <span className="field-label">账号角色</span>
-            <Chip
-              icon={<Icon name={currentUser?.is_admin ? "shield" : currentUser?.is_org_admin ? "list" : "user"} size={14} />}
-              label={currentUser?.is_admin ? "超级管理员" : currentUser?.is_org_admin ? "组织管理员" : "普通用户"}
-              sx={{
-                justifyContent: "center",
-                justifySelf: "start",
-                minHeight: 32,
-                padding: "0 14px",
-                borderRadius: "16px",
-                fontSize: 12,
-                fontWeight: 600,
-                backgroundColor: currentUser?.is_admin ? "#f0f3ea" : currentUser?.is_org_admin ? "#e8f0f5" : "var(--surface-muted)",
-                color: currentUser?.is_admin ? "#4f5d3a" : currentUser?.is_org_admin ? "#33566b" : "var(--text-muted)",
-                "& .MuiChip-icon": { color: "inherit" },
-              }}
-            />
+    <section className="workspace-panel profile-panel" aria-label="个人中心工作区">
+      <Tabs
+        value={profilePage}
+        onChange={(_, value) => onNavigate?.(value)}
+        aria-label="个人中心子页面"
+        sx={{ mb: 2, minHeight: 40, "& .MuiTab-root": { minHeight: 40, fontSize: 14, fontWeight: 600 } }}
+      >
+        {PROFILE_TABS.map((tab) => <Tab key={tab.id} value={tab.id} label={tab.label} />)}
+      </Tabs>
+      <div className={`profile-content ${isOverview ? "profile-content-account" : "profile-content-resource"}`}>
+        {isOverview ? (
+          <div className="profile-account-layout">
+            <form className="profile-form profile-account-form" onSubmit={saveProfile}>
+              <TextField
+                className="field"
+                label="用户名"
+                fullWidth
+                size="small"
+                value={currentUser?.username || ""}
+                slotProps={{ input: { readOnly: true } }}
+                sx={{ "& .MuiOutlinedInput-root": { backgroundColor: "var(--surface-muted)" } }}
+              />
+              <TextField className="field" label="显示名称" fullWidth size="small" slotProps={{ htmlInput: { maxLength: 64 } }} value={displayName} onChange={(event) => setDisplayName(event.target.value)} />
+              <div className="profile-role">
+                <span className="field-label">账号角色</span>
+                <Chip
+                  icon={<Icon name={currentUser?.is_admin ? "shield" : currentUser?.is_org_admin ? "list" : "user"} size={14} />}
+                  label={currentUser?.is_admin ? "超级管理员" : currentUser?.is_org_admin ? "组织管理员" : "普通用户"}
+                  sx={{
+                    justifyContent: "center",
+                    justifySelf: "start",
+                    minHeight: 32,
+                    padding: "0 14px",
+                    borderRadius: "16px",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    backgroundColor: currentUser?.is_admin ? "#f0f3ea" : currentUser?.is_org_admin ? "#e8f0f5" : "var(--surface-muted)",
+                    color: currentUser?.is_admin ? "#4f5d3a" : currentUser?.is_org_admin ? "#33566b" : "var(--text-muted)",
+                    "& .MuiChip-icon": { color: "inherit" },
+                  }}
+                />
+              </div>
+              <Button type="submit" variant="contained" disabled={savingProfile} startIcon={<Icon name={savingProfile ? "loading" : "save"} size={16} />}>{savingProfile ? "正在保存" : "保存资料"}</Button>
+            </form>
+            <div className="profile-security-row">
+              <div><strong>账号密码</strong><p>定期更新密码，保护账号安全。</p></div>
+              <Button type="button" variant="outlined" size="small" onClick={() => switchView(true)} startIcon={<Icon name="lock" size={16} />}>修改密码</Button>
+            </div>
           </div>
-          <Button type="submit" variant="contained" disabled={savingProfile} startIcon={<Icon name={savingProfile ? "loading" : "save"} size={16} />}>{savingProfile ? "正在保存" : "保存资料"}</Button>
-        </form>
-        <div className="profile-security-row">
-          <div><strong>账号密码</strong><p>定期更新密码，保护账号安全。</p></div>
-          <Button type="button" variant="outlined" size="small" onClick={() => switchView(true)} startIcon={<Icon name="lock" size={16} />}>修改密码</Button>
-        </div>
+        ) : null}
+        {isBgmPage ? (
+          <div className="profile-resource-page">
+            <BgmLibrary currentUserId={currentUser?.id} />
+          </div>
+        ) : null}
+        {isVoicePage ? <VoiceProfileLibrary unframed /> : null}
       </div>
       <Dialog
         open={passwordView}

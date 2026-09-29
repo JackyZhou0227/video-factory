@@ -34,6 +34,8 @@ export default function BgmManager({
   onBusyChange,
   disabled = false,
   idPrefix = "shared",
+  manage = false,
+  unframed = false,
 }) {
   const backendBaseUrl = useBackendBaseUrl();
   const { showSuccess } = useGlobalMessage();
@@ -104,6 +106,7 @@ export default function BgmManager({
   }, [bgmTracks, busy, disabled, onSelectionChange, selectedBgmId]);
 
   const uploadBgm = useCallback(async (event) => {
+    if (!manage) return;
     const file = event.target.files?.[0];
     event.target.value = "";
     const controller = lifecycleRef.current;
@@ -134,9 +137,10 @@ export default function BgmManager({
         setUploadingBgm(false);
       }
     }
-  }, [backendBaseUrl, busy, disabled, onSelectionChange, showSuccess]);
+  }, [backendBaseUrl, busy, disabled, manage, onSelectionChange, showSuccess]);
 
   const confirmBgmDelete = useCallback(async () => {
+    if (!manage) return;
     const controller = lifecycleRef.current;
     if (!pendingBgmDelete || disabled || busy || mutationRef.current || !controller || controller.signal.aborted) return;
     const isCurrent = () => lifecycleRef.current === controller && !controller.signal.aborted;
@@ -163,7 +167,7 @@ export default function BgmManager({
         setDeletingBgmId(null);
       }
     }
-  }, [backendBaseUrl, busy, disabled, onSelectionChange, pendingBgmDelete, selectedBgmId, showSuccess]);
+  }, [backendBaseUrl, busy, disabled, manage, onSelectionChange, pendingBgmDelete, selectedBgmId, showSuccess]);
 
   const selectedBgmTrack = useMemo(
     () => bgmTracks.find((track) => track.id === selectedBgmId) || null,
@@ -176,30 +180,34 @@ export default function BgmManager({
 
   return (
     <>
-      <section className="template-work-section" aria-labelledby={titleId}>
+      <section className={unframed ? "profile-resource-component" : "template-work-section"} aria-labelledby={titleId}>
         <div className="template-section-heading with-actions">
           <span><Icon name="music" size={17} /></span>
-          <div><strong id={titleId}>背景音乐</strong><small>可选；与模板量产共享曲库，上传后可反复使用</small></div>
-          <Box
-            component="input"
-            ref={bgmFileInputRef}
-            hidden
-            type="file"
-            accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac"
-            onChange={uploadBgm}
-            disabled={disabled || busy}
-          />
-          <Button
-            type="button"
-            variant="outlined"
-            size="small"
-            onClick={() => bgmFileInputRef.current?.click()}
-            disabled={disabled || busy}
-            title="上传背景音乐"
-            startIcon={<Icon name={uploadingBgm ? "loading" : "upload"} size={15} />}
-          >
-            {uploadingBgm ? "上传中" : "上传"}
-          </Button>
+          <div><strong id={titleId}>背景音乐</strong><small>{manage ? "管理你的个人曲库，上传后可反复使用" : "可选；从个人曲库中选择并试听"}</small></div>
+          {manage ? (
+            <>
+              <Box
+                component="input"
+                ref={bgmFileInputRef}
+                hidden
+                type="file"
+                accept="audio/*,.mp3,.wav,.aac,.m4a,.ogg,.flac"
+                onChange={uploadBgm}
+                disabled={disabled || busy}
+              />
+              <Button
+                type="button"
+                variant="outlined"
+                size="small"
+                onClick={() => bgmFileInputRef.current?.click()}
+                disabled={disabled || busy}
+                title="上传背景音乐"
+                startIcon={<Icon name={uploadingBgm ? "loading" : "upload"} size={15} />}
+              >
+                {uploadingBgm ? "上传中" : "上传"}
+              </Button>
+            </>
+          ) : null}
         </div>
         <div className="bgm-control-row">
           <TextField
@@ -223,7 +231,7 @@ export default function BgmManager({
               </MenuItem>
             ))}
           </TextField>
-          {selectedBgmTrack ? (
+          {manage && selectedBgmTrack ? (
             <IconButton
               type="button"
               title={`删除背景音乐“${selectedBgmTrack.name}”`}
@@ -236,8 +244,8 @@ export default function BgmManager({
             </IconButton>
           ) : null}
         </div>
-        {selectedBgmTrack ? (
-          <div className="bgm-preview">
+          {selectedBgmTrack ? (
+            <div className="bgm-preview">
             <ProtectedMedia
               path={selectedBgmTrack.preview_url}
               kind="audio"
@@ -255,32 +263,34 @@ export default function BgmManager({
         ) : null}
       </section>
 
-      <Dialog
-        open={Boolean(pendingBgmDelete)}
-        onClose={() => setPendingBgmDelete(null)}
-        aria-labelledby={deleteTitleId}
-      >
-        <DialogTitle>
-          <Typography variant="kicker" component="span" className="section-kicker">BGM</Typography>
-          <h3 id={deleteTitleId}>确认删除背景音乐？</h3>
-        </DialogTitle>
-        <DialogContent>
-          <p>“{pendingBgmDelete?.name}”将被永久删除，无法恢复。</p>
-        </DialogContent>
-        <DialogActions>
-          <Button type="button" onClick={() => setPendingBgmDelete(null)}>取消</Button>
-          <Button
-            type="button"
-            color="error"
-            variant="contained"
-            onClick={confirmBgmDelete}
-            disabled={disabled || busy}
-            startIcon={<Icon name={deletingBgmId === pendingBgmDelete?.id ? "loading" : "trash"} size={15} />}
-          >
-            确认删除
-          </Button>
-        </DialogActions>
-      </Dialog>
+      {manage ? (
+        <Dialog
+          open={Boolean(pendingBgmDelete)}
+          onClose={() => setPendingBgmDelete(null)}
+          aria-labelledby={deleteTitleId}
+        >
+          <DialogTitle>
+            <Typography variant="kicker" component="span" className="section-kicker">BGM</Typography>
+            <h3 id={deleteTitleId}>确认删除背景音乐？</h3>
+          </DialogTitle>
+          <DialogContent>
+            <p>“{pendingBgmDelete?.name}”将被永久删除，无法恢复。</p>
+          </DialogContent>
+          <DialogActions>
+            <Button type="button" onClick={() => setPendingBgmDelete(null)}>取消</Button>
+            <Button
+              type="button"
+              color="error"
+              variant="contained"
+              onClick={confirmBgmDelete}
+              disabled={disabled || busy}
+              startIcon={<Icon name={deletingBgmId === pendingBgmDelete?.id ? "loading" : "trash"} size={15} />}
+            >
+              确认删除
+            </Button>
+          </DialogActions>
+        </Dialog>
+      ) : null}
     </>
   );
 }

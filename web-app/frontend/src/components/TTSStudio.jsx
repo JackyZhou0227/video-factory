@@ -1,23 +1,18 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
-import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Chip from "@mui/material/Chip";
 import Slider from "@mui/material/Slider";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import ToggleButton from "@mui/material/ToggleButton";
-import Dialog from "@mui/material/Dialog";
-import DialogTitle from "@mui/material/DialogTitle";
-import DialogContent from "@mui/material/DialogContent";
-import DialogActions from "@mui/material/DialogActions";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
-import { apiJson, resolveBackendAssetUrl, useBackendBaseUrl } from "../lib/backend";
-import { PAGE_NAMES } from "../lib/pageNames";
-
+import { apiJson, useBackendBaseUrl } from "../lib/backend";
+import { DEFAULT_TTS_LANGUAGES } from "../lib/ttsLanguages";
 const TTS_MODE_OPTIONS = [
   {
     value: "base",
@@ -35,19 +30,6 @@ const TTS_MODE_OPTIONS = [
   },
 ];
 
-const DEFAULT_LANGUAGES = [
-  { id: "Chinese", label: "中文" },
-  { id: "English", label: "英语" },
-  { id: "Japanese", label: "日语" },
-  { id: "Korean", label: "韩语" },
-  { id: "German", label: "德语" },
-  { id: "French", label: "法语" },
-  { id: "Russian", label: "俄语" },
-  { id: "Portuguese", label: "葡萄牙语" },
-  { id: "Spanish", label: "西班牙语" },
-  { id: "Italian", label: "意大利语" },
-];
-
 const DEFAULT_EDGE_LANGUAGE = "zh-CN";
 
 const EDGE_TTS_STATIC_STATUS = {
@@ -63,12 +45,6 @@ const EDGE_TTS_STATIC_STATUS = {
   checks: { configuration: "passed", network: "skipped" },
 };
 
-function formatFileSize(size) {
-  if (!size) return "";
-  if (size < 1024 * 1024) return `${Math.round(size / 1024)} KB`;
-  return `${(size / 1024 / 1024).toFixed(1)} MB`;
-}
-
 function edgeVoiceLocale(voice) {
   if (voice?.language || voice?.locale) return voice.language || voice.locale;
   const match = String(voice?.id || "").match(/^([a-z]{2,3}(?:-[A-Za-z]{4})?-[A-Z]{2})-/);
@@ -77,7 +53,6 @@ function edgeVoiceLocale(voice) {
 
 export default function TTSStudio({ active = false }) {
   const backendBaseUrl = useBackendBaseUrl();
-  const refAudioInputRef = useRef(null);
   const [text, setText] = useState("");
   const [ttsMode, setTtsMode] = useState("edge-tts");
   const [providerStatuses, setProviderStatuses] = useState([EDGE_TTS_STATIC_STATUS]);
@@ -87,7 +62,7 @@ export default function TTSStudio({ active = false }) {
   const [edgeVoicesLoading, setEdgeVoicesLoading] = useState(true);
   const [edgeVoice, setEdgeVoice] = useState("zh-CN-XiaoxiaoNeural");
   const [edgeLanguage, setEdgeLanguage] = useState(DEFAULT_EDGE_LANGUAGE);
-  const [languages, setLanguages] = useState(DEFAULT_LANGUAGES);
+  const [languages, setLanguages] = useState(DEFAULT_TTS_LANGUAGES);
   const [language, setLanguage] = useState("Chinese");
   const [speechRate, setSpeechRate] = useState(1);
   const [voiceProfiles, setVoiceProfiles] = useState([]);
@@ -97,23 +72,11 @@ export default function TTSStudio({ active = false }) {
   const [previewStale, setPreviewStale] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [applyingSpeechRate, setApplyingSpeechRate] = useState(false);
-  const [profileDialog, setProfileDialog] = useState(null);
-  const [profileName, setProfileName] = useState("");
-  const [refAudioFile, setRefAudioFile] = useState(null);
-  const [refAudioUrl, setRefAudioUrl] = useState("");
-  const [refText, setRefText] = useState("");
-  const [profileError, setProfileError] = useState("");
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [deletingProfile, setDeletingProfile] = useState(false);
-  const [deleteConfirmation, setDeleteConfirmation] = useState(false);
 
   const selectedEdgeVoice = useMemo(
     () => edgeVoices.find((item) => item.id === edgeVoice) ?? edgeVoices.find((item) => edgeVoiceLocale(item) === edgeLanguage) ?? edgeVoices[0] ?? null,
     [edgeLanguage, edgeVoice, edgeVoices]
   );
-  const edgeLanguages = useMemo(() => {
-    return edgeVoices.length ? [{ id: DEFAULT_EDGE_LANGUAGE, label: "中文" }] : [];
-  }, [edgeVoices]);
   const filteredEdgeVoices = useMemo(
     () => edgeVoices,
     [edgeVoices]
@@ -142,11 +105,6 @@ export default function TTSStudio({ active = false }) {
     () => voiceProfiles.find((item) => item.id === voiceProfileId) ?? null,
     [voiceProfileId, voiceProfiles]
   );
-  const editingVoiceProfile = useMemo(
-    () => voiceProfiles.find((item) => item.id === profileDialog?.voiceId) ?? null,
-    [profileDialog?.voiceId, voiceProfiles]
-  );
-  const isEditingVoiceProfile = profileDialog?.mode === "edit";
 
   const markPreviewStale = useCallback(() => {
     setPreviewStale((wasStale) => (preview ? true : wasStale));
@@ -230,14 +188,14 @@ export default function TTSStudio({ active = false }) {
     apiJson("/api/tts-studio/languages", { silentError: true }, backendBaseUrl)
       .then((list) => {
         if (cancelled) return;
-        const nextLanguages = Array.isArray(list) && list.length ? list : DEFAULT_LANGUAGES;
+        const nextLanguages = Array.isArray(list) && list.length ? list : DEFAULT_TTS_LANGUAGES;
         setLanguages(nextLanguages);
         setLanguage((current) =>
           nextLanguages.some((item) => item.id === current) ? current : nextLanguages[0]?.id || "Chinese"
         );
       })
       .catch(() => {
-        if (!cancelled) setLanguages(DEFAULT_LANGUAGES);
+        if (!cancelled) setLanguages(DEFAULT_TTS_LANGUAGES);
       });
     return () => {
       cancelled = true;
@@ -260,123 +218,6 @@ export default function TTSStudio({ active = false }) {
       setTtsMode("edge-tts");
     }
   }, [providerStatusesLoading, qwenProviderAvailable, ttsMode]);
-
-  useEffect(() => {
-    return () => {
-      if (refAudioUrl) URL.revokeObjectURL(refAudioUrl);
-    };
-  }, [refAudioUrl]);
-
-  const clearReferenceAudio = useCallback(() => {
-    setRefAudioFile(null);
-    setRefAudioUrl((current) => {
-      if (current) URL.revokeObjectURL(current);
-      return "";
-    });
-    if (refAudioInputRef.current) refAudioInputRef.current.value = "";
-  }, []);
-
-  const openCreateVoiceProfile = useCallback(() => {
-    clearReferenceAudio();
-    setProfileDialog({ mode: "create" });
-    setProfileName("");
-    setRefText("");
-    setProfileError("");
-    setDeleteConfirmation(false);
-  }, [clearReferenceAudio]);
-
-  const openEditVoiceProfile = useCallback(
-    (profile) => {
-      clearReferenceAudio();
-      setProfileDialog({ mode: "edit", voiceId: profile.id });
-      setProfileName(profile.name || "");
-      setRefText(profile.ref_text || "");
-      setLanguage(profile.language || "Chinese");
-      setProfileError("");
-      setDeleteConfirmation(false);
-    },
-    [clearReferenceAudio]
-  );
-
-  const closeVoiceProfileDialog = useCallback(() => {
-    clearReferenceAudio();
-    setProfileDialog(null);
-    setProfileError("");
-    setDeleteConfirmation(false);
-  }, [clearReferenceAudio]);
-
-  const handleReferenceAudioChange = useCallback((event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    setRefAudioFile(file);
-    setRefAudioUrl((current) => {
-      if (current) URL.revokeObjectURL(current);
-      return URL.createObjectURL(file);
-    });
-  }, []);
-
-  const handleSaveVoiceProfile = useCallback(async () => {
-    const needsAudio = !isEditingVoiceProfile;
-    if (!profileName.trim() || !refText.trim() || (needsAudio && !refAudioFile)) return;
-
-    setSavingProfile(true);
-    setProfileError("");
-    try {
-      const formData = new FormData();
-      formData.append("name", profileName.trim());
-      formData.append("language", language);
-      formData.append("ref_text", refText.trim());
-      if (refAudioFile) formData.append("ref_audio", refAudioFile);
-
-      const endpoint = isEditingVoiceProfile
-        ? `/api/tts-studio/voice-profiles/${editingVoiceProfile.id}`
-        : "/api/tts-studio/voice-profiles";
-      const saved = await apiJson(
-        endpoint,
-        { method: isEditingVoiceProfile ? "PUT" : "POST", body: formData, silentError: true },
-        backendBaseUrl
-      );
-      await refreshVoiceProfiles();
-      setVoiceProfileId(saved.id || "");
-      markPreviewStale();
-      closeVoiceProfileDialog();
-    } catch (err) {
-      setProfileError(err.message || "保存音色档案失败");
-    } finally {
-      setSavingProfile(false);
-    }
-  }, [
-    backendBaseUrl,
-    closeVoiceProfileDialog,
-    editingVoiceProfile?.id,
-    isEditingVoiceProfile,
-    language,
-    markPreviewStale,
-    profileName,
-    refAudioFile,
-    refText,
-    refreshVoiceProfiles,
-  ]);
-
-  const handleDeleteVoiceProfile = useCallback(async () => {
-    if (!editingVoiceProfile) return;
-    setDeletingProfile(true);
-    setProfileError("");
-    try {
-      await apiJson(
-        `/api/tts-studio/voice-profiles/${editingVoiceProfile.id}`,
-        { method: "DELETE", silentError: true },
-        backendBaseUrl
-      );
-      await refreshVoiceProfiles();
-      markPreviewStale();
-      closeVoiceProfileDialog();
-    } catch (err) {
-      setProfileError(err.message || "删除音色档案失败");
-    } finally {
-      setDeletingProfile(false);
-    }
-  }, [backendBaseUrl, closeVoiceProfileDialog, editingVoiceProfile, markPreviewStale, refreshVoiceProfiles]);
 
   const handleGeneratePreview = useCallback(async () => {
     if (!text.trim()) return;
@@ -692,50 +533,14 @@ export default function TTSStudio({ active = false }) {
                       }}
                     >
                       {voiceProfiles.length === 0 ? (
-                        <MenuItem value="">请先新增一个音色档案</MenuItem>
+                        <MenuItem value="">请先在个人中心新增音色档案</MenuItem>
                       ) : (
                         voiceProfiles.map((profile) => (
-                          <MenuItem key={profile.id} value={profile.id}>
-                            {profile.name}
-                          </MenuItem>
+                          <MenuItem key={profile.id} value={profile.id}>{profile.name}</MenuItem>
                         ))
                       )}
                     </TextField>
-
-                    <Button type="button" variant="outlined" size="small" onClick={openCreateVoiceProfile}
-                      startIcon={<Icon name="plus" size={15} />}>
-                      新增音色
-                    </Button>
-
-                    {selectedVoiceProfile ? (
-                      <div className="voice-summary tts-studio-selected-profile">
-                        <div className="voice-summary-header">
-                          <div className="voice-summary-main">
-                            <strong>{selectedVoiceProfile.name}</strong>
-                            <span>{selectedVoiceProfile.ref_text}</span>
-                          </div>
-                          <IconButton
-                            type="button"
-                            aria-label={`编辑音色档案：${selectedVoiceProfile.name}`}
-                            title="编辑音色档案"
-                            onClick={() => openEditVoiceProfile(selectedVoiceProfile)}
-                            size="small"
-                          >
-                            <Icon name="edit" size={15} />
-                          </IconButton>
-                        </div>
-                        <audio
-                          className="audio-player"
-                          controls
-                          crossOrigin="use-credentials"
-                          src={resolveBackendAssetUrl(selectedVoiceProfile.audio_url, backendBaseUrl)}
-                        />
-                      </div>
-                    ) : (
-                      <div className="audio-empty tts-studio-audio-empty">
-                        从下方音色库选择一个个人档案，或先创建新的克隆音色。
-                      </div>
-                    )}
+                    <p className="field-help"><Link className="tts-studio-profile-link" to="/profile-voices">前往音色库</Link></p>
                   </div>
                 </div>
               ) : (
@@ -931,241 +736,6 @@ export default function TTSStudio({ active = false }) {
           </aside>
         </div>
       </section>
-
-      <section className="workspace-panel tts-studio-library" aria-labelledby="tts-studio-library-title">
-        <div className="panel-heading tts-studio-library-heading">
-          <div>
-            <Typography variant="kicker" component="span" className="section-kicker">Voice Library</Typography>
-            <h2 id="tts-studio-library-title">个人克隆音色库</h2>
-          </div>
-          <Button type="button" variant="outlined" size="small" onClick={openCreateVoiceProfile}
-            startIcon={<Icon name="plus" size={15} />}>
-            新增音色
-          </Button>
-        </div>
-
-        <p className="tts-studio-library-note">这里保留你的个人音色档案，用于快速切换、试听和维护已有克隆音色。</p>
-
-        {voiceProfilesLoading ? (
-          <div className="tts-studio-library-empty">
-            <Icon name="loading" size={18} />
-            正在加载音色档案
-          </div>
-        ) : voiceProfiles.length ? (
-          <div className="tts-studio-profile-list">
-            {voiceProfiles.map((profile) => (
-              <article
-                className={`tts-studio-profile-row ${ttsMode === "base" && voiceProfileId === profile.id ? "is-current" : ""}`}
-                key={profile.id}
-              >
-                <div className="tts-studio-profile-copy">
-                  <strong>{profile.name}</strong>
-                  <span>{languages.find((item) => item.id === profile.language)?.label || profile.language}</span>
-                  <p>{profile.ref_text}</p>
-                </div>
-
-                <audio
-                  className="audio-player"
-                  controls
-                  crossOrigin="use-credentials"
-                  src={resolveBackendAssetUrl(profile.audio_url, backendBaseUrl)}
-                />
-
-                <div className="tts-studio-profile-actions">
-                  <Button
-                    type="button"
-                    variant="outlined"
-                    size="small"
-                    disabled={!qwenProviderAvailable}
-                    title={qwenProviderAvailable ? "使用这个克隆音色" : qwenProviderReason || "本地音色克隆当前不可用"}
-                    onClick={() => {
-                      if (!qwenProviderAvailable) return;
-                      setTtsMode("base");
-                      setVoiceProfileId(profile.id);
-                      markPreviewStale();
-                    }}
-                    startIcon={<Icon name="check" size={15} />}
-                  >
-                    使用音色
-                  </Button>
-                  <IconButton
-                    type="button"
-                    aria-label={`编辑音色：${profile.name}`}
-                    title="编辑音色"
-                    onClick={() => openEditVoiceProfile(profile)}
-                    size="small"
-                  >
-                    <Icon name="edit" size={16} />
-                  </IconButton>
-                </div>
-              </article>
-            ))}
-          </div>
-        ) : (
-          <div className="tts-studio-library-empty">
-            <Icon name="audio" size={21} />
-            <span>还没有可用的个人音色档案。</span>
-          </div>
-        )}
-      </section>
-
-      <Dialog
-        open={Boolean(profileDialog)}
-        onClose={closeVoiceProfileDialog}
-        aria-labelledby="tts-voice-dialog-title"
-        maxWidth="sm"
-        fullWidth
-      >
-        <DialogTitle className="form-dialog-title" sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", pr: 1.5 }}>
-          <div>
-            <Typography variant="kicker" component="span" className="section-kicker">Voice Library</Typography>
-            <h3 id="tts-voice-dialog-title">{isEditingVoiceProfile ? "编辑克隆音色" : "新增克隆音色"}</h3>
-          </div>
-          <IconButton type="button" aria-label="关闭音色档案弹窗" onClick={closeVoiceProfileDialog} size="small">
-            <Icon name="x" size={17} />
-          </IconButton>
-        </DialogTitle>
-        <DialogContent className="form-dialog-content">
-          <div className="modal-body">
-            <TextField
-              id="tts-voice-profile-name"
-              className="field"
-              label="音色名称"
-              fullWidth
-              size="small"
-              type="text"
-              placeholder="例如：中年男声"
-              value={profileName}
-              onChange={(event) => setProfileName(event.target.value)}
-            />
-
-            <TextField
-              id="tts-voice-profile-language"
-              className="field"
-              label="语言"
-              fullWidth
-              size="small"
-              select
-              value={language}
-              onChange={(event) => setLanguage(event.target.value)}
-            >
-              {languages.map((item) => (
-                <MenuItem key={item.id} value={item.id}>
-                  {item.label}
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <div className="form-field-group">
-              <span className="field-label">参考音频{isEditingVoiceProfile ? "" : "*"}</span>
-              <label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}>
-                <span className="upload-placeholder">
-                  <Icon name={refAudioFile ? "audio" : "upload"} size={22} />
-                  <strong>{refAudioFile ? refAudioFile.name : "上传参考音频"}</strong>
-                  <small>
-                    {refAudioFile
-                      ? formatFileSize(refAudioFile.size)
-                      : isEditingVoiceProfile
-                        ? "不上传则继续保留当前参考音频"
-                        : "用于保存新的克隆音色"}
-                  </small>
-                </span>
-                <input ref={refAudioInputRef} type="file" accept="audio/*" onChange={handleReferenceAudioChange} />
-              </label>
-
-              {refAudioFile && (
-                <div className="file-row">
-                  <span>{refAudioFile.name}</span>
-                  <Button variant="text" size="small" type="button" onClick={clearReferenceAudio}>
-                    移除
-                  </Button>
-                </div>
-              )}
-
-              {refAudioUrl ? (
-                <audio className="audio-player" controls src={refAudioUrl} />
-              ) : (
-                isEditingVoiceProfile &&
-                editingVoiceProfile && (
-                  <audio
-                    className="audio-player"
-                    controls
-                    crossOrigin="use-credentials"
-                    src={resolveBackendAssetUrl(editingVoiceProfile.audio_url, backendBaseUrl)}
-                  />
-                )
-              )}
-            </div>
-
-            <TextField
-              id="tts-voice-profile-ref-text"
-              className="field"
-              label="参考文本"
-              fullWidth
-              size="small"
-              multiline
-              rows={4}
-              placeholder="写下参考音频中实际说出的内容"
-              value={refText}
-              onChange={(event) => setRefText(event.target.value)}
-            />
-
-            {profileError && <div className="form-alert failed">{profileError}</div>}
-
-            {deleteConfirmation && (
-              <div className="delete-confirm-panel" role="alertdialog" aria-labelledby="tts-voice-delete-title">
-                <strong id="tts-voice-delete-title">确认删除这个个人音色？</strong>
-                <span>删除后会移除参考音频和档案记录，无法恢复。</span>
-                <div className="delete-confirm-actions">
-                  <Button
-                    type="button"
-                    variant="outlined"
-                    disabled={deletingProfile}
-                    onClick={() => setDeleteConfirmation(false)}
-                  >
-                    取消
-                  </Button>
-                  <Button type="button" color="error" variant="contained" disabled={deletingProfile} onClick={handleDeleteVoiceProfile}
-                    startIcon={<Icon name={deletingProfile ? "loading" : "trash"} size={16} />}>
-                    {deletingProfile ? "正在删除" : "确认删除"}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </DialogContent>
-        <DialogActions className={`modal-actions ${isEditingVoiceProfile ? "with-delete" : ""}`}>
-          {isEditingVoiceProfile && (
-            <Button
-              type="button"
-              color="error"
-              disabled={savingProfile || deletingProfile}
-              onClick={() => setDeleteConfirmation(true)}
-              startIcon={<Icon name="trash" size={16} />}
-            >
-              删除
-            </Button>
-          )}
-          <Button type="button" onClick={closeVoiceProfileDialog}>
-            取消
-          </Button>
-          <Button
-            type="button"
-            variant="contained"
-            disabled={
-              savingProfile ||
-              deletingProfile ||
-              !profileName.trim() ||
-              !refText.trim() ||
-              (!isEditingVoiceProfile && !refAudioFile)
-            }
-            onClick={handleSaveVoiceProfile}
-            startIcon={<Icon name={savingProfile ? "loading" : "save"} size={16} />}
-          >
-            {savingProfile ? "正在保存" : isEditingVoiceProfile ? "保存修改" : "保存音色"}
-          </Button>
-        </DialogActions>
-      </Dialog>
     </>
   );
 }

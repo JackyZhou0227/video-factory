@@ -22,6 +22,7 @@ import TaskCapacityHeaderCard from "./components/TaskCapacityHeaderCard";
 import { useGlobalMessage } from "./components/GlobalMessageProvider";
 import { getCurrentUser, listPublicOrganizations, login, logout, register } from "./lib/auth";
 import { PAGE_NAMES, PROJECT_NAME } from "./lib/pageNames";
+import { isProfilePage, profilePageFromPathname } from "./lib/profileNavigation";
 import templateProductionSkill from "../skills/generate-template-production-template/skill.json";
 
 // 角色等级：超管(2) > 组织管理员(1) > 普通成员(0)
@@ -83,8 +84,8 @@ const NAV_ITEMS = [
   },
   {
     id: "profile",
-    label: "个人资料",
-    description: "账号与安全设置",
+    label: "个人中心",
+    description: "资料、安全与个人音频资源管理",
     icon: "user",
   },
   {
@@ -133,9 +134,19 @@ const PAGE_META = {
     description: "管理当前用户的 RunningHub 和 LLM 服务配置。",
   },
   profile: {
-    eyebrow: "Account",
-    title: "个人资料",
-    description: "管理显示名称和账号安全设置。",
+    eyebrow: "Profile",
+    title: "个人中心",
+    description: "管理个人账号信息和资产库",
+  },
+  "profile-bgm": {
+    eyebrow: "Profile",
+    title: "个人中心",
+    description: "管理个人账号信息和资产库",
+  },
+  "profile-voices": {
+    eyebrow: "Profile",
+    title: "个人中心",
+    description: "管理个人账号信息和资产库",
   },
   dashboard: {
     eyebrow: "Dashboard",
@@ -152,6 +163,8 @@ const PAGE_META = {
 const DEFAULT_PAGE = "digital-human";
 
 function pageFromPathname(pathname) {
+  const profilePage = profilePageFromPathname(pathname);
+  if (profilePage) return profilePage;
   const id = pathname.replace(/^\/+|\/+$/g, "");
   if (id === "users" || id === "organizations") return "system-management"; // 兼容旧入口
   return PAGE_META[id] ? id : null;
@@ -361,6 +374,7 @@ export default function App() {
     [currentRoleLevel]
   );
   const pageMeta = useMemo(() => PAGE_META[activePage], [activePage]);
+  const activeNavPage = isProfilePage(activePage) ? "profile" : activePage;
   const handlePageChange = useCallback(
     (pageId) => {
       navigate(`/${pageId}`);
@@ -396,10 +410,10 @@ export default function App() {
   useEffect(() => {
     if (authChecking || !currentUser) return;
     // URL 不指向有效页面、或指向无权限页面时，纠正到默认页（保留刷新/直达能力）
-    const guardedPage = routePage && NAV_ITEMS.find((item) => item.id === routePage);
+    const guardedPage = routePage && NAV_ITEMS.find((item) => item.id === activeNavPage);
     if (routePage && (!guardedPage?.minRole || currentRoleLevel >= guardedPage.minRole)) return;
     navigate(`/${DEFAULT_PAGE}`, { replace: true });
-  }, [authChecking, currentRoleLevel, currentUser, navigate, routePage]);
+  }, [activeNavPage, authChecking, currentRoleLevel, currentUser, navigate, routePage]);
 
   const handleLogout = useCallback(async () => {
     try {
@@ -431,9 +445,9 @@ export default function App() {
             {visibleNavItems.map((item) => (
               <ListItemButton
                 key={item.id}
-                className={`nav-item ${activePage === item.id ? "is-active" : ""}`}
+                className={`nav-item ${activeNavPage === item.id ? "is-active" : ""}`}
                 onClick={() => handlePageChange(item.id)}
-                aria-current={activePage === item.id ? "page" : undefined}
+                aria-current={activeNavPage === item.id ? "page" : undefined}
                 sx={{
                   minHeight: 44,
                   alignItems: "center",
@@ -483,7 +497,7 @@ export default function App() {
       <main className="app-shell">
         <header className="app-header">
           <div>
-            <Typography variant="eyebrow" component="p" className="eyebrow">{pageMeta.eyebrow}</Typography>
+            {pageMeta.eyebrow ? <Typography variant="eyebrow" component="p" className="eyebrow">{pageMeta.eyebrow}</Typography> : null}
             <h1>{pageMeta.title}</h1>
             <p className="app-description">{pageMeta.description}</p>
           </div>
@@ -515,8 +529,14 @@ export default function App() {
           <div className={`settings-main page-panel ${activePage === "settings" ? "is-active" : ""}`}>
             <Settings />
           </div>
-          <div className={`settings-main page-panel ${activePage === "profile" ? "is-active" : ""}`}>
-            <UserProfile currentUser={currentUser} onUserUpdated={setCurrentUser} onLoggedOut={handleLogout} />
+          <div className={`settings-main page-panel ${isProfilePage(activePage) ? "is-active" : ""}`}>
+            <UserProfile
+              currentUser={currentUser}
+              profilePage={activePage}
+              onNavigate={handlePageChange}
+              onUserUpdated={setCurrentUser}
+              onLoggedOut={handleLogout}
+            />
           </div>
           <div className={`settings-main page-panel ${activePage === "system-management" ? "is-active" : ""}`}>
             <SystemManagement currentUser={currentUser} />
