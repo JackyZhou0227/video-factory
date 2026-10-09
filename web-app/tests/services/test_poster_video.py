@@ -238,6 +238,26 @@ class PosterCompositionTests(unittest.TestCase):
         _, _, silent = self.compose("no_audio", self.silent_video, mute_original_audio=False)
         self.assertFalse(silent["has_audio"])
 
+    def test_video_encoding_sets_douyin_safe_bitrate_floor(self):
+        command = poster_video._compose_command(
+            self.video,
+            self.overlay,
+            self.root / "bitrate-command.mp4",
+            timing=poster_video.calculate_timing("video", video_duration=1.2),
+            has_original_audio=False,
+            narration_path=None,
+            bgm_path=None,
+        )
+        self.assertEqual(command[command.index("-b:v") + 1], "2500k")
+        self.assertEqual(command[command.index("-minrate") + 1], "1000k")
+        self.assertEqual(command[command.index("-maxrate") + 1], "4000k")
+        self.assertEqual(command[command.index("-bufsize") + 1], "8000k")
+
+        output, _, _ = self.compose("bitrate-floor")
+        stream = poster_video.probe_video(output)["streams"][0]
+        if stream.get("bit_rate") is not None:
+            self.assertGreaterEqual(int(stream["bit_rate"]), 1_000_000)
+
     def test_probe_and_composition_without_ffprobe(self):
         original_which = poster_video.shutil.which
         with patch.object(

@@ -12,6 +12,8 @@ from typing import Any
 
 from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageFont, ImageOps
 
+from app.services.video_encoding import h264_video_args
+
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
 
@@ -372,8 +374,8 @@ def _compose_command(
     else:
         command.append("-an")
     command.extend([
-        "-t", duration, "-c:v", "libx264", "-preset", "veryfast", "-crf", "23",
-        "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(output_path),
+        "-t", duration, *h264_video_args(),
+        "-movflags", "+faststart", str(output_path),
     ])
     return command
 

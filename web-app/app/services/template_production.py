@@ -15,6 +15,7 @@ from app.schemas.template_definition import (
     render_script_prompt,
 )
 from app.services import template_registry
+from app.services.video_encoding import h264_video_args
 from app.services.tts import TTSTiming
 
 # ============================================================================
@@ -413,14 +414,7 @@ def prepare_material_segment(
             "-an",
             "-vf",
             video_filter,
-            "-c:v",
-            "libx264",
-            "-preset",
-            "veryfast",
-            "-crf",
-            "23",
-            "-pix_fmt",
-            "yuv420p",
+            *h264_video_args(),
             "-movflags",
             "+faststart",
             str(output_path),
@@ -565,12 +559,7 @@ def compose_prepared_video(
                 command.extend(["-vf", f"ass=filename='{_ffmpeg_filter_path(ass_path)}'"])
         command.extend(
             [
-                "-c:v",
-                "libx264",
-                "-preset",
-                "veryfast",
-                "-crf",
-                "23",
+                *h264_video_args(),
                 "-c:a",
                 "aac",
                 "-b:a",

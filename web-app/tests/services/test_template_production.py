@@ -284,6 +284,34 @@ class TemplateProductionTests(unittest.TestCase):
             command = run.call_args.args[0]
             self.assertNotIn("ass=", " ".join(command))
 
+    def test_all_video_encoders_set_douyin_safe_bitrate_floor(self):
+        with tempfile.TemporaryDirectory() as temp_dir, patch.object(
+            template_production, "require_ffmpeg"
+        ), patch.object(template_production, "_run") as run:
+            root = Path(temp_dir)
+            template_production.prepare_material_segment(
+                root / "image.jpg",
+                root / "segment.mp4",
+                media_type="image",
+                ratio="9:16",
+                segment_duration=2.0,
+            )
+            segment_command = run.call_args.args[0]
+            template_production.compose_prepared_video(
+                [root / "segment.mp4"],
+                root / "audio.mp3",
+                root / "output.mp4",
+                audio_duration=2.0,
+            )
+            output_command = run.call_args.args[0]
+
+        for command in (segment_command, output_command):
+            self.assertEqual(command[command.index("-b:v") + 1], "2500k")
+            self.assertEqual(command[command.index("-minrate") + 1], "1000k")
+            self.assertEqual(command[command.index("-maxrate") + 1], "4000k")
+            self.assertEqual(command[command.index("-bufsize") + 1], "8000k")
+            self.assertEqual(command[command.index("-x264-params") + 1], "nal-hrd=cbr")
+
     def test_material_sequence_is_deterministic_and_fills_duration(self):
         segments = [Path("a.mp4"), Path("b.mp4"), Path("c.mp4")]
         first = template_production.build_material_sequence(segments, 13, seed="task-1")
