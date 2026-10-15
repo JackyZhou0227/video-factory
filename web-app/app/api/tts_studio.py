@@ -4,6 +4,7 @@ import math
 import re
 import subprocess
 import uuid
+import asyncio
 from pathlib import Path
 from typing import Optional
 
@@ -86,8 +87,8 @@ def _complete_voice_task(
     audio_path: Path,
     *,
     name: str | None = None,
-) -> None:
-    task_store.add_artifact(
+) -> bool:
+    completed = task_store.complete_task_with_artifact(
         task_id,
         artifact_id=artifact_id,
         path=audio_path,
@@ -95,29 +96,78 @@ def _complete_voice_task(
         kind="audio",
         mime_type="audio/mpeg" if audio_path.suffix.lower() == ".mp3" else "audio/wav",
         is_primary=True,
-    )
-    task_store.update_task(
-        task_id,
-        status="completed",
-        progress=100,
         message="语音生成完成",
-        success_count=1,
-        failed_count=0,
-        finished=True,
+        expected_statuses=("running",),
     )
+    return completed is not None
 
 
 def _fail_voice_task(task_id: str, exc: Exception) -> None:
-    task_store.update_task(
+    task_store.transition_task_status(
         task_id,
+        expected_statuses=("pending", "running"),
         status="failed",
         progress=0,
         message="语音生成失败",
         error=str(exc),
-        success_count=0,
-        failed_count=1,
         finished=True,
     )
+
+
+def _cancel_voice_task(task_id: str) -> None:
+    task_store.transition_task_status(
+        task_id,
+        expected_statuses=("running", "cancelling"),
+        status="cancelled",
+        message="任务已取消",
+        error="用户主动取消任务",
+        finished=True,
+    )
+
+
+class _VoiceTaskCancelled(Exception):
+    pass
+
+
+def _check_voice_cancellation(cancel_event: asyncio.Event | None) -> None:
+    if cancel_event is not None and cancel_event.is_set():
+        raise _VoiceTaskCancelled
+
+
+async def _run_voice_preview(
+    *,
+    task_id: str,
+    artifact_id: str,
+    audio_path: Path,
+    model_name: str,
+    request: TTSRequest,
+    cancel_event: asyncio.Event | None = None,
+) -> None:
+    try:
+        _check_voice_cancellation(cancel_event)
+        await tts_service.synthesize(model_name, request, audio_path)
+        _check_voice_cancellation(cancel_event)
+        if not audio_path.is_file():
+            raise RuntimeError("TTS did not produce an audio file")
+        _check_voice_cancellation(cancel_event)
+        if not _complete_voice_task(task_id, artifact_id, audio_path):
+            audio_path.unlink(missing_ok=True)
+            _cancel_voice_task(task_id)
+    except _VoiceTaskCancelled:
+        audio_path.unlink(missing_ok=True)
+        _cancel_voice_task(task_id)
+    except TTSServiceError as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            audio_path.unlink(missing_ok=True)
+            _cancel_voice_task(task_id)
+        else:
+            _fail_voice_task(task_id, exc)
+    except Exception as exc:
+        if cancel_event is not None and cancel_event.is_set():
+            audio_path.unlink(missing_ok=True)
+            _cancel_voice_task(task_id)
+        else:
+            _fail_voice_task(task_id, exc)
 
 
 def _resolve_user_output_file(public_url: str, user_id: str) -> Path:
@@ -378,49 +428,23 @@ async def preview_edge_tts(
             "speech_rate": NORMAL_SPEECH_RATE,
         },
     )
-    task_store.update_task(
+    common.schedule_task(
         task_id,
-        status="running",
-        progress=10,
-        message="正在生成语音",
-        started=True,
-    )
-    try:
-        await tts_service.synthesize(
-            EDGE_TTS_MODEL,
-            TTSRequest(
+        lambda cancel_event=None: _run_voice_preview(
+            task_id=task_id,
+            artifact_id=artifact_id,
+            audio_path=audio_path,
+            model_name=EDGE_TTS_MODEL,
+            request=TTSRequest(
                 text=normalized_text,
                 voice_id=normalized_voice_id,
                 language=normalized_language,
                 speed=NORMAL_SPEECH_RATE,
             ),
-            audio_path,
-        )
-    except TTSServiceError as exc:
-        _fail_voice_task(task_id, exc)
-        _raise_tts_error(exc)
-    except Exception as exc:
-        _fail_voice_task(task_id, exc)
-        raise
-
-    if not audio_path.is_file():
-        _fail_voice_task(task_id, RuntimeError("TTS did not produce an audio file"))
-        raise HTTPException(status_code=500, detail="TTS did not produce an audio file")
-    _complete_voice_task(task_id, artifact_id, audio_path)
-    audio_url = common.artifact_url(task_id, artifact_id)
-    return {
-        "audio_id": task_id,
-        "task_id": task_id,
-        "artifact_id": artifact_id,
-        "audio_url": audio_url,
-        "original_audio_url": audio_url,
-        "processed_audio_url": None,
-        "adjusted_audio_url": None,
-        "tts_mode": "edge-tts",
-        "voice_id": normalized_voice_id,
-        "language": normalized_language,
-        "speech_rate": NORMAL_SPEECH_RATE,
-    }
+            cancel_event=cancel_event,
+        ),
+    )
+    return {"task_id": task_id}
 
 
 @router.post("/voice-clone/preview")
@@ -488,48 +512,21 @@ async def preview_voice_clone_tts(
         except Exception as exc:
             _fail_voice_task(task_id, exc)
             raise HTTPException(status_code=500, detail="保存参考音频失败") from exc
-    task_store.update_task(
+    common.schedule_task(
         task_id,
-        status="running",
-        progress=10,
-        message="正在生成语音",
-        started=True,
-    )
-
-    try:
-        await tts_service.synthesize(
-            QWEN3_TTS_BASE_MODEL,
-            TTSRequest(
+        lambda cancel_event=None: _run_voice_preview(
+            task_id=task_id,
+            artifact_id=artifact_id,
+            audio_path=audio_path,
+            model_name=QWEN3_TTS_BASE_MODEL,
+            request=TTSRequest(
                 text=normalized_text,
                 language=language.strip() or "Chinese",
                 speed=NORMAL_SPEECH_RATE,
                 reference_audio=reference_audio,
                 reference_text=reference_text,
             ),
-            audio_path,
-        )
-    except TTSServiceError as exc:
-        _fail_voice_task(task_id, exc)
-        _raise_tts_error(exc)
-    except Exception as exc:
-        _fail_voice_task(task_id, exc)
-        raise
-
-    if not audio_path.is_file():
-        _fail_voice_task(task_id, RuntimeError("TTS did not produce an audio file"))
-        raise HTTPException(status_code=500, detail="TTS did not produce an audio file")
-    _complete_voice_task(task_id, artifact_id, audio_path)
-    audio_url = common.artifact_url(task_id, artifact_id)
-    return {
-        "audio_id": task_id,
-        "task_id": task_id,
-        "artifact_id": artifact_id,
-        "audio_url": audio_url,
-        "original_audio_url": audio_url,
-        "processed_audio_url": None,
-        "adjusted_audio_url": None,
-        "tts_mode": "base",
-        "voice_profile_id": voice_profile_id,
-        "language": language.strip() or "Chinese",
-        "speech_rate": NORMAL_SPEECH_RATE,
-    }
+            cancel_event=cancel_event,
+        ),
+    )
+    return {"task_id": task_id}

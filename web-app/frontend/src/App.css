@@ -1646,6 +1646,13 @@ a {
   justify-self: end;
 }
 
+.task-row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+
 .task-detail-modal {
   width: min(980px, 100%);
   max-height: min(860px, calc(100vh - 48px));

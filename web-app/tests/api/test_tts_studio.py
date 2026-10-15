@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import tempfile
 import unittest
@@ -78,6 +79,16 @@ class TTSStudioApiTests(unittest.TestCase):
     def _current_user(self):
         return {"id": self.user_id, "username": self.user_id, "display_name": self.user_id}
 
+    def _run_captured_runner(self, captured: dict, task_id: str) -> None:
+        task_store.update_task(
+            task_id,
+            status="running",
+            progress=10,
+            message="正在生成语音",
+            started=True,
+        )
+        asyncio.run(captured["runner"](asyncio.Event()))
+
     def test_edge_tts_lists_voices_and_generates_original_speed_mp3(self):
         edge_voice = {
             "id": "zh-CN-XiaoxiaoNeural",
@@ -98,11 +109,16 @@ class TTSStudioApiTests(unittest.TestCase):
             )
 
         synthesize = AsyncMock(side_effect=write_audio)
+        captured = {}
         with patch.object(tts_studio, "resolve_output_dir", return_value=self.output_root), patch.object(
             tts_studio.tts_service,
             "list_voices",
             return_value=[edge_voice],
-        ), patch.object(tts_studio.tts_service, "synthesize", synthesize):
+        ), patch.object(tts_studio.tts_service, "synthesize", synthesize), patch.object(
+            tts_studio.common,
+            "schedule_task",
+            side_effect=lambda task_id, runner: captured.update(task_id=task_id, runner=runner),
+        ):
             voices_response = self.client.get("/api/tts-studio/edge-tts/voices")
             response = self.client.post(
                 "/api/tts-studio/edge-tts/preview",
@@ -112,18 +128,34 @@ class TTSStudioApiTests(unittest.TestCase):
                     "speech_rate": "1.4",
                 },
             )
+            self._run_captured_runner(captured, response.json()["task_id"])
 
         self.assertEqual(voices_response.status_code, 200, voices_response.text)
         self.assertEqual(voices_response.json(), [edge_voice])
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()
-        self.assertRegex(payload["audio_url"], r"^/api/tasks/[0-9a-f]+/artifacts/[0-9a-f]+/preview$")
+        self.assertRegex(payload["task_id"], r"^[0-9a-f]+$")
+        self.assertEqual(payload, {"task_id": payload["task_id"]})
         task = task_store.get_task(payload["task_id"], self.user_id)
+        self.assertEqual(task["status"], "completed", task)
+        self.assertEqual(len(task["artifacts"]), 1)
+        self.assertRegex(
+            f"/api/tasks/{payload['task_id']}/artifacts/{task['artifacts'][0]['id']}/preview",
+            r"^/api/tasks/[0-9a-f]+/artifacts/[0-9a-f]+/preview$",
+        )
         self.assertEqual(task["task_type"], task_store.TASK_TYPE_VOICE)
-        self.assertTrue((self.output_root / "tasks").joinpath(task["created_at"][0:4], task["created_at"][5:7], task["created_at"][8:10], task_store.TASK_TYPE_VOICE, payload["task_id"], "preview_original.mp3").is_file())
-        self.assertEqual(payload["original_audio_url"], payload["audio_url"])
-        self.assertIsNone(payload["adjusted_audio_url"])
-        self.assertEqual(payload["tts_mode"], "edge-tts")
+        self.assertTrue(
+            (self.output_root / "tasks")
+            .joinpath(
+                task["created_at"][0:4],
+                task["created_at"][5:7],
+                task["created_at"][8:10],
+                task_store.TASK_TYPE_VOICE,
+                payload["task_id"],
+                "preview_original.mp3",
+            )
+            .is_file()
+        )
 
         call = synthesize.await_args
         model_name = call.kwargs["model_name"] if "model_name" in call.kwargs else call.args[0]
@@ -192,19 +224,26 @@ class TTSStudioApiTests(unittest.TestCase):
             output_path.parent.mkdir(parents=True, exist_ok=True)
             output_path.write_bytes(b"original audio")
 
+        captured = {}
         with patch.object(tts_studio, "resolve_output_dir", return_value=self.output_root), patch.object(
             tts_studio.tts_service,
             "list_voices",
             return_value=[edge_voice],
-        ), patch.object(tts_studio.tts_service, "synthesize", AsyncMock(side_effect=write_audio)):
+        ), patch.object(tts_studio.tts_service, "synthesize", AsyncMock(side_effect=write_audio)), patch.object(
+            tts_studio.common,
+            "schedule_task",
+            side_effect=lambda task_id, runner: captured.update(task_id=task_id, runner=runner),
+        ):
             generated = self.client.post(
                 "/api/tts-studio/edge-tts/preview",
                 data={"text": "original", "voice_id": edge_voice["id"]},
             ).json()
+            self._run_captured_runner(captured, generated["task_id"])
 
         task_id = generated["task_id"]
-        artifact_id = generated["artifact_id"]
         task = task_store.get_task(task_id, self.user_id)
+        self.assertEqual(task["status"], "completed", task)
+        artifact_id = task["artifacts"][0]["id"]
         adjusted_path = Path(task["storage_path"]) / "preview_1_2x.mp3"
         adjusted_path.write_bytes(b"adjusted audio")
         with patch.object(tts_studio, "resolve_output_dir", return_value=self.output_root), patch.object(
@@ -380,15 +419,22 @@ class TTSStudioApiTests(unittest.TestCase):
             output_path.write_bytes(b"generated")
             return SimpleNamespace(output_path=output_path, duration=0, model_name=model_name, voice_id=None, timings=())
 
+        captured = {}
         with patch.object(tts_studio, "resolve_output_dir", return_value=self.output_root), patch.object(
             tts_studio.tts_service, "synthesize", new=AsyncMock(side_effect=write_audio)
-        ) as synthesize:
+        ) as synthesize, patch.object(
+            tts_studio.common,
+            "schedule_task",
+            side_effect=lambda task_id, runner: captured.update(task_id=task_id, runner=runner),
+        ):
             response = self.client.post(
                 "/api/tts-studio/voice-clone/preview",
                 data={"text": "Use my voice", "voice_profile_id": profile["id"], "language": "Chinese"},
             )
+            self._run_captured_runner(captured, response.json()["task_id"])
 
         self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(set(response.json()), {"task_id"})
         request = synthesize.await_args.args[1]
         self.assertEqual(request.reference_audio.read_bytes(), b"database reference")
         self.assertEqual(request.reference_text, "Database reference text")

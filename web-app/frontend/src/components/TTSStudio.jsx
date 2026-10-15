@@ -71,6 +71,8 @@ export default function TTSStudio({ active = false }) {
   const [preview, setPreview] = useState(null);
   const [previewStale, setPreviewStale] = useState(false);
   const [generating, setGenerating] = useState(false);
+  const [activeTaskId, setActiveTaskId] = useState("");
+  const [taskStatus, setTaskStatus] = useState("");
   const [applyingSpeechRate, setApplyingSpeechRate] = useState(false);
 
   const selectedEdgeVoice = useMemo(
@@ -225,6 +227,7 @@ export default function TTSStudio({ active = false }) {
     if (ttsMode === "edge-tts" && !edgeVoice) return;
 
     setGenerating(true);
+    setTaskStatus("pending");
     try {
       const formData = new FormData();
       formData.append("text", text.trim());
@@ -241,24 +244,65 @@ export default function TTSStudio({ active = false }) {
       }
 
       const generated = await apiJson(endpoint, { method: "POST", body: formData }, backendBaseUrl);
-      const originalAudioUrl = generated.original_audio_url || generated.audio_url;
+      const taskId = generated.task_id;
+      setActiveTaskId(taskId);
+      let task = null;
+      for (let attempt = 0; attempt < 1200; attempt += 1) {
+        task = await apiJson(
+          `/api/tasks/${encodeURIComponent(taskId)}`,
+          { silentError: true },
+          backendBaseUrl
+        );
+        setTaskStatus(task.status);
+        if (["completed", "failed", "cancelled", "partial_failed"].includes(task.status)) break;
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+      }
+      if (!task || task.status !== "completed") {
+        setPreview(null);
+        return;
+      }
+      const artifact = (task.artifacts || []).find(
+        (item) => item.kind === "audio" && item.status === "completed"
+      );
+      if (!artifact?.preview_url) throw new Error("语音任务未返回音频产物");
+      const originalAudioUrl = artifact.preview_url;
       setSpeechRate(1);
       setPreview({
-        ...generated,
+        task_id: task.id,
+        artifact_id: artifact.id,
         audio_url: originalAudioUrl,
         original_audio_url: originalAudioUrl,
         adjusted_audio_url: null,
         processed_audio_url: null,
         adjusted_speech_rate: null,
         speech_rate: 1,
+        tts_mode: ttsMode,
+        voice_id: ttsMode === "edge-tts" ? edgeVoice : undefined,
+        voice_profile_id: ttsMode === "base" ? voiceProfileId : undefined,
+        language: ttsMode === "edge-tts" ? edgeLanguage : language,
       });
       setPreviewStale(false);
     } catch {
       // apiJson 已弹全局错误提示
     } finally {
       setGenerating(false);
+      setActiveTaskId("");
     }
   }, [backendBaseUrl, edgeLanguage, edgeVoice, language, text, ttsMode, voiceProfileId]);
+
+  const handleCancelPreview = useCallback(async () => {
+    if (!activeTaskId) return;
+    try {
+      setTaskStatus("cancelling");
+      await apiJson(
+        `/api/tasks/${encodeURIComponent(activeTaskId)}/cancel`,
+        { method: "POST" },
+        backendBaseUrl
+      );
+    } catch {
+      // apiJson 已弹出错误提示
+    }
+  }, [activeTaskId, backendBaseUrl]);
 
   const handleApplySpeechRate = useCallback(async () => {
     if (!preview?.original_audio_url) return;
@@ -317,10 +361,14 @@ export default function TTSStudio({ active = false }) {
         ? edgeVoice && selectedEdgeVoice
         : qwenProviderAvailable && voiceProfileId && selectedVoiceProfile)
   );
-  const status = generating ? "previewing" : preview && !previewStale ? "completed" : previewStale ? "ready" : "idle";
+  const status = generating ? (taskStatus || "previewing") : preview && !previewStale ? "completed" : previewStale ? "ready" : "idle";
   const statusLabel =
-    status === "previewing"
+    ["pending", "running", "previewing"].includes(status)
       ? "正在生成"
+      : status === "cancelling"
+        ? "正在取消"
+        : status === "cancelled"
+          ? "已取消"
       : status === "completed"
         ? adjustedAudioUrl
           ? "双版本已就绪"
@@ -588,6 +636,12 @@ export default function TTSStudio({ active = false }) {
                 startIcon={<Icon name={generating ? "loading" : "play"} size={16} />}>
                 {generating ? "正在生成语音" : "生成语音"}
               </Button>
+              {generating && activeTaskId ? (
+                <Button type="button" variant="outlined" size="large" color="error" onClick={handleCancelPreview}
+                  startIcon={<Icon name="x" size={16} />} disabled={taskStatus === "cancelling"}>
+                  {taskStatus === "cancelling" ? "正在取消" : "取消任务"}
+                </Button>
+              ) : null}
             </section>
           </div>
 

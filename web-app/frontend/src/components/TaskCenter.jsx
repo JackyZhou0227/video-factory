@@ -36,6 +36,7 @@ const GENERATION_LABELS = {
 const STATUS_LABELS = {
   pending: "等待中",
   running: "运行中",
+  cancelling: "正在取消",
   submitted: "已提交",
   completed: "已完成",
   partial_failed: "部分失败",
@@ -85,6 +86,10 @@ function statusIcon(status) {
   if (["completed", "submitted"].includes(status)) return "check";
   if (status === "cancelled") return "x";
   return "loading";
+}
+
+function canCancelTask(task) {
+  return task?.task_type === "voice_generation" && ["pending", "running"].includes(task.status);
 }
 
 function StatusChip({ status, withIcon = false }) {
@@ -249,6 +254,7 @@ export default function TaskCenter({ active = true }) {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("list");
+  const [cancellingId, setCancellingId] = useState("");
 
 
   const loadTasks = useCallback(async (targetPage = 1, silent = false) => {
@@ -326,6 +332,21 @@ export default function TaskCenter({ active = true }) {
     setDetailLoading(false);
   }, []);
 
+  const cancelTask = useCallback(async (task) => {
+    if (!canCancelTask(task) || cancellingId) return;
+    if (task.status === "running" && !window.confirm("确认停止这条语音生成任务吗？")) return;
+    setCancellingId(task.id);
+    try {
+      await apiJson(`/api/tasks/${encodeURIComponent(task.id)}/cancel`, { method: "POST" }, backendBaseUrl);
+      await loadTasks(page, true);
+      if (selectedId === task.id) await loadDetail(task.id, true);
+    } catch {
+      // apiJson 已弹出错误提示，保留任务行并继续轮询
+    } finally {
+      setCancellingId("");
+    }
+  }, [backendBaseUrl, cancellingId, loadDetail, loadTasks, page, selectedId]);
+
   const activeCount = useMemo(() => items.filter((item) => !FINAL_STATUSES.has(item.status)).length, [items]);
 
   return (
@@ -379,9 +400,28 @@ export default function TaskCenter({ active = true }) {
                 <span className="task-row-creator">{task.creator_display_name || task.creator_username || "—"}</span>
                 <span className="task-row-count">{task.success_count}/{task.requested_count}</span>
                 <StatusChip status={task.status} />
-                <Button className="task-detail-action" type="button" variant="outlined" size="small" onClick={() => loadDetail(task.id)} startIcon={<Icon name="file" size={14} />}>
-                  查看详情
-                </Button>
+                <span className="task-row-actions">
+                  <Button className="task-detail-action" type="button" variant="outlined" size="small" onClick={() => loadDetail(task.id)} startIcon={<Icon name="file" size={14} />}>
+                    查看详情
+                  </Button>
+                  {canCancelTask(task) ? (
+                    <IconButton
+                      type="button"
+                      size="small"
+                      color="error"
+                      disabled={cancellingId === task.id}
+                      onClick={() => cancelTask(task)}
+                      aria-label="取消任务"
+                      title="取消任务"
+                    >
+                      <Icon name={cancellingId === task.id ? "loading" : "x"} size={16} />
+                    </IconButton>
+                  ) : task.status === "cancelling" && task.task_type === "voice_generation" ? (
+                    <IconButton type="button" size="small" disabled aria-label="正在取消任务" title="正在取消">
+                      <Icon name="loading" size={16} />
+                    </IconButton>
+                  ) : null}
+                </span>
               </div>
             ))}
           </div>
