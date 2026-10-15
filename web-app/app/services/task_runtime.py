@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
@@ -11,7 +12,7 @@ from app.services import task_store
 logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
-TaskRunner = Callable[[], Awaitable[None]]
+TaskRunner = Callable[..., Awaitable[None]]
 ExecutorLane = Literal["media", "qwen"]
 
 
@@ -33,7 +34,8 @@ class TaskExecutionManager:
         self.max_queued_jobs = max(0, int(max_queued_jobs))
         self.capacity = self.max_active_jobs + self.max_queued_jobs
         self.qwen_limit = max(1, int(qwen_limit))
-        self._queue: asyncio.Queue[tuple[str, TaskRunner]] = asyncio.Queue()
+        self._queue: asyncio.Queue[tuple[str, TaskRunner, asyncio.Event]] = asyncio.Queue()
+        self._cancel_events: dict[str, asyncio.Event] = {}
         self._workers: list[asyncio.Task[None]] = []
         self._blocking_executor = ThreadPoolExecutor(
             max_workers=self.max_active_jobs,
@@ -80,8 +82,27 @@ class TaskExecutionManager:
             raise TaskRuntimeCapacityError("任务执行器正在启动或停止，请稍后重试")
         if self._reserved >= self.capacity:
             raise TaskRuntimeCapacityError("服务器任务队列已满，请等待已有任务完成后再试")
+        if task_id in self._cancel_events:
+            raise TaskRuntimeCapacityError("任务已经在执行队列中")
+        cancel_event = asyncio.Event()
+        self._cancel_events[task_id] = cancel_event
         self._reserved += 1
-        self._queue.put_nowait((task_id, runner))
+        self._queue.put_nowait((task_id, runner, cancel_event))
+
+    def cancel(self, task_id: str) -> bool:
+        """Signal one queued or running task without touching other work."""
+        event = self._cancel_events.get(str(task_id))
+        if event is None:
+            return False
+        event.set()
+        return True
+
+    def can_cancel(self, task_id: str) -> bool:
+        return str(task_id) in self._cancel_events
+
+    def is_cancel_requested(self, task_id: str) -> bool:
+        event = self._cancel_events.get(str(task_id))
+        return bool(event and event.is_set())
 
     async def run_blocking(
         self,
@@ -99,31 +120,111 @@ class TaskExecutionManager:
         finally:
             self._lane_active[lane] -= 1
 
+    @staticmethod
+    async def _invoke_runner(runner: TaskRunner, cancel_event: asyncio.Event) -> None:
+        try:
+            signature = inspect.signature(runner)
+            accepts_event = any(
+                parameter.kind in {
+                    inspect.Parameter.POSITIONAL_ONLY,
+                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                    inspect.Parameter.VAR_POSITIONAL,
+                }
+                for parameter in signature.parameters.values()
+            )
+        except (TypeError, ValueError):
+            accepts_event = False
+        if accepts_event:
+            await runner(cancel_event)
+        else:
+            await runner()
+
+    @staticmethod
+    def _transition(
+        task_id: str,
+        *,
+        status: str,
+        message: str,
+        error: str,
+        finished: bool = True,
+    ) -> None:
+        task_store.transition_task_status(
+            task_id,
+            expected_statuses=("pending", "running", "cancelling"),
+            status=status,
+            message=message,
+            error=error,
+            finished=finished,
+        )
+
     async def _worker(self, _index: int) -> None:
         while True:
-            task_id, runner = await self._queue.get()
+            task_id, runner, cancel_event = await self._queue.get()
             self._active += 1
             try:
-                task_store.update_task(
+                if cancel_event.is_set():
+                    self._transition(
+                        task_id,
+                        status="cancelled",
+                        message="任务已取消",
+                        error="用户主动取消任务",
+                    )
+                    continue
+
+                started = task_store.transition_task_status(
                     task_id,
+                    expected_statuses=("pending",),
                     status="running",
                     message="任务正在处理",
                     started=True,
                 )
-                await runner()
+                if started is None:
+                    if cancel_event.is_set():
+                        self._transition(
+                            task_id,
+                            status="cancelled",
+                            message="任务已取消",
+                            error="用户主动取消任务",
+                        )
+                    continue
+                if cancel_event.is_set():
+                    self._transition(
+                        task_id,
+                        status="cancelled",
+                        message="任务已取消",
+                        error="用户主动取消任务",
+                    )
+                    continue
+
+                await self._invoke_runner(runner, cancel_event)
+                if cancel_event.is_set():
+                    self._transition(
+                        task_id,
+                        status="cancelled",
+                        message="任务已取消",
+                        error="用户主动取消任务",
+                    )
             except asyncio.CancelledError:
-                task_store.update_task(
+                self._transition(
                     task_id,
                     status="cancelled",
                     message="服务停止时任务已取消",
                     error="服务停止时任务已取消",
-                    finished=True,
                 )
                 raise
             except Exception:
+                if cancel_event.is_set():
+                    self._transition(
+                        task_id,
+                        status="cancelled",
+                        message="任务已取消",
+                        error="用户主动取消任务",
+                    )
+                    continue
                 logger.exception("Background task failed: %s", task_id)
-                task_store.update_task(
+                task_store.transition_task_status(
                     task_id,
+                    expected_statuses=("running", "cancelling"),
                     status="failed",
                     message="任务执行失败",
                     error="服务器执行任务时发生未处理异常",
@@ -132,19 +233,21 @@ class TaskExecutionManager:
             finally:
                 self._active -= 1
                 self._reserved -= 1
+                self._cancel_events.pop(task_id, None)
                 self._queue.task_done()
 
     async def stop(self) -> None:
         self._accepting = False
         while not self._queue.empty():
-            task_id, _runner = self._queue.get_nowait()
-            task_store.update_task(
+            task_id, _runner, cancel_event = self._queue.get_nowait()
+            cancel_event.set()
+            self._transition(
                 task_id,
                 status="cancelled",
                 message="服务停止时任务未开始执行",
                 error="服务停止时任务未开始执行",
-                finished=True,
             )
+            self._cancel_events.pop(task_id, None)
             self._reserved -= 1
             self._queue.task_done()
         for worker in self._workers:

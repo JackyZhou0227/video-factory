@@ -145,6 +145,82 @@ class TaskStoreTests(unittest.TestCase):
         self.assertEqual(loaded["failed_count"], 2)
         self.assertIsNotNone(loaded["finished_at"])
 
+    def test_pending_task_cancellation_is_immediate_and_finished(self):
+        task = self._create_voice_task()
+
+        cancelled = task_store.request_task_cancellation(task["id"], "user-a")
+
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(cancelled["message"], "任务已取消")
+        self.assertEqual(cancelled["error"], "用户主动取消任务")
+        self.assertIsNotNone(cancelled["finished_at"])
+
+    def test_running_task_cancellation_enters_cancelling_without_finished_at(self):
+        task = self._create_voice_task()
+        task_store.update_task(task["id"], status="running", started=True)
+
+        cancelling = task_store.request_task_cancellation(task["id"], "user-a")
+
+        self.assertEqual(cancelling["status"], "cancelling")
+        self.assertIsNone(cancelling["finished_at"])
+
+    def test_cancel_is_idempotent_for_cancelled_task(self):
+        task = self._create_voice_task()
+        first = task_store.request_task_cancellation(task["id"], "user-a")
+
+        second = task_store.request_task_cancellation(task["id"], "user-a")
+
+        self.assertEqual(second["status"], "cancelled")
+        self.assertEqual(second["finished_at"], first["finished_at"])
+
+    def test_cancel_rejects_completed_task(self):
+        task = self._create_voice_task()
+        task_store.update_task(task["id"], status="completed", finished=True)
+
+        with self.assertRaises(task_store.TaskCancellationConflictError):
+            task_store.request_task_cancellation(task["id"], "user-a")
+
+    def test_cancelling_tasks_count_toward_quota_and_summary(self):
+        self._set_task_quota(per_user=1)
+        task = self._create_voice_task()
+        task_store.update_task(task["id"], status="running", started=True)
+        task_store.request_task_cancellation(task["id"], "user-a")
+
+        summary = task_store.get_task_summary("user-a")
+        self.assertEqual(
+            summary["user"],
+            {"pending": 0, "running": 0, "cancelling": 1, "active": 1, "limit": 1},
+        )
+        with self.assertRaises(task_store.TaskQuotaExceededError):
+            self._create_voice_task()
+
+    def test_cancel_and_complete_use_one_terminal_winner(self):
+        cancelled_first = self._create_voice_task()
+        task_store.update_task(cancelled_first["id"], status="running", started=True)
+
+        task_store.request_task_cancellation(cancelled_first["id"], "user-a")
+        completion = task_store.transition_task_status(
+            cancelled_first["id"],
+            expected_statuses=("running",),
+            status="completed",
+            progress=100,
+            finished=True,
+        )
+        self.assertIsNone(completion)
+        self.assertEqual(task_store.get_task(cancelled_first["id"])["status"], "cancelling")
+
+        completed_first = self._create_voice_task()
+        task_store.update_task(completed_first["id"], status="running", started=True)
+        task_store.transition_task_status(
+            completed_first["id"],
+            expected_statuses=("running",),
+            status="completed",
+            progress=100,
+            finished=True,
+        )
+        with self.assertRaises(task_store.TaskCancellationConflictError):
+            task_store.request_task_cancellation(completed_first["id"], "user-a")
+
     def _set_task_quota(self, per_user: int, active: int = 10, queued: int = 8) -> None:
         self._original_tasks_config = app_config.get("tasks")
         app_config["tasks"] = {

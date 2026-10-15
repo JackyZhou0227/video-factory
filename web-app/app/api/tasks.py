@@ -99,6 +99,38 @@ def list_tasks(
     }
 
 
+@router.post("/{task_id}/cancel")
+async def cancel_task(task_id: str, user: dict = Depends(require_current_user)):
+    try:
+        current = task_store.get_task(task_id, user["id"])
+    except task_store.TaskNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found") from None
+    if current["task_type"] != task_store.TASK_TYPE_VOICE:
+        raise HTTPException(status_code=409, detail="该任务类型暂不支持取消")
+    if current["status"] == "cancelled":
+        return task_payload(current)
+
+    try:
+        runtime = get_task_runtime()
+    except RuntimeError:
+        runtime = None
+    if current["status"] == "running" and (
+        runtime is None or not runtime.can_cancel(task_id)
+    ):
+        raise HTTPException(status_code=503, detail="任务执行器暂不可用")
+
+    try:
+        task = task_store.request_task_cancellation(task_id, user["id"])
+    except task_store.TaskNotFoundError:
+        raise HTTPException(status_code=404, detail="Task not found") from None
+    except task_store.TaskCancellationConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from None
+
+    if runtime is not None:
+        runtime.cancel(task_id)
+    return task_payload(task)
+
+
 @router.get("/{task_id}")
 def get_task(task_id: str, user: dict = Depends(require_current_user)):
     return task_payload(_owned_task(task_id, user["id"]))

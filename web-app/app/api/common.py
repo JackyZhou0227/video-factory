@@ -51,7 +51,7 @@ def create_task(**kwargs: Any) -> dict[str, Any]:
         raise HTTPException(status_code=429, detail=str(exc)) from None
 
 
-def schedule_task(task_id: str, runner: Callable[[], Awaitable[None]]) -> None:
+def schedule_task(task_id: str, runner: Callable[..., Awaitable[None]]) -> None:
     """Queue a persisted task in the application-owned execution runtime."""
     try:
         get_task_runtime().submit(task_id, runner)
