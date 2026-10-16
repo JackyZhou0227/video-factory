@@ -1,10 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
+import sys
+import time
 import unittest
 from unittest.mock import patch
 
-from app.services.task_runtime import TaskExecutionManager, TaskRuntimeCapacityError
+from app.services.task_runtime import (
+    TaskCancelledError,
+    TaskExecutionManager,
+    TaskRuntimeCapacityError,
+    run_subprocess_cancellable,
+)
 
 
 class TaskExecutionManagerTests(unittest.IsolatedAsyncioTestCase):
@@ -133,6 +141,54 @@ class TaskExecutionManagerTests(unittest.IsolatedAsyncioTestCase):
             self.manager.snapshot()["jobs"],
             {"active": 0, "queued": 0, "limit": 1, "capacity": 2},
         )
+
+
+class RunSubprocessCancellableTests(unittest.IsolatedAsyncioTestCase):
+    async def test_completes_normally_and_captures_output(self):
+        cancel_event = asyncio.Event()
+        completed = await asyncio.to_thread(
+            run_subprocess_cancellable,
+            [sys.executable, "-c", "print('hello')"],
+            cancel_event=cancel_event,
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "hello")
+
+    async def test_cancel_terminates_process_and_raises(self):
+        cancel_event = asyncio.Event()
+        started = time.monotonic()
+        runner = asyncio.create_task(
+            asyncio.to_thread(
+                run_subprocess_cancellable,
+                [sys.executable, "-c", "import time; time.sleep(30)"],
+                cancel_event=cancel_event,
+                poll_interval=0.05,
+                kill_grace_seconds=2.0,
+            )
+        )
+        await asyncio.sleep(0.3)
+        cancel_event.set()
+
+        with self.assertRaises(TaskCancelledError):
+            await runner
+        self.assertLess(time.monotonic() - started, 10.0)
+
+    async def test_non_zero_exit_raises_called_process_error(self):
+        cancel_event = asyncio.Event()
+        with self.assertRaises(subprocess.CalledProcessError):
+            await asyncio.to_thread(
+                run_subprocess_cancellable,
+                [sys.executable, "-c", "import sys; sys.exit(3)"],
+                cancel_event=cancel_event,
+            )
+
+    async def test_without_cancel_event_runs_to_completion(self):
+        completed = await asyncio.to_thread(
+            run_subprocess_cancellable,
+            [sys.executable, "-c", "print('done')"],
+        )
+        self.assertEqual(completed.returncode, 0)
+        self.assertEqual(completed.stdout.strip(), "done")
 
 
 if __name__ == "__main__":

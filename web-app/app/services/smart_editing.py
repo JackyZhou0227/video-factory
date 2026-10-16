@@ -243,6 +243,7 @@ def compose_video(
     subtitle_style: dict[str, Any] | None = None,
     subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
+    cancel_event=None,
 ) -> Path:
     template_production.require_ffmpeg()
     duration = audio_duration or template_production.probe_duration(audio_path)
@@ -266,6 +267,7 @@ def compose_video(
             fill_mode="cover",
             start_time=segment.start_time,
             image_motion=segment.media_type == "image",
+            cancel_event=cancel_event,
         )
         prepared.append(segment_path)
 
@@ -282,4 +284,5 @@ def compose_video(
         subtitle_style=subtitle_style or DEFAULT_SUBTITLE_STYLE,
         subtitle_enabled=subtitle_enabled,
         bgm_path=bgm_path,
+        cancel_event=cancel_event,
     )

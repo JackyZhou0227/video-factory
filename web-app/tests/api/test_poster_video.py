@@ -357,6 +357,33 @@ class PosterVideoApiTests(unittest.TestCase):
         self.assertEqual(record["extra_info"]["bgm_duration"], 20.0)
         self.assertEqual(record["extra_info"]["bgm_name"], "music.mp3")
 
+    def test_cancel_discards_completed_outputs_and_marks_task_cancelled(self):
+        cancel_event = asyncio.Event()
+        processed: list[Path] = []
+
+        def process(_input_path, _overlay_path, output_path):
+            output_path.write_bytes(b"image")
+            processed.append(output_path)
+            cancel_event.set()
+            return {}
+
+        with patch.object(poster_api.poster_video, "process_image", side_effect=process):
+            response = self.post_batch(
+                [("a.jpg", b"a", "image/jpeg"), ("b.jpg", b"b", "image/jpeg")],
+                media_type="image",
+            )
+            self.assertEqual(response.status_code, 200, response.text)
+            asyncio.run(self.schedule.call_args.args[1](cancel_event))
+
+        record = task_store.get_task(response.json()["task_id"], "user-a")
+        self.assertEqual(record["status"], "cancelled")
+        self.assertEqual(record["error"], "用户主动取消任务")
+        self.assertEqual(len(processed), 1)
+        for path in processed:
+            self.assertFalse(path.exists())
+        for item in record["extra_info"]["items"]:
+            self.assertEqual(item["status"], "cancelled")
+
     def test_invalid_bgm_persists_failure_and_cleans_snapshots(self):
         source = self.create_bgm()
         with patch.object(poster_api.common, "create_task", wraps=poster_api.common.create_task) as create, patch.object(

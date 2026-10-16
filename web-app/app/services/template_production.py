@@ -15,6 +15,7 @@ from app.schemas.template_definition import (
     render_script_prompt,
 )
 from app.services import template_registry
+from app.services.task_runtime import TaskCancelledError, run_subprocess_cancellable
 from app.services.video_encoding import h264_video_args
 from app.services.tts import TTSTiming
 
@@ -276,7 +277,7 @@ def ffmpeg_executable() -> str | None:
         return None
 
 
-def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
+def _run(command: list[str], cancel_event=None) -> subprocess.CompletedProcess[str]:
     resolved_command = list(command)
     if resolved_command and resolved_command[0] == "ffmpeg":
         executable = ffmpeg_executable()
@@ -284,7 +285,11 @@ def _run(command: list[str]) -> subprocess.CompletedProcess[str]:
             raise TemplateProductionError("缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
         resolved_command[0] = executable
     try:
+        if cancel_event is not None:
+            return run_subprocess_cancellable(resolved_command, cancel_event=cancel_event)
         return subprocess.run(resolved_command, check=True, capture_output=True, text=True)
+    except TaskCancelledError:
+        raise
     except FileNotFoundError as exc:
         raise TemplateProductionError(f"媒体命令不可用：{resolved_command[0]}") from exc
     except subprocess.CalledProcessError as exc:
@@ -379,6 +384,7 @@ def prepare_material_segment(
     fill_mode: str = "contain",
     start_time: float = 0.0,
     image_motion: bool = False,
+    cancel_event=None,
 ) -> Path:
     require_ffmpeg()
     width, height = target_size or ratio_size(ratio)
@@ -420,7 +426,7 @@ def prepare_material_segment(
             str(output_path),
         ]
     )
-    _run(command)
+    _run(command, cancel_event=cancel_event)
     return output_path
 
 
@@ -469,6 +475,7 @@ def compose_video(
     subtitle_style: dict[str, Any] | None = None,
     subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
+    cancel_event=None,
 ) -> Path:
     require_ffmpeg()
     duration = audio_duration or probe_duration(audio_path)
@@ -486,6 +493,7 @@ def compose_video(
         subtitle_style=subtitle_style,
         subtitle_enabled=subtitle_enabled,
         bgm_path=bgm_path,
+        cancel_event=cancel_event,
     )
 
 
@@ -503,6 +511,7 @@ def compose_prepared_video(
     subtitle_style: dict[str, Any] | None = None,
     subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
+    cancel_event=None,
 ) -> Path:
     require_ffmpeg()
     if not sequence:
@@ -572,7 +581,7 @@ def compose_prepared_video(
                 str(output_path),
             ]
         )
-        _run(command)
+        _run(command, cancel_event=cancel_event)
     finally:
         concat_path.unlink(missing_ok=True)
         if ass_path is not None:

@@ -12,6 +12,7 @@ from typing import Any
 
 from PIL import Image, ImageColor, ImageDraw, ImageFilter, ImageFont, ImageOps
 
+from app.services.task_runtime import TaskCancelledError, run_subprocess_cancellable
 from app.services.video_encoding import h264_video_args
 
 TARGET_WIDTH = 1080
@@ -246,13 +247,18 @@ def process_image(input_path: Path, overlay_path: Path, output_path: Path) -> No
         raise PosterVideoError(f"image processing failed: {exc}") from exc
 
 
-def _run_ffmpeg(command: list[str]) -> subprocess.CompletedProcess[str]:
+def _run_ffmpeg(
+    command: list[str],
+    cancel_event=None,
+) -> subprocess.CompletedProcess[str]:
     resolved = list(command)
     if resolved and resolved[0] == "ffmpeg":
         executable = ffmpeg_executable()
         if executable is None:
             raise PosterVideoError("缺少 FFmpeg，请安装系统 FFmpeg 或 imageio-ffmpeg 依赖")
         resolved[0] = executable
+    if cancel_event is not None:
+        return run_subprocess_cancellable(resolved, cancel_event=cancel_event, check=True)
     return subprocess.run(resolved, check=True, capture_output=True, text=True)
 
 
@@ -391,6 +397,7 @@ def process_video(
     mute_original_audio: bool = True,
     narration_duration: float | None = None,
     bgm_duration: float | None = None,
+    cancel_event=None,
 ) -> dict[str, Any]:
     require_ffmpeg()
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -422,8 +429,11 @@ def process_video(
                 original_audio_offset=(
                     video_info.get("audio_start_time", 0) - video_info.get("video_start_time", 0)
                 ),
-            ))
+            ), cancel_event=cancel_event)
         return timing
+    except TaskCancelledError:
+        output_path.unlink(missing_ok=True)
+        raise
     except Exception as exc:
         output_path.unlink(missing_ok=True)
         if isinstance(exc, PosterVideoError):

@@ -272,7 +272,7 @@ async def generate_poster_videos(
         )
         poster_video.create_overlay(parsed_template, overlay_path)
         _tasks[task_id] = task
-        common.schedule_task(task_id, lambda: _run_batch(
+        common.schedule_task(task_id, lambda cancel_event=None: _run_batch(
             task_id=task_id,
             files=saved_files,
             overlay_path=overlay_path,
@@ -283,6 +283,7 @@ async def generate_poster_videos(
             mute_original_audio=mute_original_audio,
             narration_duration=narration_duration,
             bgm_duration=bgm_duration,
+            cancel_event=cancel_event,
         ))
     except Exception as exc:
         error = str(exc.detail) if isinstance(exc, HTTPException) else str(exc)
@@ -332,6 +333,7 @@ async def _run_batch(
     mute_original_audio: bool = True,
     narration_duration: float | None = None,
     bgm_duration: float | None = None,
+    cancel_event=None,
 ) -> None:
     task = _tasks[task_id]
     total = len(files)
@@ -357,6 +359,7 @@ async def _run_batch(
         )
 
         for index, item in enumerate(files, start=1):
+            common.check_cancellation(cancel_event)
             set_item(item["id"], status="running", message=f"正在生成大字报{label}...")
             task.update(
                 status="running",
@@ -379,6 +382,7 @@ async def _run_batch(
                     "mute_original_audio": mute_original_audio,
                     "narration_duration": narration_duration,
                     "bgm_duration": bgm_duration,
+                    "cancel_event": cancel_event,
                 } if media_type == "video" else {}
                 metadata = await run_blocking("media",
                     processor,
@@ -410,6 +414,8 @@ async def _run_batch(
                 )
                 completed += 1
                 completed_outputs.append(item["output_path"])
+            except (common.TaskCancelled, poster_video.TaskCancelledError):
+                raise
             except Exception as exc:
                 item["output_path"].unlink(missing_ok=True)
                 set_item(
@@ -462,6 +468,25 @@ async def _run_batch(
             error=final_message if failed and not completed else None,
             success_count=completed,
             failed_count=failed,
+            finished=True,
+        )
+    except (common.TaskCancelled, poster_video.TaskCancelledError):
+        # Cancel = discard everything, including items that already completed.
+        for file_entry in files:
+            Path(file_entry["output_path"]).unlink(missing_ok=True)
+        for item in task["items"]:
+            item.update(status="cancelled", message="任务已取消", video_url=None, image_url=None, asset_url=None)
+        zip_path = task_dir / ("poster_videos.zip" if media_type == "video" else "poster_images.zip")
+        zip_path.unlink(missing_ok=True)
+        task.update(status="cancelled", progress=0, message="任务已取消", error="用户主动取消任务")
+        _persist_items(
+            task_id, task,
+            status="cancelled",
+            progress=0,
+            message="任务已取消",
+            error="用户主动取消任务",
+            success_count=0,
+            failed_count=total,
             finished=True,
         )
     except Exception as exc:
