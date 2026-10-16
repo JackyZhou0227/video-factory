@@ -722,7 +722,7 @@ async def create_task(
         "zip_url": None,
         "error": None,
     }
-    common.schedule_task(task_id, lambda: _run_task(
+    common.schedule_task(task_id, lambda cancel_event=None: _run_task(
             task_id=task_id,
             task_dir=task_dir,
             output_dir=output_dir,
@@ -733,6 +733,7 @@ async def create_task(
             subtitle_style=subtitle_style,
             subtitle_enabled=subtitle_enabled,
             bgm_path=bgm_path,
+            cancel_event=cancel_event,
         ))
     return {"task_id": task_id}
 
@@ -765,6 +766,7 @@ async def _run_task(
     subtitle_style: dict[str, Any] | None = None,
     subtitle_enabled: bool = True,
     bgm_path: Path | None = None,
+    cancel_event=None,
 ) -> None:
     task = _tasks[task_id]
     completed_outputs: list[Path] = []
@@ -778,6 +780,7 @@ async def _run_task(
         prepared_segments: list[Path] = []
         task.update(status="running", progress=1, message="正在标准化素材")
         for index, material in enumerate(materials, start=1):
+            common.check_cancellation(cancel_event)
             segment_path = temp_dir / f"segment_{index:02d}.mp4"
             await run_blocking("media",
                 template_production.prepare_material_segment,
@@ -785,6 +788,7 @@ async def _run_task(
                 segment_path,
                 media_type=material["media_type"],
                 ratio=ratio,
+                cancel_event=cancel_event,
             )
             prepared_segments.append(segment_path)
             task.update(
@@ -801,6 +805,7 @@ async def _run_task(
 
         total = len(task["items"])
         for index, item in enumerate(task["items"], start=1):
+            common.check_cancellation(cancel_event)
             item.update(status="running", message="正在生成配音")
             task.update(
                 progress=10 + round((index - 1) / total * 85),
@@ -820,6 +825,7 @@ async def _run_task(
                     _template_tts_request(item["script"]),
                     audio_path,
                 )
+                common.check_cancellation(cancel_event)
                 audio_duration = tts_result.duration or await run_blocking("media", template_production.probe_duration, audio_path)
                 item["message"] = "正在合成视频"
                 await run_blocking("media",
@@ -837,6 +843,7 @@ async def _run_task(
                     subtitle_style=subtitle_style,
                     subtitle_enabled=subtitle_enabled,
                     bgm_path=bgm_path,
+                    cancel_event=cancel_event,
                 )
                 completed_outputs.append(output_path)
                 item.update(
@@ -854,6 +861,8 @@ async def _run_task(
                     mime_type="video/mp4",
                     is_primary=len(completed_outputs) == 1,
                 )
+            except (common.TaskCancelled, template_production.TaskCancelledError):
+                raise
             except Exception as exc:
                 failed += 1
                 item.update(status="failed", message="生成失败", error=str(exc))
@@ -896,6 +905,22 @@ async def _run_task(
             error=message if completed == 0 else None,
             success_count=completed,
             failed_count=failed,
+            finished=True,
+        )
+    except (common.TaskCancelled, template_production.TaskCancelledError):
+        # Cancel = discard everything, including videos that already completed.
+        for item in task.get("items", []):
+            item.update(status="cancelled", message="任务已取消", video_url=None, error=None)
+        common.discard_task_outputs(list(output_dir.glob("*")))
+        task.update(status="cancelled", progress=0, message="任务已取消", error="用户主动取消任务")
+        common.persist_task_update(
+            task_id,
+            status="cancelled",
+            progress=0,
+            message="任务已取消",
+            error="用户主动取消任务",
+            success_count=0,
+            failed_count=len(task.get("items", [])),
             finished=True,
         )
     except Exception as exc:

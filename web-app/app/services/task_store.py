@@ -6,7 +6,7 @@ import re
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Sequence
 
 from sqlalchemy import case, func, select, update
 from sqlalchemy.orm import Session as OrmSession
@@ -32,6 +32,7 @@ GENERATION_TYPES = {"voice", "image", "video"}
 TASK_STATUSES = {
     "pending",
     "running",
+    "cancelling",
     "submitted",
     "completed",
     "partial_failed",
@@ -39,8 +40,10 @@ TASK_STATUSES = {
     "cancelled",
 }
 TERMINAL_STATUSES = {"submitted", "completed", "partial_failed", "failed", "cancelled"}
-# 占用并发配额的状态：已创建但尚未开始，以及正在执行。
-RUNNING_STATUSES = ("pending", "running")
+# 占用并发配额的状态：已创建但尚未开始、正在执行，以及等待协作式取消完成。
+ACTIVE_STATUSES = ("pending", "running", "cancelling")
+# 保留旧名称，避免外部调用方在迁移期间失效。
+RUNNING_STATUSES = ACTIVE_STATUSES
 DEFAULT_MAX_RUNNING_TASKS_PER_USER = 3
 DEFAULT_MAX_ACTIVE_JOBS = 10
 DEFAULT_MAX_QUEUED_JOBS = 8
@@ -100,6 +103,14 @@ class TaskQuotaExceededError(RuntimeError):
         super().__init__(message)
         self.scope = scope
         self.limit = limit
+
+
+class TaskCancellationConflictError(RuntimeError):
+    """任务已经进入不可取消的终态。"""
+
+    def __init__(self, message: str, *, status: str) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 def _now() -> datetime:
@@ -387,7 +398,14 @@ def get_task_summary(user_id: str) -> dict[str, dict[str, int | None]]:
     def summary(counts: dict[str, int], limit: Optional[int]) -> dict[str, int | None]:
         pending = int(counts.get("pending", 0))
         running = int(counts.get("running", 0))
-        return {"pending": pending, "running": running, "active": pending + running, "limit": limit}
+        cancelling = int(counts.get("cancelling", 0))
+        return {
+            "pending": pending,
+            "running": running,
+            "cancelling": cancelling,
+            "active": pending + running + cancelling,
+            "limit": limit,
+        }
 
     return {
         "user": summary(user_counts, per_user_limit),
@@ -551,6 +569,124 @@ def update_task(
     return _row_to_record(task)
 
 
+def transition_task_status(
+    task_id: str,
+    *,
+    expected_statuses: Sequence[str],
+    status: str,
+    user_id: Optional[str] = None,
+    progress: Optional[int] = None,
+    message: Optional[str] = None,
+    error: Optional[str] = None,
+    started: bool = False,
+    finished: Optional[bool] = None,
+) -> Optional[dict[str, Any]]:
+    """Atomically move a task when its current status matches an expected state."""
+    expected = tuple(dict.fromkeys(str(item) for item in expected_statuses))
+    if not expected:
+        raise ValueError("expected_statuses must not be empty")
+    if any(item not in TASK_STATUSES for item in expected):
+        raise ValueError("expected_statuses contains an unsupported task status")
+    if status not in TASK_STATUSES:
+        raise ValueError(f"Unsupported task status: {status}")
+    if progress is not None and not 0 <= int(progress) <= 100:
+        raise ValueError("progress must be between 0 and 100")
+
+    _ensure_db()
+    now = _now_iso()
+    values: dict[str, Any] = {
+        "status": status,
+        "updated_at": now,
+    }
+    if progress is not None:
+        values["progress"] = int(progress)
+    if message is not None:
+        values["message"] = str(message)
+    if error is not None:
+        values["error"] = str(error)
+    if started:
+        values["started_at"] = func.coalesce(GenerationTask.started_at, now)
+    is_finished = finished if finished is not None else status in TERMINAL_STATUSES
+    if is_finished:
+        values["finished_at"] = func.coalesce(GenerationTask.finished_at, now)
+
+    record: Optional[dict[str, Any]] = None
+    with _orm_session() as session:
+        statement = (
+            update(GenerationTask)
+            .where(GenerationTask.id == task_id)
+            .where(GenerationTask.status.in_(expected))
+        )
+        if user_id is not None:
+            statement = statement.where(GenerationTask.user_id == user_id)
+        result = session.execute(statement.values(**values))
+        if result.rowcount == 1:
+            task = _fetch_row(session, task_id, user_id)
+            if task is not None:
+                record = _row_to_record(task)
+    return record
+
+
+def request_task_cancellation(task_id: str, user_id: str) -> dict[str, Any]:
+    """Request cancellation while preserving the task record and its history."""
+    _ensure_db()
+    now = _now_iso()
+    record: Optional[dict[str, Any]] = None
+    with _orm_session() as session:
+        current = _fetch_row(session, task_id, user_id)
+        if current is None:
+            raise TaskNotFoundError("Task not found")
+        if current.task_type == TASK_TYPE_DIGITAL_HUMAN:
+            raise TaskCancellationConflictError(
+                "数字人任务暂不支持取消",
+                status=str(current.status),
+            )
+        if current.status in {"cancelled", "cancelling"}:
+            return _row_to_record(current)
+
+        pending_update = (
+            update(GenerationTask)
+            .where(GenerationTask.id == task_id)
+            .where(GenerationTask.user_id == user_id)
+            .where(GenerationTask.status == "pending")
+            .values(
+                status="cancelled",
+                message="任务已取消",
+                error="用户主动取消任务",
+                finished_at=now,
+                updated_at=now,
+            )
+        )
+        result = session.execute(pending_update)
+        if result.rowcount != 1:
+            running_update = (
+                update(GenerationTask)
+                .where(GenerationTask.id == task_id)
+                .where(GenerationTask.user_id == user_id)
+                .where(GenerationTask.status == "running")
+                .values(
+                    status="cancelling",
+                    message="任务正在取消",
+                    error="用户主动取消任务",
+                    updated_at=now,
+                )
+            )
+            result = session.execute(running_update)
+
+        task = _fetch_row(session, task_id, user_id)
+        if task is None:
+            raise TaskNotFoundError("Task not found")
+        if result.rowcount == 1:
+            record = _row_to_record(task)
+        else:
+            raise TaskCancellationConflictError(
+                "任务当前状态不可取消",
+                status=str(task.status),
+            )
+    assert record is not None
+    return record
+
+
 def add_artifact(
     task_id: str,
     *,
@@ -585,6 +721,78 @@ def add_artifact(
     artifacts = list(task["artifacts"])
     artifacts.append(artifact)
     return update_task(task_id, user_id=user_id, artifacts=artifacts)
+
+
+def complete_task_with_artifact(
+    task_id: str,
+    *,
+    path: Path,
+    name: Optional[str] = None,
+    kind: str = "file",
+    mime_type: Optional[str] = None,
+    is_primary: bool = False,
+    counts_toward_result: bool = True,
+    user_id: Optional[str] = None,
+    artifact_id: Optional[str] = None,
+    message: str = "任务已完成",
+    expected_statuses: Sequence[str] = ("running",),
+) -> Optional[dict[str, Any]]:
+    """Publish one artifact only if the task is still in an expected state."""
+    path = Path(path).resolve()
+    expected = tuple(dict.fromkeys(str(item) for item in expected_statuses))
+    if not expected or any(item not in TASK_STATUSES for item in expected):
+        raise ValueError("expected_statuses contains an unsupported task status")
+
+    _ensure_db()
+    now = _now_iso()
+    with _orm_session() as session:
+        task = _fetch_row(session, task_id, user_id)
+        if task is None:
+            raise TaskNotFoundError("Task not found")
+        storage_path = Path(task.storage_path).resolve()
+        try:
+            path.relative_to(storage_path)
+        except ValueError:
+            raise ValueError("artifact path must be inside task directory") from None
+
+        artifact = {
+            "id": artifact_id or uuid.uuid4().hex,
+            "name": name or path.name,
+            "kind": kind,
+            "mime_type": mime_type
+            or mimetypes.guess_type(str(path))[0]
+            or "application/octet-stream",
+            "path": str(path),
+            "status": "completed",
+            "size": path.stat().st_size if path.is_file() else 0,
+            "created_at": now,
+            "is_primary": bool(is_primary),
+            "counts_toward_result": bool(counts_toward_result),
+        }
+        artifacts = _normalize_artifacts(
+            [*(_json_loads(task.artifacts_json, []) or []), artifact],
+            storage_path=storage_path,
+        )
+        success_count, failed_count = _artifact_counts(artifacts)
+        result = session.execute(
+            update(GenerationTask)
+            .where(GenerationTask.id == task_id)
+            .where(GenerationTask.status.in_(expected))
+            .values(
+                status="completed",
+                progress=100,
+                message=message,
+                artifacts_json=_json_dumps(artifacts),
+                success_count=success_count,
+                failed_count=failed_count,
+                finished_at=func.coalesce(GenerationTask.finished_at, now),
+                updated_at=now,
+            )
+        )
+        if result.rowcount != 1:
+            return None
+        completed = _fetch_row(session, task_id, user_id)
+        return _row_to_record(completed) if completed is not None else None
 
 
 def update_artifact(

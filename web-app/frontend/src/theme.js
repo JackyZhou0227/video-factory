@@ -32,6 +32,7 @@ export const designTokens = tokens;
 export const statusChipColors = {
   running: { bg: tokens.infoSoft, fg: "#3d678c" },
   pending: { bg: tokens.muted, fg: tokens.textMuted },
+  cancelling: { bg: tokens.primarySoft, fg: tokens.primaryDark },
   previewing: { bg: tokens.primarySoft, fg: tokens.primaryDark },
   ready: { bg: tokens.primarySoft, fg: tokens.primaryDark },
   completed: { bg: tokens.successSoft, fg: "#4f5d3a" },

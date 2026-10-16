@@ -14,6 +14,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { createOrganization, deleteOrganization, listOrganizations, renameOrganization } from "../lib/auth";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 
@@ -97,7 +98,7 @@ export default function OrganizationManagement({ embedded = false }) {
             variant="contained"
             size="small"
             onClick={() => { setCreateOpen(true); setName(""); }}
-            startIcon={<Icon name={submitting ? "loading" : "plus"} size={16} />}
+            startIcon={submitting ? <Spinner size={16} /> : <Icon name="plus" size={16} />}
           >
             新建组织
           </Button>
@@ -129,7 +130,7 @@ export default function OrganizationManagement({ embedded = false }) {
                             size="small"
                             onClick={() => { setEditing(org); setEditingName(org.name); }}
                           >
-                            <Icon name={actingId === org.id ? "loading" : "edit"} size={16} />
+                            {actingId === org.id ? <Spinner size={16} /> : <Icon name="edit" size={16} />}
                           </IconButton>
                         </span>
                       </Tooltip>
@@ -143,7 +144,7 @@ export default function OrganizationManagement({ embedded = false }) {
                             onClick={() => handleDelete(org)}
                             sx={{ color: "#c0392b", "&:hover": { backgroundColor: "rgba(192, 57, 43, 0.08)" }, "&.Mui-disabled": { color: "rgba(192, 57, 43, 0.35)" } }}
                           >
-                            <Icon name={actingId === org.id ? "loading" : "trash"} size={16} />
+                            {actingId === org.id ? <Spinner size={16} /> : <Icon name="trash" size={16} />}
                           </IconButton>
                         </span>
                       </Tooltip>
@@ -188,7 +189,7 @@ export default function OrganizationManagement({ embedded = false }) {
               variant="contained"
               onClick={handleCreate}
               disabled={submitting || !name.trim()}
-              startIcon={<Icon name={submitting ? "loading" : "plus"} size={16} />}
+              startIcon={submitting ? <Spinner size={16} /> : <Icon name="plus" size={16} />}
             >
               {submitting ? "创建中..." : "确认"}
             </Button>

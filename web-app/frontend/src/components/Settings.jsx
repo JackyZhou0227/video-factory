@@ -7,6 +7,7 @@ import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 import { apiJson, getBackendDisplayUrl, useBackendBaseUrl } from "../lib/backend";
 import { maskApiKey } from "../lib/runninghubSettings";
@@ -222,7 +223,7 @@ export default function Settings() {
             <TextField className="field" label="机器规格" fullWidth size="small" select value={instanceType} onChange={(event) => setInstanceType(event.target.value)}>
               {INSTANCE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
             </TextField>
-            <div className="settings-actions"><Button type="button" variant="contained" onClick={saveRunningHub} disabled={savingRunningHub} startIcon={<Icon name={savingRunningHub ? "loading" : "save"} size={16} />}>{savingRunningHub ? "正在保存" : "保存"}</Button></div>
+            <div className="settings-actions"><Button type="button" variant="contained" onClick={saveRunningHub} disabled={savingRunningHub} startIcon={savingRunningHub ? <Spinner size={16} /> : <Icon name="save" size={16} />}>{savingRunningHub ? "正在保存" : "保存"}</Button></div>
           </div>
         </section>
 
@@ -240,9 +241,9 @@ export default function Settings() {
             <TextField className="field" label="模型名称" fullWidth size="small" value={llmModel} onChange={(event) => updateLlmField(setLlmModel, event.target.value)} placeholder="例如：gpt-4o-mini 或 deepseek-chat" />
             <TextField className="field" label="API Key" fullWidth size="small" type="password" autoComplete="off" value={llmApiKey} onChange={(event) => updateLlmField(setLlmApiKey, event.target.value)} placeholder={llm.api_key_configured ? "已配置，留空则不修改" : "本地无鉴权服务可留空"} />
             <div className="settings-actions llm-settings-actions">
-              <Button type="button" variant="outlined" size="small" onClick={testLlm} disabled={testingLlm || !llmReady} startIcon={<Icon name={testingLlm ? "loading" : "lab"} size={16} />}>{testingLlm ? "正在测试" : llmTestPassed ? "重新测试" : "测试连接"}</Button>
+              <Button type="button" variant="outlined" size="small" onClick={testLlm} disabled={testingLlm || !llmReady} startIcon={testingLlm ? <Spinner size={16} /> : <Icon name="lab" size={16} />}>{testingLlm ? "正在测试" : llmTestPassed ? "重新测试" : "测试连接"}</Button>
               {llm.api_key_configured ? <Button type="button" color="error" size="small" onClick={clearLlmKey} disabled={savingLlm}>清除密钥</Button> : null}
-              <Button type="button" variant="contained" onClick={saveLlm} disabled={savingLlm || testingLlm || !llmReady || !llmTestPassed} startIcon={<Icon name={savingLlm ? "loading" : "save"} size={16} />}>{savingLlm ? "正在保存" : "保存"}</Button>
+              <Button type="button" variant="contained" onClick={saveLlm} disabled={savingLlm || testingLlm || !llmReady || !llmTestPassed} startIcon={savingLlm ? <Spinner size={16} /> : <Icon name="save" size={16} />}>{savingLlm ? "正在保存" : "保存"}</Button>
             </div>
           </div>
         </section>

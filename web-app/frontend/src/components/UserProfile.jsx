@@ -10,6 +10,7 @@ import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import Alert from "./Alert";
 import { changePassword, updateProfile } from "../lib/auth";
 import { useGlobalMessage } from "./GlobalMessageProvider";
@@ -119,7 +120,7 @@ export default function UserProfile({ currentUser, profilePage = "profile", onNa
                   }}
                 />
               </div>
-              <Button type="submit" variant="contained" disabled={savingProfile} startIcon={<Icon name={savingProfile ? "loading" : "save"} size={16} />}>{savingProfile ? "正在保存" : "保存资料"}</Button>
+              <Button type="submit" variant="contained" disabled={savingProfile} startIcon={savingProfile ? <Spinner size={16} /> : <Icon name="save" size={16} />}>{savingProfile ? "正在保存" : "保存资料"}</Button>
             </form>
             <div className="profile-security-row">
               <div><strong>账号密码</strong><p>定期更新密码，保护账号安全。</p></div>
@@ -158,7 +159,7 @@ export default function UserProfile({ currentUser, profilePage = "profile", onNa
             <TextField className="field" label="确认新密码" fullWidth size="small" type="password" autoComplete="new-password" slotProps={{ htmlInput: { minLength: 8 } }} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} />
             <div className="modal-actions">
               <Button type="button" variant="outlined" onClick={() => switchView(false)} disabled={changingPassword}>取消</Button>
-              <Button type="submit" variant="contained" disabled={changingPassword} startIcon={<Icon name={changingPassword ? "loading" : "save"} size={16} />}>{changingPassword ? "正在修改" : "修改密码"}</Button>
+              <Button type="submit" variant="contained" disabled={changingPassword} startIcon={changingPassword ? <Spinner size={16} /> : <Icon name="save" size={16} />}>{changingPassword ? "正在修改" : "修改密码"}</Button>
             </div>
           </form>
           {error ? <Alert type="error">{error}</Alert> : null}

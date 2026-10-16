@@ -8,6 +8,7 @@ import LinearProgress from "@mui/material/LinearProgress";
 import { statusChipColors } from "../theme";
 import BgmManager from "./BgmManager";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import SubtitleSettings, { cloneDefaultSubtitleStyle } from "./SubtitleSettings";
@@ -612,7 +613,7 @@ export default function TemplateProduction({ currentUser }) {
           />
         ) : null}
         {templatesLoading && !templates.length ? (
-          <div className="template-empty-state"><Icon name="loading" size={20} />正在加载模板...</div>
+          <div className="template-empty-state"><Spinner size={20} />正在加载模板...</div>
         ) : templateError && !templates.length ? (
           <div className="template-empty-state is-error">
             <Icon name="alert" size={20} />
@@ -637,7 +638,7 @@ export default function TemplateProduction({ currentUser }) {
                 onClick={() => templateFileInputRef.current?.click()}
                 disabled={importingTemplate}
                 title="导入共享模板 JSON"
-                startIcon={<Icon name={importingTemplate ? "loading" : "upload"} size={15} />}
+                startIcon={importingTemplate ? <Spinner size={15} /> : <Icon name="upload" size={15} />}
               >
                 {importingTemplate ? "导入中" : "导入模板"}
               </Button>
@@ -676,7 +677,7 @@ export default function TemplateProduction({ currentUser }) {
             <div className="template-heading-actions">
               {currentUser?.is_admin ? <>
                 <Button type="button" variant="outlined" size="small" onClick={() => templateFileInputRef.current?.click()} disabled={submitting || importingTemplate} title="导入共享模板 JSON"
-                  startIcon={<Icon name={importingTemplate ? "loading" : "upload"} size={15} />}>
+                  startIcon={importingTemplate ? <Spinner size={15} /> : <Icon name="upload" size={15} />}>
                   {importingTemplate ? "导入中" : "导入模板"}
                 </Button>
               </> : null}
@@ -687,7 +688,7 @@ export default function TemplateProduction({ currentUser }) {
                 onClick={exportTemplate}
                 disabled={!selectedTemplate || exportingTemplate}
                 title="导出当前模板 JSON"
-                startIcon={<Icon name={exportingTemplate ? "loading" : "download"} size={15} />}
+                startIcon={exportingTemplate ? <Spinner size={15} /> : <Icon name="download" size={15} />}
               >
                 {exportingTemplate ? "导出中" : "导出模板"}
               </Button>
@@ -789,7 +790,7 @@ export default function TemplateProduction({ currentUser }) {
               <span><Icon name="sparkles" size={17} /></span>
               <div><strong id="template-script-title">口播文案</strong><small>从候选中选择，再编辑最终文案</small></div>
               <Button type="button" variant="contained" size="small" onClick={generateAiScripts} disabled={generatingScripts}
-                startIcon={<Icon name={generatingScripts ? "loading" : "sparkles"} size={15} />}>
+                startIcon={generatingScripts ? <Spinner size={15} /> : <Icon name="sparkles" size={15} />}>
                 {generatingScripts ? "生成中" : "AI 生成"}
               </Button>
             </div>
@@ -811,11 +812,11 @@ export default function TemplateProduction({ currentUser }) {
                           disabled={Boolean(rewritingCandidateId)}
                           size="small"
                         >
-                          <Icon
-                            name={rewritingCandidateId === candidate.id ? "loading" : "refresh"}
-                            size={15}
-                            data-loading={rewritingCandidateId === candidate.id ? "true" : undefined}
-                          />
+                          {rewritingCandidateId === candidate.id ? (
+                            <Spinner size={15} />
+                          ) : (
+                            <Icon name="refresh" size={15} />
+                          )}
                         </IconButton>
                       ) : null}
                     </div>
@@ -890,7 +891,7 @@ export default function TemplateProduction({ currentUser }) {
               onChange={(event) => setGenerateCount(Math.max(1, Math.min(maxBatchSize, Number(event.target.value) || 1)))}
             />
             <Button className="template-submit-action" type="button" variant="contained" size="large" onClick={submitTask} disabled={!canSubmit}
-              startIcon={<Icon name={submitting ? "loading" : "wand"} size={17} />}>
+              startIcon={submitting ? <Spinner size={17} /> : <Icon name="wand" size={17} />}>
               {submitting ? "正在批量生成" : `生成 ${generateCount} 条视频`}
             </Button>
           </div>
@@ -931,7 +932,7 @@ export default function TemplateProduction({ currentUser }) {
                       backendBaseUrl={backendBaseUrl}
                     />
                   ) : (
-                    <div className="template-result-placeholder"><Icon name={item.status === "failed" ? "alert" : "loading"} size={22} /></div>
+                    <div className="template-result-placeholder">{item.status === "failed" ? <Icon name="alert" size={22} /> : <Spinner size={22} />}</div>
                   )}
                 </div>
                 <div className="template-result-copy">

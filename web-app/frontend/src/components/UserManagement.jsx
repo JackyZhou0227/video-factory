@@ -17,6 +17,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import {
   createMember,
   listOrganizations,
@@ -109,7 +110,7 @@ function UserRow({ user, currentUserId, canManageRoles, onOpenReset, onOpenRole,
                     disabled={isActing}
                     size="small"
                   >
-                    <Icon name={isActing ? "loading" : "check"} size={16} />
+                    {isActing ? <Spinner size={16} /> : <Icon name="check" size={16} />}
                   </IconButton>
                 </span>
               </Tooltip>
@@ -139,7 +140,7 @@ function UserRow({ user, currentUserId, canManageRoles, onOpenReset, onOpenRole,
                       disabled={isUpdatingRole || isCurrentUser}
                       size="small"
                     >
-                      <Icon name={isUpdatingRole ? "loading" : "shield"} size={16} />
+                      {isUpdatingRole ? <Spinner size={16} /> : <Icon name="shield" size={16} />}
                     </IconButton>
                   </span>
                 </Tooltip>
@@ -153,7 +154,7 @@ function UserRow({ user, currentUserId, canManageRoles, onOpenReset, onOpenRole,
                     disabled={isResetting}
                     size="small"
                   >
-                    <Icon name={isResetting ? "loading" : "key"} size={16} />
+                    {isResetting ? <Spinner size={16} /> : <Icon name="key" size={16} />}
                   </IconButton>
                 </span>
               </Tooltip>
@@ -548,7 +549,7 @@ export default function UserManagement({ currentUser }) {
             variant="contained"
             onClick={handleCreateMember}
             disabled={creating || createForm.username.trim().length < 3 || createForm.password.length < 8}
-            startIcon={<Icon name={creating ? "loading" : "user"} size={16} />}
+            startIcon={creating ? <Spinner size={16} /> : <Icon name="user" size={16} />}
           >
             {creating ? "正在创建" : "确认创建"}
           </Button>
@@ -593,7 +594,7 @@ export default function UserManagement({ currentUser }) {
         <DialogActions>
           <Button type="button" onClick={closeResetDialog} disabled={Boolean(resettingUserId)}>取消</Button>
           <Button type="button" variant="contained" onClick={handlePasswordReset} disabled={resetPassword.length < 8 || Boolean(resettingUserId)}
-            startIcon={<Icon name={resettingUserId ? "loading" : "key"} size={16} />}>
+            startIcon={resettingUserId ? <Spinner size={16} /> : <Icon name="key" size={16} />}>
             {resettingUserId ? "正在重置" : "确认重置"}
           </Button>
         </DialogActions>

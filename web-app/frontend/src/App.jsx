@@ -7,6 +7,7 @@ import MenuItem from "@mui/material/MenuItem";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import Icon from "./components/Icon";
+import Spinner from "./components/Spinner";
 import DigitalHuman from "./components/DigitalHuman";
 import PosterVideo from "./components/PosterVideo";
 import SmartEditing from "./components/SmartEditing";
@@ -330,7 +331,7 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
             variant="contained"
             color="primary"
             disabled={submitting}
-            startIcon={<Icon name={submitting ? "loading" : isRegister ? "check" : "lock"} size={16} />}
+            startIcon={submitting ? <Spinner size={16} /> : <Icon name={isRegister ? "check" : "lock"} size={16} />}
           >
             {submitting ? "处理中..." : actionLabel}
           </Button>
@@ -351,7 +352,7 @@ function LoadingScreen() {
     <main className="auth-shell">
       <section className="auth-panel compact">
         <div className="auth-logo">
-          <Icon name="loading" size={28} />
+          <Spinner size={28} />
         </div>
         <p className="auth-loading-text">正在验证登录状态...</p>
       </section>

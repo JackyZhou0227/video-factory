@@ -9,11 +9,18 @@ import IconButton from "@mui/material/IconButton";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
 import Chip from "@mui/material/Chip";
+import Table from "@mui/material/Table";
+import TableBody from "@mui/material/TableBody";
+import TableCell from "@mui/material/TableCell";
+import TableContainer from "@mui/material/TableContainer";
+import TableHead from "@mui/material/TableHead";
+import TableRow from "@mui/material/TableRow";
 import LinearProgress from "@mui/material/LinearProgress";
 import Dialog from "@mui/material/Dialog";
 import Box from "@mui/material/Box";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
@@ -36,6 +43,7 @@ const GENERATION_LABELS = {
 const STATUS_LABELS = {
   pending: "等待中",
   running: "运行中",
+  cancelling: "正在取消",
   submitted: "已提交",
   completed: "已完成",
   partial_failed: "部分失败",
@@ -85,6 +93,10 @@ function statusIcon(status) {
   if (["completed", "submitted"].includes(status)) return "check";
   if (status === "cancelled") return "x";
   return "loading";
+}
+
+function canCancelTask(task) {
+  return task?.task_type !== "digital_human" && ["pending", "running"].includes(task.status);
 }
 
 function StatusChip({ status, withIcon = false }) {
@@ -140,7 +152,7 @@ function TaskDetail({ task, backendBaseUrl, loading, onClose }) {
   if (loading) {
     return (
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, py: 4, px: 3 }}>
-        <Icon name="loading" size={18} />正在读取详情
+        <Spinner size={18} />正在读取详情
       </Box>
     );
   }
@@ -249,6 +261,7 @@ export default function TaskCenter({ active = true }) {
   const [loading, setLoading] = useState(false);
   const [detailLoading, setDetailLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("list");
+  const [cancellingId, setCancellingId] = useState("");
 
 
   const loadTasks = useCallback(async (targetPage = 1, silent = false) => {
@@ -326,6 +339,21 @@ export default function TaskCenter({ active = true }) {
     setDetailLoading(false);
   }, []);
 
+  const cancelTask = useCallback(async (task) => {
+    if (!canCancelTask(task) || cancellingId) return;
+    if (task.status === "running" && !window.confirm("确认停止这条语音生成任务吗？")) return;
+    setCancellingId(task.id);
+    try {
+      await apiJson(`/api/tasks/${encodeURIComponent(task.id)}/cancel`, { method: "POST" }, backendBaseUrl);
+      await loadTasks(page, true);
+      if (selectedId === task.id) await loadDetail(task.id, true);
+    } catch {
+      // apiJson 已弹出错误提示，保留任务行并继续轮询
+    } finally {
+      setCancellingId("");
+    }
+  }, [backendBaseUrl, cancellingId, loadDetail, loadTasks, page, selectedId]);
+
   const activeCount = useMemo(() => items.filter((item) => !FINAL_STATUSES.has(item.status)).length, [items]);
 
   return (
@@ -361,30 +389,73 @@ export default function TaskCenter({ active = true }) {
           <div className="task-filter-actions"><Button type="button" variant="outlined" size="small" onClick={resetFilters}>重置</Button></div>
         </div>
 
-        <div className="task-list-toolbar"><span>共 {total} 条任务</span>{activeCount ? <span className="task-live-note"><Icon name="loading" size={13} />{activeCount} 条处理中</span> : null}</div>
-        {loading ? <div className="task-list-state"><Icon name="loading" size={18} />正在加载任务</div> : items.length ? (
-          <div className="task-list">
-            <div className="task-list-header" aria-hidden="true">
-              <span>任务</span>
-              <span>创建时间</span>
-              <span>创建人</span>
-              <span>进度</span>
-              <span>状态</span>
-              <span>操作</span>
-            </div>
-            {items.map((task) => (
-              <div className={`task-list-row ${selectedId === task.id ? "is-selected" : ""}`} key={task.id}>
-                <span className="task-row-task"><span className={`task-row-icon ${task.task_type}`}><Icon name={task.generation_type === "voice" ? "audio" : task.task_type === "digital_human" ? "digitalHuman" : task.generation_type === "image" ? "image" : "video"} size={18} /></span><strong>{taskSummary(task)}</strong></span>
-                <span className="task-row-time">{formatTime(task.created_at)}</span>
-                <span className="task-row-creator">{task.creator_display_name || task.creator_username || "—"}</span>
-                <span className="task-row-count">{task.success_count}/{task.requested_count}</span>
-                <StatusChip status={task.status} />
-                <Button className="task-detail-action" type="button" variant="outlined" size="small" onClick={() => loadDetail(task.id)} startIcon={<Icon name="file" size={14} />}>
-                  查看详情
-                </Button>
-              </div>
-            ))}
-          </div>
+        <div className="task-list-toolbar"><span>共 {total} 条任务</span>{activeCount ? <span className="task-live-note"><Spinner size={13} />{activeCount} 条处理中</span> : null}</div>
+        {loading ? <div className="task-list-state"><Spinner size={18} />正在加载任务</div> : items.length ? (
+          <TableContainer>
+            <Table aria-label="任务列表" className="task-table">
+              <TableHead>
+                <TableRow>
+                  <TableCell>任务</TableCell>
+                  <TableCell>创建时间</TableCell>
+                  <TableCell>创建人</TableCell>
+                  <TableCell>进度</TableCell>
+                  <TableCell>状态</TableCell>
+                  <TableCell>操作</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {items.map((task) => {
+                  const isCancelling = cancellingId === task.id;
+                  return (
+                    <TableRow key={task.id} hover selected={selectedId === task.id}>
+                      <TableCell>
+                        <div className="task-row-task">
+                          <span className={`task-row-icon ${task.task_type}`}>
+                            <Icon name={task.generation_type === "voice" ? "audio" : task.task_type === "digital_human" ? "digitalHuman" : task.generation_type === "image" ? "image" : "video"} size={18} />
+                          </span>
+                          <strong>{taskSummary(task)}</strong>
+                        </div>
+                      </TableCell>
+                      <TableCell>{formatTime(task.created_at)}</TableCell>
+                      <TableCell>{task.creator_display_name || task.creator_username || "—"}</TableCell>
+                      <TableCell>{task.success_count}/{task.requested_count}</TableCell>
+                      <TableCell><StatusChip status={task.status} /></TableCell>
+                      <TableCell>
+                        <div className="user-row-actions">
+                          <Button
+                            type="button"
+                            variant="outlined"
+                            size="small"
+                            onClick={() => loadDetail(task.id)}
+                            startIcon={<Icon name="file" size={14} />}
+                          >
+                            详情
+                          </Button>
+                          {canCancelTask(task) ? (
+                            <Button
+                              type="button"
+                              variant="outlined"
+                              size="small"
+                              color="error"
+                              disabled={isCancelling}
+                              onClick={() => cancelTask(task)}
+                              startIcon={isCancelling ? <Spinner size={14} /> : <Icon name="x" size={14} />}
+                            >
+                              {isCancelling ? "取消中" : "取消"}
+                            </Button>
+                          ) : task.status === "cancelling" ? (
+                            <Button type="button" variant="outlined" size="small" color="error" disabled startIcon={<Spinner size={14} />}>
+                              取消中
+                            </Button>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </TableContainer>
         ) : <div className="task-list-state"><Icon name="history" size={22} /><strong>还没有任务记录</strong><span>完成一次语音、图片或视频生成后，任务会出现在这里。</span></div>}
         <div className="task-pagination"><Button type="button" variant="outlined" size="small" disabled={page <= 1 || loading} onClick={() => loadTasks(page - 1)}>上一页</Button><span>第 {page} / {pages} 页</span><Button type="button" variant="outlined" size="small" disabled={page >= pages || loading} onClick={() => loadTasks(page + 1)}>下一页</Button></div>
           </>

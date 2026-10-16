@@ -15,6 +15,7 @@ import TableRow from "@mui/material/TableRow";
 import Tabs from "@mui/material/Tabs";
 import Tab from "@mui/material/Tab";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { cleanupStorage, getStorageReport } from "../lib/auth";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 
@@ -154,7 +155,7 @@ export default function StorageManagement() {
             color="error"
             disabled={loading || cleaning || cleanableCount === 0}
             onClick={() => setConfirmOpen(true)}
-            startIcon={<Icon name={cleaning ? "loading" : "trash"} size={16} />}
+            startIcon={cleaning ? <Spinner size={16} /> : <Icon name="trash" size={16} />}
           >
             执行清理
           </Button>
@@ -232,7 +233,7 @@ export default function StorageManagement() {
             color="error"
             onClick={handleCleanup}
             disabled={cleaning}
-            startIcon={<Icon name={cleaning ? "loading" : "trash"} size={16} />}
+            startIcon={cleaning ? <Spinner size={16} /> : <Icon name="trash" size={16} />}
           >
             确认清理
           </Button>

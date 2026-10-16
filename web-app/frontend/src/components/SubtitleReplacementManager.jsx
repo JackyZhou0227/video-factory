@@ -8,6 +8,7 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
@@ -271,7 +272,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
                     title="保存此条个人敏感词替换"
                     onClick={() => saveReplacement(item.id)}
                     disabled={!canSave || isSaving}
-                    startIcon={<Icon name={isSaving ? "loading" : isSaved ? "check" : "save"} size={14} />}
+                    startIcon={isSaving ? <Spinner size={14} /> : <Icon name={isSaved ? "check" : "save"} size={14} />}
                   >
                     {isSaving ? "保存中" : isSaved ? "已保存" : "保存"}
                   </Button>
@@ -298,7 +299,7 @@ export default function SubtitleReplacementManager({ currentUserId = "", onStatu
           <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{issues[0]}</div>
         ) : null}
         {loading ? (
-          <div className="subtitle-replacement-issue"><Icon name="loading" size={14} />正在加载个人规则</div>
+          <div className="subtitle-replacement-issue"><Spinner size={14} />正在加载个人规则</div>
         ) : null}
         {error ? (
           <div className="subtitle-replacement-issue"><Icon name="alert" size={14} />{error}</div>

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -56,6 +56,17 @@ class TasksApiTests(unittest.TestCase):
             "username": user_id.replace("-", "_"),
             "display_name": user_id,
         }
+
+    def cancel_task(self, task_id: str, *, runtime_available: bool = True, registered: bool = True):
+        if not runtime_available:
+            runtime_patch = patch.object(tasks_api, "get_task_runtime", side_effect=RuntimeError)
+        else:
+            runtime = Mock()
+            runtime.can_cancel.return_value = registered
+            runtime.cancel.return_value = True
+            runtime_patch = patch.object(tasks_api, "get_task_runtime", return_value=runtime)
+        with runtime_patch:
+            return self.client.post(f"/api/tasks/{task_id}/cancel")
 
     def create_completed_voice_task(self, user_id: str = "user-a") -> tuple[dict, str, Path]:
         task = task_store.create_task(
@@ -186,6 +197,144 @@ class TasksApiTests(unittest.TestCase):
         response = self.client.get(f"/api/tasks/{task['id']}/artifacts/malicious/download")
         self.assertEqual(response.status_code, 404, response.text)
         self.assertNotIn(str(outside), response.text)
+
+    def test_user_can_cancel_owned_pending_task(self):
+        task = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_VOICE,
+            generation_type="voice",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+
+        response = self.cancel_task(task["id"])
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["status"], "cancelled")
+        self.assertEqual(payload["message"], "任务已取消")
+        self.assertIsNotNone(payload["finished_at"])
+
+    def test_user_can_request_cancellation_for_owned_running_task(self):
+        task = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_VOICE,
+            generation_type="voice",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+        task_store.update_task(task["id"], status="running", started=True)
+
+        response = self.cancel_task(task["id"])
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "cancelling")
+        self.assertIsNone(response.json()["finished_at"])
+
+    def test_foreign_task_returns_404_when_cancelling(self):
+        task = task_store.create_task(
+            user=self.user("user-b"),
+            task_type=task_store.TASK_TYPE_VOICE,
+            generation_type="voice",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+
+        response = self.cancel_task(task["id"])
+
+        self.assertEqual(response.status_code, 404, response.text)
+
+    def test_completed_task_returns_409_when_cancelling(self):
+        task, _, _ = self.create_completed_voice_task()
+
+        response = self.cancel_task(task["id"])
+
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(task_store.get_task(task["id"])["status"], "completed")
+
+    def test_repeating_cancel_is_idempotent(self):
+        task = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_VOICE,
+            generation_type="voice",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+
+        first = self.cancel_task(task["id"])
+        second = self.cancel_task(task["id"], registered=False)
+
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        self.assertEqual(second.json()["status"], "cancelled")
+        self.assertEqual(second.json()["finished_at"], first.json()["finished_at"])
+
+    def test_non_tts_active_task_remains_unchanged_and_cannot_be_cancelled(self):
+        task = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_DIGITAL_HUMAN,
+            generation_type="video",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+        task_store.update_task(task["id"], status="running", started=True)
+
+        response = self.cancel_task(task["id"])
+
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(task_store.get_task(task["id"])["status"], "running")
+
+    def test_all_non_digital_human_task_types_can_be_cancelled(self):
+        for task_type in (
+            task_store.TASK_TYPE_POSTER,
+            task_store.TASK_TYPE_TEMPLATE,
+            task_store.TASK_TYPE_SMART_EDITING,
+        ):
+            with self.subTest(task_type=task_type):
+                task = task_store.create_task(
+                    user=self.user("user-a"),
+                    task_type=task_type,
+                    generation_type="video",
+                    requested_count=1,
+                    output_root=self.output_root,
+                )
+                task_store.update_task(task["id"], status="running", started=True)
+
+                response = self.cancel_task(task["id"])
+
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["status"], "cancelling")
+                self.assertEqual(task_store.get_task(task["id"])["status"], "cancelling")
+                task_store.update_task(task["id"], status="cancelled", finished=True)
+
+    def test_pending_task_not_registered_with_runtime_is_cancelled(self):
+        task = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_VOICE,
+            generation_type="voice",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+
+        response = self.cancel_task(task["id"], registered=False)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(task_store.get_task(task["id"])["status"], "cancelled")
+
+    def test_missing_runtime_still_cancels_pending_task(self):
+        task = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_VOICE,
+            generation_type="voice",
+            requested_count=1,
+            output_root=self.output_root,
+        )
+
+        response = self.cancel_task(task["id"], runtime_available=False)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(task_store.get_task(task["id"])["status"], "cancelled")
+
     def test_task_summary_counts_pending_and_running_without_leaking_other_tasks(self):
         original_tasks_config = app_config.get("tasks")
         app_config["tasks"] = {
@@ -236,8 +385,14 @@ class TasksApiTests(unittest.TestCase):
             response = self.client.get("/api/tasks/summary")
             self.assertEqual(response.status_code, 200, response.text)
             payload = response.json()
-            self.assertEqual(payload["user"], {"pending": 1, "running": 1, "active": 2, "limit": 3})
-            self.assertEqual(payload["global"], {"pending": 2, "running": 2, "active": 4, "limit": 10})
+            self.assertEqual(
+                payload["user"],
+                {"pending": 1, "running": 1, "cancelling": 0, "active": 2, "limit": 3},
+            )
+            self.assertEqual(
+                payload["global"],
+                {"pending": 2, "running": 2, "cancelling": 0, "active": 4, "limit": 10},
+            )
             self.assertIsNone(payload["runtime"])
             self.assertNotIn(other_pending["id"], response.text)
         finally:
