@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import zipfile
@@ -67,9 +68,46 @@ def schedule_task(task_id: str, runner: Callable[..., Awaitable[None]]) -> None:
     except RuntimeError:
         # Lightweight router tests intentionally do not mount the application lifespan.
         # Production always initializes the managed runtime before accepting requests.
-        import asyncio
-
         asyncio.create_task(runner())
+
+
+class TaskCancelled(Exception):
+    """Raised inside a runner when the user requested cancellation."""
+
+
+def check_cancellation(cancel_event: asyncio.Event | None) -> None:
+    """Raise TaskCancelled when the cancel signal has been set."""
+    if cancel_event is not None and cancel_event.is_set():
+        raise TaskCancelled
+
+
+def discard_task_outputs(paths: list[Path]) -> None:
+    """Delete produced artifacts and empty parent directories (cancel = discard all)."""
+    for path in paths:
+        try:
+            Path(path).unlink(missing_ok=True)
+        except OSError:
+            pass
+        parent = Path(path).parent
+        try:
+            if parent.is_dir() and not any(parent.iterdir()):
+                parent.rmdir()
+        except OSError:
+            pass
+
+
+def finalize_cancellation(task_id: str, *, paths: list[Path] | None = None) -> None:
+    """Converge a task to cancelled and discard any partial artifacts."""
+    if paths:
+        discard_task_outputs(paths)
+    task_store.transition_task_status(
+        task_id,
+        expected_statuses=("running", "cancelling"),
+        status="cancelled",
+        message="任务已取消",
+        error="用户主动取消任务",
+        finished=True,
+    )
 
 
 def safe_filename(filename: str, fallback: str) -> str:

@@ -3,6 +3,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import logging
+import subprocess
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import Any, Awaitable, Callable, Literal, TypeVar
@@ -18,6 +21,106 @@ ExecutorLane = Literal["media", "qwen"]
 
 class TaskRuntimeCapacityError(RuntimeError):
     pass
+
+
+class TaskCancelledError(RuntimeError):
+    """Raised when a cancellable subprocess is terminated by user request."""
+
+
+def run_subprocess_cancellable(
+    command: list[str],
+    *,
+    cancel_event: asyncio.Event | None = None,
+    capture_output: bool = True,
+    text: bool = True,
+    check: bool = True,
+    kill_grace_seconds: float = 3.0,
+    poll_interval: float = 0.25,
+) -> subprocess.CompletedProcess[str]:
+    """Run a subprocess that can be terminated when ``cancel_event`` is set.
+
+    Must be called from a worker thread (e.g. via ``run_blocking``) because it
+    blocks while polling. On cancellation the child process is terminated and
+    ``TaskCancelledError`` is raised; the runner discards any partial output.
+    """
+    creationflags = 0
+    if threading.current_thread() is threading.main_thread() and hasattr(subprocess, "CREATE_NO_WINDOW"):
+        creationflags = subprocess.CREATE_NO_WINDOW
+
+    process = subprocess.Popen(
+        command,
+        stdout=subprocess.PIPE if capture_output else None,
+        stderr=subprocess.PIPE if capture_output else None,
+        text=text,
+        errors="replace" if text else None,
+        creationflags=creationflags,
+    )
+
+    stdout_data: str | None = None
+    stderr_data: str | None = None
+    cancelled = False
+
+    # Reader threads avoid pipe-buffer deadlock while the main loop polls for
+    # cancellation.
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+
+    def _drain(stream, sink: list[str]) -> None:
+        if stream is None:
+            return
+        try:
+            for chunk in iter(lambda: stream.read(65536), ""):
+                sink.append(chunk)
+        except ValueError:
+            pass
+
+    readers = []
+    if capture_output:
+        readers = [
+            threading.Thread(target=_drain, args=(process.stdout, stdout_chunks), daemon=True),
+            threading.Thread(target=_drain, args=(process.stderr, stderr_chunks), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
+
+    try:
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                break
+            if process.poll() is not None:
+                break
+            time.sleep(poll_interval)
+
+        if cancelled:
+            process.terminate()
+            try:
+                process.wait(timeout=kill_grace_seconds)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+            raise TaskCancelledError("任务已取消")
+
+        returncode = process.wait()
+    finally:
+        for reader in readers:
+            reader.join(timeout=1.0)
+        if capture_output:
+            stdout_data = "".join(stdout_chunks)
+            stderr_data = "".join(stderr_chunks)
+        for stream in (process.stdout, process.stderr):
+            if stream is not None:
+                stream.close()
+
+    completed = subprocess.CompletedProcess(
+        command,
+        returncode,
+        stdout=stdout_data,
+        stderr=stderr_data,
+    )
+    if check and returncode != 0:
+        raise subprocess.CalledProcessError(returncode, command, output=stdout_data, stderr=stderr_data)
+    return completed
 
 
 class TaskExecutionManager:
