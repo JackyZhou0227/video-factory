@@ -204,7 +204,7 @@ a {
   vertical-align: -0.15em;
 }
 
-.vf-icon[data-loading] {
+.vf-spinner {
   animation: icon-spin 1.1s linear infinite;
 }
 
@@ -4102,7 +4102,7 @@ a {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .vf-icon[data-loading],
+  .vf-spinner,
   .status-pill .vf-icon.lucide-loader-circle,
   .primary-action .lucide-loader-circle,
   .secondary-action .lucide-loader-circle {
@@ -4405,10 +4405,6 @@ a {
 
 .template-empty-state.is-error {
   color: var(--danger);
-}
-
-.template-empty-state > .lucide-loader-circle {
-  animation: vf-spin 0.9s linear infinite;
 }
 
 .template-empty-copy {
@@ -5419,10 +5415,6 @@ a {
   display: grid;
   place-items: center;
   color: var(--text-soft);
-}
-
-.template-result-placeholder .lucide-loader-circle {
-  animation: vf-spin 0.9s linear infinite;
 }
 
 .template-result-copy {

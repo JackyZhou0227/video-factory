@@ -10,6 +10,7 @@ import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Box from "@mui/material/Box";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 import { ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
@@ -202,7 +203,7 @@ export default function BgmManager({
                 onClick={() => bgmFileInputRef.current?.click()}
                 disabled={disabled || busy}
                 title="上传背景音乐"
-                startIcon={<Icon name={uploadingBgm ? "loading" : "upload"} size={15} />}
+                startIcon={uploadingBgm ? <Spinner size={15} /> : <Icon name="upload" size={15} />}
               >
                 {uploadingBgm ? "上传中" : "上传"}
               </Button>
@@ -240,7 +241,7 @@ export default function BgmManager({
               disabled={disabled || busy}
               size="small"
             >
-              <Icon name={deletingBgmId === selectedBgmTrack.id ? "loading" : "trash"} size={15} />
+              {deletingBgmId === selectedBgmTrack.id ? <Spinner size={15} /> : <Icon name="trash" size={15} />}
             </IconButton>
           ) : null}
         </div>
@@ -259,7 +260,7 @@ export default function BgmManager({
           </div>
         ) : null}
         {bgmLoading ? (
-          <div className="bgm-status-line"><Icon name="loading" size={14} />正在加载背景音乐</div>
+          <div className="bgm-status-line"><Spinner size={14} />正在加载背景音乐</div>
         ) : null}
       </section>
 
@@ -284,7 +285,7 @@ export default function BgmManager({
               variant="contained"
               onClick={confirmBgmDelete}
               disabled={disabled || busy}
-              startIcon={<Icon name={deletingBgmId === pendingBgmDelete?.id ? "loading" : "trash"} size={15} />}
+              startIcon={deletingBgmId === pendingBgmDelete?.id ? <Spinner size={15} /> : <Icon name="trash" size={15} />}
             >
               确认删除
             </Button>

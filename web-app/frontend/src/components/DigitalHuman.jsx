@@ -5,6 +5,7 @@ import Chip from "@mui/material/Chip";
 import LinearProgress from "@mui/material/LinearProgress";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
@@ -407,18 +408,13 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
           <Chip
             size="small"
             icon={
-              <Icon
-                name={
-                  videoPanelStatus === "failed"
-                    ? "alert"
-                    : videoPanelStatus === "completed" || videoPanelStatus === "submitted"
-                      ? "check"
-                      : ["running", "pending"].includes(videoPanelStatus)
-                        ? "loading"
-                        : "gauge"
-                }
-                size={14}
-              />
+              videoPanelStatus === "failed"
+                ? <Icon name="alert" size={14} />
+                : videoPanelStatus === "completed" || videoPanelStatus === "submitted"
+                  ? <Icon name="check" size={14} />
+                  : ["running", "pending"].includes(videoPanelStatus)
+                    ? <Spinner size={14} />
+                    : <Icon name="gauge" size={14} />
             }
             label={VIDEO_STEP_LABELS[videoPanelStatus]}
             sx={{
@@ -439,7 +435,7 @@ export default function DigitalHuman({ onOpenTtsStudio }) {
             <h3>提交生成任务</h3>
             <p>{detailMessage}</p>
             <Button type="button" variant="contained" disabled={!canGenerateVideo} onClick={handleGenerateVideo}
-              startIcon={<Icon name={generating ? "loading" : "wand"} size={16} />}>
+              startIcon={generating ? <Spinner size={16} /> : <Icon name="wand" size={16} />}>
               {taskStatus === "submitted" ? "任务已提交" : generating ? "正在生成视频" : "生成数字人视频"}
             </Button>
             {(["pending", "running"].includes(taskStatus) || progress > 0) && taskStatus !== "submitted" && (

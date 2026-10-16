@@ -8,6 +8,7 @@ import IconButton from "@mui/material/IconButton";
 import MenuItem from "@mui/material/MenuItem";
 import TextField from "@mui/material/TextField";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 import { DEFAULT_TTS_LANGUAGES } from "../lib/ttsLanguages";
@@ -151,7 +152,7 @@ export default function VoiceProfileLibrary({ languages = DEFAULT_TTS_LANGUAGES,
         </div>
         <Button type="button" variant="outlined" size="small" onClick={openCreate} startIcon={<Icon name="plus" size={15} />}>新增音色</Button>
       </div>
-      {loading ? <div className="profile-resource-empty"><Icon name="loading" size={18} />正在加载音色档案</div> : profiles.length ? (
+      {loading ? <div className="profile-resource-empty"><Spinner size={18} />正在加载音色档案</div> : profiles.length ? (
         <div className="profile-voice-list">
           {profiles.map((profile) => (
             <article className="profile-voice-row" key={profile.id}>
@@ -207,10 +208,10 @@ export default function VoiceProfileLibrary({ languages = DEFAULT_TTS_LANGUAGES,
             <div className="form-field-group"><span className="field-label">参考音频{isEditing ? "" : "*"}</span><label className={`upload-dropzone compact ${refAudioFile ? "is-filled" : ""}`}><span className="upload-placeholder"><Icon name={refAudioFile ? "audio" : "upload"} size={22} /><strong>{refAudioFile ? refAudioFile.name : "上传参考音频"}</strong><small>{refAudioFile ? formatFileSize(refAudioFile.size) : isEditing ? "不上传则保留当前参考音频" : "用于保存新的克隆音色"}</small></span><input ref={refAudioInputRef} type="file" accept="audio/*" onChange={onAudioChange} /></label>{refAudioUrl ? <audio className="audio-player" controls src={refAudioUrl} /> : isEditing && editingProfile ? <ProtectedMedia className="audio-player" path={editingProfile.audio_url} kind="audio" backendBaseUrl={backendBaseUrl} /> : null}</div>
             <TextField className="field" label="参考文本" fullWidth size="small" multiline rows={4} value={refText} onChange={(event) => setRefText(event.target.value)} />
             {error ? <div className="form-alert failed">{error}</div> : null}
-            {confirmDelete ? <div className="delete-confirm-panel"><strong>确认删除这个个人音色？</strong><span>删除后会移除参考音频和档案记录，无法恢复。</span><div className="delete-confirm-actions"><Button type="button" variant="outlined" disabled={deleting} onClick={() => setConfirmDelete(false)}>取消</Button><Button type="button" color="error" variant="contained" disabled={deleting} onClick={remove} startIcon={<Icon name={deleting ? "loading" : "trash"} size={16} />}>确认删除</Button></div></div> : null}
+            {confirmDelete ? <div className="delete-confirm-panel"><strong>确认删除这个个人音色？</strong><span>删除后会移除参考音频和档案记录，无法恢复。</span><div className="delete-confirm-actions"><Button type="button" variant="outlined" disabled={deleting} onClick={() => setConfirmDelete(false)}>取消</Button><Button type="button" color="error" variant="contained" disabled={deleting} onClick={remove} startIcon={deleting ? <Spinner size={16} /> : <Icon name="trash" size={16} />}>确认删除</Button></div></div> : null}
           </div>
         </DialogContent>
-        <DialogActions className="modal-actions with-delete">{isEditing ? <Button type="button" color="error" disabled={saving || deleting} onClick={() => setConfirmDelete(true)} startIcon={<Icon name="trash" size={16} />}>删除</Button> : null}<Button type="button" onClick={closeDialog}>取消</Button><Button type="button" variant="contained" disabled={saving || deleting || !name.trim() || !refText.trim() || (!isEditing && !refAudioFile)} onClick={save} startIcon={<Icon name={saving ? "loading" : "save"} size={16} />}>{saving ? "正在保存" : isEditing ? "保存修改" : "保存音色"}</Button></DialogActions>
+        <DialogActions className="modal-actions with-delete">{isEditing ? <Button type="button" color="error" disabled={saving || deleting} onClick={() => setConfirmDelete(true)} startIcon={<Icon name="trash" size={16} />}>删除</Button> : null}<Button type="button" onClick={closeDialog}>取消</Button><Button type="button" variant="contained" disabled={saving || deleting || !name.trim() || !refText.trim() || (!isEditing && !refAudioFile)} onClick={save} startIcon={saving ? <Spinner size={16} /> : <Icon name="save" size={16} />}>{saving ? "正在保存" : isEditing ? "保存修改" : "保存音色"}</Button></DialogActions>
       </Dialog>
     </section>
   );

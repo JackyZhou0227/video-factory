@@ -20,6 +20,7 @@ import UploadFileOutlined from "@mui/icons-material/UploadFileOutlined";
 import { statusChipColors } from "../theme";
 import BgmManager from "./BgmManager";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 import {
@@ -955,7 +956,7 @@ export default function PosterVideo({ currentUser }) {
 
             <div className="poster-preview-actions">
               <Button type="button" variant="contained" disabled={!canGenerate} onClick={handleGenerate}
-                startIcon={<Icon name={generating ? "loading" : "wand"} size={16} />}>
+                startIcon={generating ? <Spinner size={16} /> : <Icon name="wand" size={16} />}>
                 {generating ? "正在批量生成" : `生成${outputLabel}`}
               </Button>
 
@@ -989,18 +990,13 @@ export default function PosterVideo({ currentUser }) {
           <Chip
             size="small"
             icon={
-              <Icon
-                name={
-                  ["failed", "partial_failed", "cancelled"].includes(videoPanelStatus)
-                    ? "alert"
-                    : videoPanelStatus === "completed"
-                      ? "check"
-                      : ["running", "pending"].includes(videoPanelStatus)
-                        ? "loading"
-                        : "gauge"
-                }
-                size={14}
-              />
+              ["failed", "partial_failed", "cancelled"].includes(videoPanelStatus)
+                ? <Icon name="alert" size={14} />
+                : videoPanelStatus === "completed"
+                  ? <Icon name="check" size={14} />
+                  : ["running", "pending"].includes(videoPanelStatus)
+                    ? <Spinner size={14} />
+                    : <Icon name="gauge" size={14} />
             }
             label={STATUS_LABELS[videoPanelStatus]}
             sx={{

@@ -15,6 +15,7 @@ import FormControlLabel from "@mui/material/FormControlLabel";
 import { statusChipColors } from "../theme";
 import BgmManager from "./BgmManager";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import SubtitleReplacementManager from "./SubtitleReplacementManager";
 import SubtitleSettings, { cloneDefaultSubtitleStyle } from "./SubtitleSettings";
@@ -471,7 +472,7 @@ export default function SmartEditing({ currentUser }) {
                 size="small"
                 onClick={extractKeywords}
                 disabled={extractingKeywords || submitting}
-                startIcon={<Icon name={extractingKeywords ? "loading" : "sparkles"} size={14} />}
+                startIcon={extractingKeywords ? <Spinner size={14} /> : <Icon name="sparkles" size={14} />}
               >
                 {extractingKeywords ? "正在提取" : "提取关键词"}
               </Button>
@@ -700,7 +701,7 @@ export default function SmartEditing({ currentUser }) {
             </div>
             {error ? <div className="form-alert failed">{error}</div> : null}
             <Button className="smart-submit-action" type="button" variant="contained" size="large" onClick={submitTask} disabled={!canSubmit}
-              startIcon={<Icon name={submitting ? "loading" : "wand"} size={17} />}>
+              startIcon={submitting ? <Spinner size={17} /> : <Icon name="wand" size={17} />}>
               {submitting ? "正在智能剪辑" : `生成 ${generateCount} 条视频`}
             </Button>
           </section>
@@ -708,7 +709,7 @@ export default function SmartEditing({ currentUser }) {
           {task ? (
             <section className="template-work-section smart-task-section" aria-labelledby="smart-task-title">
               <div className="template-section-heading with-actions">
-                <span><Icon name={FINAL_STATUSES.has(task.status) ? "check" : "loading"} size={17} /></span>
+                <span>{FINAL_STATUSES.has(task.status) ? <Icon name="check" size={17} /> : <Spinner size={17} />}</span>
                 <div>
                   <strong id="smart-task-title">任务结果</strong>
                   <small>{task.message || statusLabel(task.status)} · {task.bgm_name ? `BGM：${task.bgm_name}` : "无 BGM"}</small>
@@ -741,7 +742,7 @@ export default function SmartEditing({ currentUser }) {
                           />
                         ) : (
                           <div className="task-artifact-placeholder">
-                            <Icon name={item.status === "failed" ? "alert" : "loading"} size={22} />
+                            {item.status === "failed" ? <Icon name="alert" size={22} /> : <Spinner size={22} />}
                             <span>{item.message || statusLabel(item.status)}</span>
                           </div>
                         )}

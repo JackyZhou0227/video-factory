@@ -13,6 +13,7 @@ import TableHead from "@mui/material/TableHead";
 import TableRow from "@mui/material/TableRow";
 import Box from "@mui/material/Box";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { useGlobalMessage } from "./GlobalMessageProvider";
 import { ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
@@ -151,7 +152,7 @@ export default function BgmLibrary({ currentUserId }) {
             size="small"
             onClick={() => fileInputRef.current?.click()}
             disabled={loading || uploading || Boolean(deletingId)}
-            startIcon={<Icon name={uploading ? "loading" : "upload"} size={15} />}
+            startIcon={uploading ? <Spinner size={15} /> : <Icon name="upload" size={15} />}
           >
             {uploading ? "上传中" : "上传背景音乐"}
           </Button>
@@ -172,7 +173,7 @@ export default function BgmLibrary({ currentUserId }) {
               {loading ? (
                 <TableRow>
                   <TableCell colSpan={5}>
-                    <div className="bgm-library-state"><Icon name="loading" size={17} />正在加载背景音乐</div>
+                    <div className="bgm-library-state"><Spinner size={17} />正在加载背景音乐</div>
                   </TableCell>
                 </TableRow>
               ) : tracks.length ? (
@@ -202,7 +203,7 @@ export default function BgmLibrary({ currentUserId }) {
                         onClick={() => setPendingDelete(track)}
                         disabled={loading || uploading || Boolean(deletingId)}
                       >
-                        <Icon name={deletingId === track.id ? "loading" : "trash"} size={16} />
+                        {deletingId === track.id ? <Spinner size={16} /> : <Icon name="trash" size={16} />}
                       </IconButton>
                     </TableCell>
                   </TableRow>
@@ -238,7 +239,7 @@ export default function BgmLibrary({ currentUserId }) {
             variant="contained"
             onClick={confirmDelete}
             disabled={Boolean(deletingId)}
-            startIcon={<Icon name={deletingId ? "loading" : "trash"} size={15} />}
+            startIcon={deletingId ? <Spinner size={15} /> : <Icon name="trash" size={15} />}
           >
             {deletingId ? "删除中" : "确认删除"}
           </Button>

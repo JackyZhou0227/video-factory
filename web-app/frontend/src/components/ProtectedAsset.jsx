@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import Button from "@mui/material/Button";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { apiFetch } from "../lib/backend";
 
 function useProtectedAssetUrl(path, backendBaseUrl) {
@@ -43,7 +44,7 @@ export function ProtectedMedia({ path, kind, backendBaseUrl, alt = "", className
   if (loading) {
     return (
       <div className={`protected-asset-state ${className}`.trim()} role="status">
-        <Icon name="loading" size={18} />
+        <Spinner size={18} />
         正在读取产物
       </div>
     );
@@ -109,7 +110,7 @@ export function ProtectedDownloadButton({
       title={error || props.title}
       startIcon={
         downloading ? (
-          <Icon name="loading" size={14} />
+          <Spinner size={14} />
         ) : error ? (
           <Icon name="alert" size={14} />
         ) : null
