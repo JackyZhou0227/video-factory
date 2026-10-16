@@ -636,9 +636,9 @@ def request_task_cancellation(task_id: str, user_id: str) -> dict[str, Any]:
         current = _fetch_row(session, task_id, user_id)
         if current is None:
             raise TaskNotFoundError("Task not found")
-        if current.task_type != TASK_TYPE_VOICE:
+        if current.task_type == TASK_TYPE_DIGITAL_HUMAN:
             raise TaskCancellationConflictError(
-                "该任务类型暂不支持取消",
+                "数字人任务暂不支持取消",
                 status=str(current.status),
             )
         if current.status in {"cancelled", "cancelling"}:

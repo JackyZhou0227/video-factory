@@ -96,7 +96,7 @@ function statusIcon(status) {
 }
 
 function canCancelTask(task) {
-  return task?.task_type === "voice_generation" && ["pending", "running"].includes(task.status);
+  return task?.task_type !== "digital_human" && ["pending", "running"].includes(task.status);
 }
 
 function StatusChip({ status, withIcon = false }) {
@@ -443,7 +443,7 @@ export default function TaskCenter({ active = true }) {
                             >
                               {isCancelling ? "取消中" : "取消"}
                             </Button>
-                          ) : task.status === "cancelling" && task.task_type === "voice_generation" ? (
+                          ) : task.status === "cancelling" ? (
                             <Button type="button" variant="outlined" size="small" color="error" disabled startIcon={<Spinner size={14} />}>
                               取消中
                             </Button>

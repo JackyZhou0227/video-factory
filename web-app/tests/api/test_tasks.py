@@ -284,6 +284,29 @@ class TasksApiTests(unittest.TestCase):
         self.assertEqual(response.status_code, 409, response.text)
         self.assertEqual(task_store.get_task(task["id"])["status"], "running")
 
+    def test_all_non_digital_human_task_types_can_be_cancelled(self):
+        for task_type in (
+            task_store.TASK_TYPE_POSTER,
+            task_store.TASK_TYPE_TEMPLATE,
+            task_store.TASK_TYPE_SMART_EDITING,
+        ):
+            with self.subTest(task_type=task_type):
+                task = task_store.create_task(
+                    user=self.user("user-a"),
+                    task_type=task_type,
+                    generation_type="video",
+                    requested_count=1,
+                    output_root=self.output_root,
+                )
+                task_store.update_task(task["id"], status="running", started=True)
+
+                response = self.cancel_task(task["id"])
+
+                self.assertEqual(response.status_code, 200, response.text)
+                self.assertEqual(response.json()["status"], "cancelling")
+                self.assertEqual(task_store.get_task(task["id"])["status"], "cancelling")
+                task_store.update_task(task["id"], status="cancelled", finished=True)
+
     def test_pending_task_not_registered_with_runtime_is_cancelled(self):
         task = task_store.create_task(
             user=self.user("user-a"),
