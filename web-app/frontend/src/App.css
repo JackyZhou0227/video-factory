@@ -3591,6 +3591,14 @@ a {
   line-height: 1.5;
 }
 
+.tts-studio-preview-status-side {
+  display: grid;
+  justify-items: end;
+  align-content: start;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
 .tts-studio-preview-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -3882,6 +3890,10 @@ a {
   .tts-studio-preview-status {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .tts-studio-preview-status-side {
+    justify-items: start;
   }
 
   .tts-studio-clone-select .compact-action {

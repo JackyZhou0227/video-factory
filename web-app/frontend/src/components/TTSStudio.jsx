@@ -4,12 +4,11 @@ import Button from "@mui/material/Button";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
-import Chip from "@mui/material/Chip";
 import Slider from "@mui/material/Slider";
 import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import ToggleButton from "@mui/material/ToggleButton";
-import { statusChipColors } from "../theme";
 import Icon from "./Icon";
+import Spinner from "./Spinner";
 import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 import { DEFAULT_TTS_LANGUAGES } from "../lib/ttsLanguages";
@@ -55,6 +54,7 @@ export default function TTSStudio({ active = false }) {
   const backendBaseUrl = useBackendBaseUrl();
   const [text, setText] = useState("");
   const [ttsMode, setTtsMode] = useState("edge-tts");
+  const [ttsModeLocked, setTtsModeLocked] = useState(false);
   const [providerStatuses, setProviderStatuses] = useState([EDGE_TTS_STATIC_STATUS]);
   const [providerStatusesLoading, setProviderStatusesLoading] = useState(true);
   const [providerStatusError, setProviderStatusError] = useState("");
@@ -221,6 +221,14 @@ export default function TTSStudio({ active = false }) {
     }
   }, [providerStatusesLoading, qwenProviderAvailable, ttsMode]);
 
+  // 默认优先本地 Qwen3-TTS（用户手动选过模式后不再自动切换）
+  useEffect(() => {
+    if (ttsModeLocked || providerStatusesLoading) return;
+    if (qwenProviderAvailable && ttsMode !== "base") {
+      setTtsMode("base");
+    }
+  }, [providerStatusesLoading, qwenProviderAvailable, ttsMode, ttsModeLocked]);
+
   const handleGeneratePreview = useCallback(async () => {
     if (!text.trim()) return;
     if (ttsMode === "base" && !voiceProfileId) return;
@@ -362,20 +370,6 @@ export default function TTSStudio({ active = false }) {
         : qwenProviderAvailable && voiceProfileId && selectedVoiceProfile)
   );
   const status = generating ? (taskStatus || "previewing") : preview && !previewStale ? "completed" : previewStale ? "ready" : "idle";
-  const statusLabel =
-    ["pending", "running", "previewing"].includes(status)
-      ? "正在生成"
-      : status === "cancelling"
-        ? "正在取消"
-        : status === "cancelled"
-          ? "已取消"
-      : status === "completed"
-        ? adjustedAudioUrl
-          ? "双版本已就绪"
-          : "原速已生成"
-        : status === "ready"
-          ? "参数已变更"
-          : "等待生成";
   const previewTitle = generating
     ? "正在生成原速语音"
     : previewStale
@@ -521,6 +515,7 @@ export default function TTSStudio({ active = false }) {
                     onChange={(_, nextMode) => {
                       if (!nextMode) return;
                       setTtsMode(nextMode);
+                      setTtsModeLocked(true);
                       markPreviewStale();
                     }}
                   >
@@ -633,15 +628,9 @@ export default function TTSStudio({ active = false }) {
               </div>
 
               <Button className="tts-studio-generate-action" type="button" variant="contained" size="large" disabled={!canGenerate} onClick={handleGeneratePreview}
-                startIcon={<Icon name={generating ? "loading" : "play"} size={16} />}>
+                startIcon={generating ? <Spinner size={16} /> : <Icon name="play" size={16} />}>
                 {generating ? "正在生成语音" : "生成语音"}
               </Button>
-              {generating && activeTaskId ? (
-                <Button type="button" variant="outlined" size="large" color="error" onClick={handleCancelPreview}
-                  startIcon={<Icon name="x" size={16} />} disabled={taskStatus === "cancelling"}>
-                  {taskStatus === "cancelling" ? "正在取消" : "取消任务"}
-                </Button>
-              ) : null}
             </section>
           </div>
 
@@ -661,17 +650,14 @@ export default function TTSStudio({ active = false }) {
                 <strong>{previewTitle}</strong>
                 <p>{previewDescription}</p>
               </div>
-              <Chip
-                size="small"
-                icon={<Icon name={status === "previewing" ? "loading" : status === "completed" ? "check" : "waves"} size={14} />}
-                label={statusLabel}
-                sx={{
-                  backgroundColor: statusChipColors[status]?.bg || "#f3f1e9",
-                  color: statusChipColors[status]?.fg || "#68645b",
-                  fontWeight: 600,
-                  "& .vf-icon": { color: statusChipColors[status]?.fg || "#68645b" },
-                }}
-              />
+              <div className="tts-studio-preview-status-side">
+                {generating && activeTaskId ? (
+                  <Button type="button" variant="outlined" size="small" color="error" onClick={handleCancelPreview}
+                    startIcon={<Icon name="x" size={14} />} disabled={taskStatus === "cancelling"}>
+                    {taskStatus === "cancelling" ? "正在取消" : "取消任务"}
+                  </Button>
+                ) : null}
+              </div>
             </div>
 
             <div className={`audio-preview-block ${preview ? "has-results" : "is-empty"}`}>
@@ -765,7 +751,7 @@ export default function TTSStudio({ active = false }) {
                       size="small"
                       disabled={previewStale || applyingSpeechRate || !hasPendingRate}
                       onClick={handleApplySpeechRate}
-                      startIcon={<Icon name={applyingSpeechRate ? "loading" : "refresh"} size={15} />}
+                      startIcon={applyingSpeechRate ? <Spinner size={15} /> : <Icon name="refresh" size={15} />}
                     >
                       {applyingSpeechRate ? "正在生成调速版" : "生成调速版"}
                     </Button>
@@ -774,7 +760,7 @@ export default function TTSStudio({ active = false }) {
               ) : (
                 <div className="empty-state tts-studio-empty-state">
                   <div className={`state-orb ${status}`} aria-hidden="true">
-                    <Icon name={generating ? "loading" : "music"} size={28} />
+                    {generating ? <Spinner size={28} /> : <Icon name="music" size={28} />}
                   </div>
                   <div className="tts-studio-empty-copy">
                     <h3>{generating ? "正在生成原速音频" : "暂无可试听音频"}</h3>
