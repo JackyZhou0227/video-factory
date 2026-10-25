@@ -202,6 +202,7 @@ class EdgeTtsProvider:
                 voice_id,
                 rate=_percent((speed - 1.0) * 100),
                 volume=_percent(volume - 100),
+                boundary="WordBoundary",
             )
             timings: list[TTSTiming] = []
             with output_path.open("wb") as audio_file:
