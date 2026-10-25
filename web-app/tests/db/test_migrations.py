@@ -73,7 +73,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0005",
+                    "0006",
                 )
         finally:
             engine.dispose()
@@ -126,7 +126,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0005",
+                    "0006",
                 )
             with engine.connect() as connection:
                 self.assertEqual(

@@ -82,7 +82,7 @@ PUBLIC_ARTIFACT_KEYS = {
     "error",
 }
 TASK_COLUMNS = (
-    "id, user_id, creator_username, creator_display_name, task_type, generation_type, "
+    "id, user_id, task_type, generation_type, "
     "requested_count, success_count, failed_count, status, progress, message, error, "
     "storage_path, extra_info_json, artifacts_json, created_at, started_at, finished_at, updated_at"
 )
@@ -256,15 +256,23 @@ def _orm_session() -> OrmSession:
     return settings_store._orm_session()
 
 
-def _task_owner_snapshot(session: OrmSession, user: dict[str, Any]) -> tuple[str, str]:
-    user_id = str(user.get("id") or "").strip()
-    if not user_id:
-        raise ValueError("user id is required")
-    owner = session.scalar(select(User).where(User.id == user_id))
-    if owner is None:
-        raise ValueError("task owner does not exist")
-    username = str(owner.username or user_id)
-    return username, str(owner.display_name or username)
+def creator_names(user_ids: Iterable[str]) -> dict[str, dict[str, str]]:
+    """实时查询用户当前的用户名/显示名称（创建者名字不随任务快照存储）。"""
+    normalized = {str(user_id) for user_id in user_ids if user_id}
+    if not normalized:
+        return {}
+    _ensure_db()
+    with _orm_session() as session:
+        rows = session.execute(
+            select(User.id, User.username, User.display_name).where(User.id.in_(normalized))
+        ).all()
+    return {
+        user_id: {
+            "username": str(username or user_id),
+            "display_name": str(display_name or username or user_id),
+        }
+        for user_id, username, display_name in rows
+    }
 
 
 def _artifact_counts(artifacts: Iterable[dict[str, Any]]) -> tuple[int, int]:
@@ -437,8 +445,6 @@ def create_task(
     enforce_task_quota(str(user.get("id") or ""))
     storage_cleanup.enforce_disk_space(output_root)
     _ensure_db()
-    with _orm_session() as session:
-        username, display_name = _task_owner_snapshot(session, user)
 
     storage_path = storage_path or task_directory(
         task_type,
@@ -459,8 +465,6 @@ def create_task(
         task = GenerationTask(
             id=task_id,
             user_id=str(user["id"]),
-            creator_username=username,
-            creator_display_name=display_name,
             task_type=task_type,
             generation_type=generation_type,
             requested_count=requested_count,

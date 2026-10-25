@@ -208,8 +208,6 @@ class GenerationTask(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    creator_username: Mapped[str] = mapped_column(Text, nullable=False)
-    creator_display_name: Mapped[str] = mapped_column(Text, nullable=False)
     task_type: Mapped[str] = mapped_column(Text, nullable=False)
     generation_type: Mapped[str] = mapped_column(Text, nullable=False)
     requested_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -251,7 +249,7 @@ _COLUMN_COMMENTS = {
     "subtitle_replacements": {"id": "替换规则 ID", "user_id": "所属用户标识", "source": "需要替换的原词", "replacement": "字幕替换词", "created_at": "创建时间", "updated_at": "更新时间"},
     "bgm_tracks": {"id": "背景音乐唯一标识", "user_id": "所属用户标识", "name": "文件名称", "relative_path": "相对存储路径", "duration": "音频时长", "file_size": "文件大小", "created_at": "创建时间", "updated_at": "更新时间"},
     "voice_profiles": {"id": "音色档案唯一标识", "user_id": "所属用户标识", "name": "音色名称", "language": "参考音频语言", "ref_text": "参考音频台词", "relative_path": "参考音频相对路径", "file_size": "参考音频文件大小", "created_at": "创建时间", "updated_at": "更新时间"},
-    "generation_tasks": {"id": "任务唯一标识", "user_id": "所属用户标识", "creator_username": "创建者用户名", "creator_display_name": "创建者显示名称", "task_type": "任务类型", "generation_type": "生成类型", "requested_count": "请求生成数量", "success_count": "成功数量", "failed_count": "失败数量", "status": "任务状态", "progress": "任务进度", "message": "任务消息", "error": "错误信息", "storage_path": "任务存储路径", "extra_info_json": "任务扩展信息", "artifacts_json": "任务产物信息", "created_at": "创建时间", "started_at": "开始时间", "finished_at": "完成时间", "updated_at": "更新时间"},
+    "generation_tasks": {"id": "任务唯一标识", "user_id": "所属用户标识", "task_type": "任务类型", "generation_type": "生成类型", "requested_count": "请求生成数量", "success_count": "成功数量", "failed_count": "失败数量", "status": "任务状态", "progress": "任务进度", "message": "任务消息", "error": "错误信息", "storage_path": "任务存储路径", "extra_info_json": "任务扩展信息", "artifacts_json": "任务产物信息", "created_at": "创建时间", "started_at": "开始时间", "finished_at": "完成时间", "updated_at": "更新时间"},
     "templates": {"id": "模板唯一标识", "definition": "模板定义 JSON", "created_by": "创建模板的管理员", "created_at": "创建时间", "updated_at": "更新时间"},
     "organizations": {"id": "组织唯一标识", "name": "组织名称", "created_at": "创建时间", "updated_at": "更新时间"},
 }

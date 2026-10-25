@@ -133,8 +133,6 @@ class DbModelsTests(unittest.TestCase):
         return GenerationTask(
             id=task_id,
             user_id=user_id,
-            creator_username="alice",
-            creator_display_name="Alice",
             task_type="voice_generation",
             generation_type="voice",
             requested_count=1,

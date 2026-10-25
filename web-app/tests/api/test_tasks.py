@@ -126,6 +126,21 @@ class TasksApiTests(unittest.TestCase):
         self.assertNotIn("path", payload["items"][0]["artifacts"][0])
         self.assertTrue(payload["items"][0]["artifacts"][0]["preview_url"].startswith("/api/tasks/"))
 
+    def test_creator_names_follow_display_name_renames(self):
+        task, _, _ = self.create_completed_voice_task()
+        ensure_test_user("user-a", username="user_a", display_name="改名后的昵称")
+
+        response = self.client.get("/api/tasks")
+        self.assertEqual(response.status_code, 200, response.text)
+        item = response.json()["items"][0]
+        self.assertEqual(item["creator_username"], "user_a")
+        self.assertEqual(item["creator_display_name"], "改名后的昵称")
+
+        detail = self.client.get(f"/api/tasks/{task['id']}")
+        self.assertEqual(detail.status_code, 200, detail.text)
+        self.assertEqual(detail.json()["creator_username"], "user_a")
+        self.assertEqual(detail.json()["creator_display_name"], "改名后的昵称")
+
     def test_date_filter_boundaries_use_shanghai_calendar_days(self):
         self.assertEqual(
             tasks_api._date_boundary(date(2026, 8, 7)),

@@ -38,7 +38,7 @@ class TaskStoreTests(unittest.TestCase):
         }
         self.assertGreaterEqual(len(indexes), 3)
 
-    def test_task_round_trip_snapshots_owner_and_uses_utc_date_directory(self):
+    def test_task_round_trip_uses_utc_date_directory_and_resolves_owner_live(self):
         created_at = "2026-08-07T23:30:00+08:00"
         task = task_store.create_task(
             user=self.user(),
@@ -55,8 +55,11 @@ class TaskStoreTests(unittest.TestCase):
             self.output_root / "tasks" / "2026" / "08" / "07" / "voice_generation" / task["id"],
         )
         loaded = task_store.get_task(task["id"], "user-a")
-        self.assertEqual(loaded["creator_username"], "user_a")
         self.assertEqual(loaded["extra_info"]["nested"]["enabled"], True)
+        self.assertEqual(
+            task_store.creator_names({"user-a"})["user-a"],
+            {"username": "user_a", "display_name": "User_A"},
+        )
         with self.assertRaises(task_store.TaskNotFoundError):
             task_store.get_task(task["id"], "user-b")
 

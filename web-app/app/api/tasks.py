@@ -37,11 +37,17 @@ def _artifact_urls(task_id: str, artifact: dict) -> dict:
     }
 
 
-def task_payload(task: dict) -> dict:
+def task_payload(task: dict, owners: Optional[dict] = None) -> dict:
     payload = task_store.public_task(task)
     payload["artifacts"] = [_artifact_urls(task["id"], item) for item in payload["artifacts"]]
     download_artifact = task_store.select_task_download(task)
     payload["download_url"] = f"/api/tasks/{task['id']}/download" if download_artifact else None
+    # 创建者名字实时取自 users 表（不在任务表快照），用户改名后即时生效
+    if owners is None:
+        owners = task_store.creator_names({task.get("user_id") or ""})
+    owner = owners.get(task.get("user_id") or "") or {}
+    payload["creator_username"] = owner.get("username")
+    payload["creator_display_name"] = owner.get("display_name")
     return payload
 
 
@@ -90,8 +96,9 @@ def list_tasks(
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
+    owners = task_store.creator_names({task["user_id"] for task in tasks})
     return {
-        "items": [task_payload(task) for task in tasks],
+        "items": [task_payload(task, owners) for task in tasks],
         "page": page,
         "page_size": page_size,
         "total": total,

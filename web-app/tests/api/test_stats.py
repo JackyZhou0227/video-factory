@@ -23,8 +23,6 @@ def _seed_task(user_id: str, username: str, display_name: str, task_type: str, *
             GenerationTask(
                 id=f"task-{username}-{task_type}-{days_ago}-{success}-{failed}-{now[-6:]}",
                 user_id=user_id,
-                creator_username=username,
-                creator_display_name=display_name,
                 task_type=task_type,
                 generation_type="video",
                 requested_count=success + failed,
