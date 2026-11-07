@@ -26,22 +26,12 @@ def _runninghub_base_url() -> str:
     ).rstrip("/")
 
 
-def _system_runninghub_api_key() -> str:
-    runninghub_config = app_config.get("runninghub") or {}
-    return (os.getenv("RUNNINGHUB_API_KEY") or str(runninghub_config.get("api_key") or "")).strip()
-
-
 def _new_runninghub_executor(api_key: str, instance_type: Optional[str]) -> RunningHubExecutor:
     return RunningHubExecutor(
         base_url=_runninghub_base_url(),
         api_key=api_key,
         instance_type=instance_type,
     )
-
-
-def _should_retry_workflow_fetch_with_system_key(exc: Exception) -> bool:
-    message = str(exc).lower()
-    return "user not exist" in message or "apikey_user_not_found" in message
 
 
 async def _get_kit(api_key: str, instance_type: Optional[str]) -> ComfyKit:
@@ -65,31 +55,8 @@ async def _get_kit(api_key: str, instance_type: Optional[str]) -> ComfyKit:
 async def _get_workflow_json_for_submission(
     executor: RunningHubExecutor,
     workflow_id: str,
-    user_api_key: str,
 ) -> tuple[dict[str, Any], bool]:
-    try:
-        return await executor.client.get_workflow_json(workflow_id), False
-    except Exception as exc:
-        if not _should_retry_workflow_fetch_with_system_key(exc):
-            raise
-
-        system_api_key = _system_runninghub_api_key()
-        if not system_api_key or system_api_key == user_api_key:
-            raise RuntimeError(
-                "RunningHub rejected this API key while reading the fixed workflow. "
-                "Set runninghub.base_url to the account region and configure a system RunningHub API key."
-            ) from exc
-
-        system_executor = _new_runninghub_executor(system_api_key, None)
-        try:
-            return await system_executor.client.get_workflow_json(workflow_id), True
-        except Exception as system_exc:
-            raise RuntimeError(
-                "RunningHub rejected the customer API key and the configured system API key "
-                f"could not read workflow {workflow_id}: {system_exc}"
-            ) from exc
-        finally:
-            await system_executor.close()
+    return await executor.client.get_workflow_json(workflow_id), False
 
 
 async def _create_task(
@@ -187,7 +154,6 @@ async def submit_digital_human(
         workflow_json, include_workflow_json = await _get_workflow_json_for_submission(
             executor,
             workflow_id,
-            api_key,
         )
         workflow_json, seed_changes = executor._randomize_seed_in_workflow(workflow_json)
 
