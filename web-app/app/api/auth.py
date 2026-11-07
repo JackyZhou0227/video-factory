@@ -1,27 +1,99 @@
 from __future__ import annotations
 
+import base64
+import asyncio
 from typing import Optional
+
+from captchakit import (
+    CaptchaManager,
+    ChallengeExpired,
+    ChallengeNotFound,
+    ImageRenderer,
+    MemoryStorage,
+    TextChallengeFactory,
+    Theme,
+    TooManyAttempts,
+)
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 from app.services import auth_store
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 SESSION_COOKIE_NAME = "vf_session"
+MAX_ACTIVE_CAPTCHA_CHALLENGES = 4096
+CAPTCHA_CLEANUP_INTERVAL_SECONDS = 30
+_captcha_issue_lock = asyncio.Lock()
+captcha_manager = CaptchaManager(
+    factory=TextChallengeFactory(length=5),
+    renderer=ImageRenderer(theme=Theme.CLASSIC),
+    storage=MemoryStorage(),
+    ttl=120,
+    max_attempts=3,
+)
 
 
-class AuthPayload(BaseModel):
+class CaptchaPayload(BaseModel):
+    captcha_id: str = Field(..., min_length=1, max_length=64)
+    captcha_answer: str = Field(..., min_length=1, max_length=16)
+
+
+class AuthPayload(CaptchaPayload):
     username: str = Field(..., min_length=3, max_length=32)
     password: str = Field(..., min_length=8, max_length=auth_store.MAX_PASSWORD_LENGTH)
     display_name: Optional[str] = Field(default=None, max_length=64)
     org_id: Optional[str] = Field(default=None, max_length=64)
 
 
-class LoginPayload(BaseModel):
+class LoginPayload(CaptchaPayload):
     username: str = Field(..., min_length=1, max_length=64)
     password: str = Field(..., min_length=1, max_length=auth_store.MAX_PASSWORD_LENGTH)
+
+
+async def _verify_captcha(payload: CaptchaPayload) -> None:
+    try:
+        valid = await captcha_manager.verify(payload.captcha_id, payload.captcha_answer.upper())
+    except ChallengeNotFound:
+        raise HTTPException(status_code=404, detail="验证码不存在或已使用，请刷新") from None
+    except ChallengeExpired:
+        raise HTTPException(status_code=410, detail="验证码已过期，请刷新") from None
+    except TooManyAttempts:
+        raise HTTPException(status_code=429, detail="验证码错误次数过多，请刷新") from None
+    if not valid:
+        raise HTTPException(status_code=403, detail="验证码错误")
+
+
+async def cleanup_expired_captcha_challenges() -> int:
+    return await captcha_manager.storage.cleanup_expired()
+
+
+async def captcha_cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(CAPTCHA_CLEANUP_INTERVAL_SECONDS)
+        await cleanup_expired_captcha_challenges()
+
+
+@router.post("/captcha/new")
+async def new_captcha(request: Request):
+    try:
+        auth_store.check_captcha_rate_limit(_client_ip(request))
+    except auth_store.RateLimitExceeded as exc:
+        raise _rate_limit_error(exc) from None
+
+    async with _captcha_issue_lock:
+        await cleanup_expired_captcha_challenges()
+        if await captcha_manager.storage.size() >= MAX_ACTIVE_CAPTCHA_CHALLENGES:
+            raise HTTPException(
+                status_code=429,
+                detail="当前验证码请求较多，请稍后再试",
+                headers={"Retry-After": "30"},
+            )
+        challenge_id, image = await captcha_manager.issue()
+    image_data = base64.b64encode(image).decode("ascii")
+    return {"id": challenge_id, "image": "data:" + "image/png;base64," + image_data}
 
 
 class ChangePasswordPayload(BaseModel):
@@ -121,7 +193,12 @@ def ensure_org_scoped_target(actor: dict, scope_org_id: Optional[str], target: d
 
 
 @router.post("/register")
-def register(payload: AuthPayload, request: Request, response: Response):
+async def register(payload: AuthPayload, request: Request, response: Response):
+    await _verify_captcha(payload)
+    return await run_in_threadpool(_register, payload, request, response)
+
+
+def _register(payload: AuthPayload, request: Request, response: Response):
     if not auth_store.is_registration_enabled():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="当前未开放注册")
 
@@ -156,7 +233,12 @@ def public_organizations():
 
 
 @router.post("/login")
-def login(payload: LoginPayload, request: Request, response: Response):
+async def login(payload: LoginPayload, request: Request, response: Response):
+    await _verify_captcha(payload)
+    return await run_in_threadpool(_login, payload, request, response)
+
+
+def _login(payload: LoginPayload, request: Request, response: Response):
     try:
         auth_store.check_login_rate_limit(_client_ip(request), payload.username)
     except auth_store.RateLimitExceeded as exc:

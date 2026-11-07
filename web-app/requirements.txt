@@ -1,4 +1,5 @@
 fastapi>=0.115.0
+captchakit[fastapi]>=1.0.1,<2.0.0
 SQLAlchemy>=2.0,<3.0
 psycopg[binary]>=3.2,<4.0
 alembic>=1.13,<2.0

@@ -856,6 +856,39 @@ a {
   gap: 7px;
 }
 
+.auth-captcha {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.auth-captcha-image {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  height: 40px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+}
+
+.auth-captcha-image img {
+  display: block;
+  width: 110px;
+  height: 40px;
+  object-fit: contain;
+}
+
+.auth-captcha-image span {
+  width: 110px;
+  color: var(--text-muted);
+  font-size: 11px;
+  text-align: center;
+}
+
 .auth-submit {
   margin-top: 2px;
 }

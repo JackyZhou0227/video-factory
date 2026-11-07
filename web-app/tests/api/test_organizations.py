@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from app.api import admin as admin_api
 from app.api import auth as auth_api
 from app.services import auth_store
+from tests.pg_test_utils import with_captcha
 
 
 def _build_app() -> FastAPI:
@@ -37,7 +38,10 @@ class OrganizationFlowTests(unittest.TestCase):
         self.client.close()
 
     def admin_login(self):
-        response = self.client.post("/api/auth/login", json={"username": "rootadmin", "password": "root-pass-123"})
+        response = self.client.post(
+            "/api/auth/login",
+            json=with_captcha(self.client, {"username": "rootadmin", "password": "root-pass-123"}),
+        )
         self.assertEqual(response.status_code, 200, response.text)
 
     def create_org(self, name: str) -> str:
@@ -47,7 +51,10 @@ class OrganizationFlowTests(unittest.TestCase):
 
     def login_as(self, username: str, password: str) -> None:
         self.client.cookies.clear()
-        response = self.client.post("/api/auth/login", json={"username": username, "password": password})
+        response = self.client.post(
+            "/api/auth/login",
+            json=with_captcha(self.client, {"username": username, "password": password}),
+        )
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_registration_requires_org_and_stays_pending(self):
@@ -56,21 +63,26 @@ class OrganizationFlowTests(unittest.TestCase):
 
         response = self.client.post(
             "/api/auth/register",
-            json={"username": "newmember", "password": "member-pass-123", "org_id": org_id},
+            json=with_captcha(
+                self.client,
+                {"username": "newmember", "password": "member-pass-123", "org_id": org_id},
+            ),
         )
         self.assertEqual(response.status_code, 200, response.text)
         self.assertTrue(response.json()["pending"])
 
         # 待审批用户无法登录
         response = self.client.post(
-            "/api/auth/login", json={"username": "newmember", "password": "member-pass-123"}
+            "/api/auth/login",
+            json=with_captcha(self.client, {"username": "newmember", "password": "member-pass-123"}),
         )
         self.assertEqual(response.status_code, 403)
         self.assertIn("审批", response.json()["detail"])
 
         # 未选组织的注册被拒绝
         response = self.client.post(
-            "/api/auth/register", json={"username": "norguser", "password": "member-pass-123"}
+            "/api/auth/register",
+            json=with_captcha(self.client, {"username": "norguser", "password": "member-pass-123"}),
         )
         self.assertEqual(response.status_code, 422)
 
@@ -93,7 +105,10 @@ class OrganizationFlowTests(unittest.TestCase):
         self.client.cookies.clear()
         pending_response = self.client.post(
             "/api/auth/register",
-            json={"username": "applicant", "password": "apply-pass-123", "org_id": org_id},
+            json=with_captcha(
+                self.client,
+                {"username": "applicant", "password": "apply-pass-123", "org_id": org_id},
+            ),
         )
         self.assertEqual(pending_response.status_code, 200, pending_response.text)
         self.login_as("orgboss", "boss-pass-123")

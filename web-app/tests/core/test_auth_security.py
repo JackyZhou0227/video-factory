@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import unittest
+from dataclasses import replace
 
+from captchakit import MemoryStorage, TextChallengeFactory
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from app.api import auth as auth_api
 from app.api.auth import router as auth_router
 from app.services import auth_store, settings_store
-from tests.pg_test_utils import count_sessions, set_session_expires_at
+from tests.pg_test_utils import count_sessions, set_session_expires_at, with_captcha
 
 
 class AuthSecurityTests(unittest.TestCase):
@@ -37,6 +41,8 @@ class AuthSecurityTests(unittest.TestCase):
         self._app_config = app_config
         self.original_auth = dict(app_config.get("auth") or {})
         app_config["auth"] = dict(self.original_auth)
+        self.original_captcha_storage = auth_api.captcha_manager.storage
+        auth_api.captcha_manager.storage = MemoryStorage()
         settings_store.init_db()
         auth_store.init_auth_schema()
         auth_store.reset_rate_limits()
@@ -49,6 +55,7 @@ class AuthSecurityTests(unittest.TestCase):
         self.client.close()
         auth_store.reset_rate_limits()
         self._app_config["auth"] = self.original_auth
+        auth_api.captcha_manager.storage = self.original_captcha_storage
         for name, value in self.original_limits.items():
             setattr(auth_store, name, value)
 
@@ -67,12 +74,193 @@ class AuthSecurityTests(unittest.TestCase):
             else:
                 self._app_config["auth"][key] = text
 
+    def issue_captcha(self) -> tuple[str, str]:
+        response = self.client.post("/api/auth/captcha/new")
+        self.assertEqual(response.status_code, 200, response.text)
+        challenge_id = response.json()["id"]
+        challenge = asyncio.run(auth_api.captcha_manager.storage.get(challenge_id))
+        return challenge_id, challenge.solution
+
+    def auth_payload(self, username: str, password: str) -> dict[str, str]:
+        return with_captcha(self.client, {"username": username, "password": password})
+
+    def test_captcha_endpoint_returns_classic_png_data_url(self):
+        response = self.client.post("/api/auth/captcha/new")
+        self.assertEqual(response.status_code, 200, response.text)
+        challenge = response.json()
+        self.assertTrue(challenge["image"].startswith("data:image/png;base64,"))
+        self.assertIn("id", challenge)
+
+    def test_captcha_issue_is_rate_limited_by_client_ip(self):
+        old_limit = auth_store.CAPTCHA_IP_MAX_ATTEMPTS
+        auth_store.CAPTCHA_IP_MAX_ATTEMPTS = 1
+        try:
+            self.assertEqual(self.client.post("/api/auth/captcha/new").status_code, 200)
+
+            response = self.client.post("/api/auth/captcha/new")
+
+            self.assertEqual(response.status_code, 429)
+            self.assertGreaterEqual(int(response.headers["Retry-After"]), 1)
+        finally:
+            auth_store.CAPTCHA_IP_MAX_ATTEMPTS = old_limit
+
+    def test_expired_captcha_challenges_can_be_cleaned_without_new_requests(self):
+        challenge_id, _ = self.issue_captcha()
+        challenge = asyncio.run(auth_api.captcha_manager.storage.get(challenge_id))
+        asyncio.run(
+            auth_api.captcha_manager.storage.put(
+                replace(challenge, expires_at=0)
+            )
+        )
+
+        removed = asyncio.run(auth_api.cleanup_expired_captcha_challenges())
+
+        self.assertEqual(removed, 1)
+        self.assertEqual(asyncio.run(auth_api.captcha_manager.storage.size()), 0)
+
+    def test_captcha_challenge_count_has_a_hard_cap(self):
+        old_limit = auth_api.MAX_ACTIVE_CAPTCHA_CHALLENGES
+        auth_api.MAX_ACTIVE_CAPTCHA_CHALLENGES = 1
+        try:
+            self.assertEqual(self.client.post("/api/auth/captcha/new").status_code, 200)
+
+            response = self.client.post("/api/auth/captcha/new")
+
+            self.assertEqual(response.status_code, 429)
+            self.assertEqual(asyncio.run(auth_api.captcha_manager.storage.size()), 1)
+        finally:
+            auth_api.MAX_ACTIVE_CAPTCHA_CHALLENGES = old_limit
+
+    def test_captcha_answer_is_case_insensitive(self):
+        original_factory = auth_api.captcha_manager.factory
+        auth_api.captcha_manager.factory = TextChallengeFactory(length=5, case_sensitive=True)
+        try:
+            challenge_id, answer = self.issue_captcha()
+            response = self.client.post(
+                "/api/auth/login",
+                json={
+                    "username": "nobody",
+                    "password": "correct-password",
+                    "captcha_id": challenge_id,
+                    "captcha_answer": answer.swapcase(),
+                },
+            )
+        finally:
+            auth_api.captcha_manager.factory = original_factory
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["detail"], "用户名或密码不正确")
+
+    def test_login_rejects_missing_or_wrong_captcha(self):
+        auth_store.create_user("captchauser", "correct-password")
+        missing = self.client.post(
+            "/api/auth/login",
+            json={"username": "captchauser", "password": "correct-password"},
+        )
+        self.assertEqual(missing.status_code, 422)
+
+        challenge_id, _ = self.issue_captcha()
+        wrong = self.client.post(
+            "/api/auth/login",
+            json={
+                "username": "captchauser",
+                "password": "correct-password",
+                "captcha_id": challenge_id,
+                "captcha_answer": "WRONG",
+            },
+        )
+        self.assertEqual(wrong.status_code, 403)
+        self.assertNotIn("vf_session", wrong.headers.get("set-cookie", ""))
+        self.assertEqual(count_sessions(auth_store.authenticate_user("captchauser", "correct-password")["id"]), 0)
+
+    def test_login_requires_fresh_captcha_and_still_rejects_wrong_password(self):
+        self.set_env("VF_AUTH_COOKIE_SECURE", "false")
+        auth_store.create_user("captchauser", "correct-password")
+        payload = self.auth_payload("captchauser", "correct-password")
+
+        response = self.client.post(
+            "/api/auth/login",
+            json=payload,
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+
+        reused = self.client.post(
+            "/api/auth/login",
+            json=payload,
+        )
+        self.assertEqual(reused.status_code, 404)
+
+        invalid_password = self.client.post(
+            "/api/auth/login",
+            json=self.auth_payload("captchauser", "wrong-password"),
+        )
+        self.assertEqual(invalid_password.status_code, 401)
+
+    def test_register_rejects_invalid_captcha_without_creating_user(self):
+        self.set_env("VF_AUTH_REGISTRATION_ENABLED", "true")
+        org_id = auth_store.create_organization("验证码测试组")["id"]
+        missing = self.client.post(
+            "/api/auth/register",
+            json={"username": "captcha-register", "password": "correct-password", "org_id": org_id},
+        )
+        self.assertEqual(missing.status_code, 422)
+
+        challenge_id, _ = self.issue_captcha()
+
+        response = self.client.post(
+            "/api/auth/register",
+            json={
+                "username": "captcha-register",
+                "password": "correct-password",
+                "org_id": org_id,
+                "captcha_id": challenge_id,
+                "captcha_answer": "WRONG",
+            },
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(
+            any(user["username"] == "captcha-register" for user in auth_store.list_users()["items"])
+        )
+
+    def test_expired_and_exhausted_captcha_are_rejected(self):
+        challenge_id, answer = self.issue_captcha()
+        challenge = asyncio.run(auth_api.captcha_manager.storage.get(challenge_id))
+        asyncio.run(
+            auth_api.captcha_manager.storage.put(
+                replace(challenge, expires_at=0)
+            )
+        )
+        expired = self.client.post(
+            "/api/auth/login",
+            json={
+                "username": "nobody",
+                "password": "correct-password",
+                "captcha_id": challenge_id,
+                "captcha_answer": answer,
+            },
+        )
+        self.assertEqual(expired.status_code, 410)
+
+        challenge_id, _ = self.issue_captcha()
+        for expected_status in (403, 403, 429):
+            response = self.client.post(
+                "/api/auth/login",
+                json={
+                    "username": "nobody",
+                    "password": "correct-password",
+                    "captcha_id": challenge_id,
+                    "captcha_answer": "WRONG",
+                },
+            )
+            self.assertEqual(response.status_code, expected_status)
+
     def test_registration_is_disabled_by_default(self):
         self.set_env("VF_AUTH_REGISTRATION_ENABLED", None)
 
         response = self.client.post(
             "/api/auth/register",
-            json={"username": "newuser", "password": "correct-password"},
+            json=with_captcha(self.client, {"username": "newuser", "password": "correct-password"}),
         )
 
         self.assertEqual(response.status_code, 403)
@@ -86,7 +274,10 @@ class AuthSecurityTests(unittest.TestCase):
 
         response = self.client.post(
             "/api/auth/register",
-            json={"username": "newuser", "password": "correct-password", "org_id": org_id},
+            json=with_captcha(
+                self.client,
+                {"username": "newuser", "password": "correct-password", "org_id": org_id},
+            ),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -96,7 +287,10 @@ class AuthSecurityTests(unittest.TestCase):
 
         second_response = self.client.post(
             "/api/auth/register",
-            json={"username": "seconduser", "password": "correct-password", "org_id": org_id},
+            json=with_captcha(
+                self.client,
+                {"username": "seconduser", "password": "correct-password", "org_id": org_id},
+            ),
         )
         self.assertEqual(second_response.status_code, 200)
         self.assertTrue(second_response.json()["pending"])
@@ -111,7 +305,7 @@ class AuthSecurityTests(unittest.TestCase):
 
         response = self.client.post(
             "/api/auth/login",
-            json={"username": "cookieuser", "password": "correct-password"},
+            json=self.auth_payload("cookieuser", "correct-password"),
         )
 
         cookie = response.headers["set-cookie"]
@@ -126,7 +320,7 @@ class AuthSecurityTests(unittest.TestCase):
         auth_store.create_user("httpuser", "correct-password")
         response = self.client.post(
             "/api/auth/login",
-            json={"username": "httpuser", "password": "correct-password"},
+            json=self.auth_payload("httpuser", "correct-password"),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -140,7 +334,7 @@ class AuthSecurityTests(unittest.TestCase):
         response = self.client.post(
             "/api/auth/login",
             headers={"X-Forwarded-Proto": "https"},
-            json={"username": "httpsuser", "password": "correct-password"},
+            json=self.auth_payload("httpsuser", "correct-password"),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -154,7 +348,7 @@ class AuthSecurityTests(unittest.TestCase):
         response = self.client.post(
             "/api/auth/login",
             headers={"X-Forwarded-Proto": "https"},
-            json={"username": "overrideuser", "password": "correct-password"},
+            json=self.auth_payload("overrideuser", "correct-password"),
         )
 
         self.assertEqual(response.status_code, 200)
@@ -169,13 +363,13 @@ class AuthSecurityTests(unittest.TestCase):
         for _ in range(2):
             response = self.client.post(
                 "/api/auth/login",
-                json={"username": "loginuser", "password": "wrong-password"},
+                json=self.auth_payload("loginuser", "wrong-password"),
             )
             self.assertEqual(response.status_code, 401)
 
         response = self.client.post(
             "/api/auth/login",
-            json={"username": user["username"], "password": "wrong-password"},
+            json=self.auth_payload(user["username"], "wrong-password"),
         )
 
         self.assertEqual(response.status_code, 429)

@@ -15,6 +15,7 @@ from app.api import auth as auth_api
 from app.core.config import app_config
 from app.db.models import BgmTrack, GenerationTask, VoiceProfile
 from app.services import auth_store, settings_store, storage_cleanup, task_store
+from tests.pg_test_utils import with_captcha
 from tests.pg_test_utils import ensure_test_user
 
 NOW = datetime(2026, 9, 5, 8, 0, 0, tzinfo=timezone.utc)
@@ -255,7 +256,10 @@ class StorageAdminApiTests(unittest.TestCase):
 
     def login(self, username: str, password: str) -> None:
         self.client.cookies.clear()
-        response = self.client.post("/api/auth/login", json={"username": username, "password": password})
+        response = self.client.post(
+            "/api/auth/login",
+            json=with_captcha(self.client, {"username": username, "password": password}),
+        )
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_admin_can_fetch_report_and_dry_run_cleanup(self):

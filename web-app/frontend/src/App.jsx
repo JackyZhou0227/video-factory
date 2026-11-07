@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import Button from "@mui/material/Button";
+import IconButton from "@mui/material/IconButton";
 import Typography from "@mui/material/Typography";
 import TextField from "@mui/material/TextField";
 import MenuItem from "@mui/material/MenuItem";
+import Refresh from "@mui/icons-material/Refresh";
 import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import Icon from "./components/Icon";
@@ -21,7 +23,7 @@ import UserProfile from "./components/UserProfile";
 import SkillHeaderCard from "./components/SkillHeaderCard";
 import TaskCapacityHeaderCard from "./components/TaskCapacityHeaderCard";
 import { useGlobalMessage } from "./components/GlobalMessageProvider";
-import { getCurrentUser, listPublicOrganizations, login, logout, register } from "./lib/auth";
+import { getCaptcha, getCurrentUser, listPublicOrganizations, login, logout, register } from "./lib/auth";
 import { PAGE_NAMES, PROJECT_NAME } from "./lib/pageNames";
 import { isProfilePage, profilePageFromPathname } from "./lib/profileNavigation";
 import templateProductionSkill from "../skills/generate-template-production-template/skill.json";
@@ -179,6 +181,10 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
   const [passwordConfirm, setPasswordConfirm] = useState("");
   const [orgId, setOrgId] = useState("");
   const [organizations, setOrganizations] = useState([]);
+  const [captchaId, setCaptchaId] = useState("");
+  const [captchaImage, setCaptchaImage] = useState("");
+  const [captchaAnswer, setCaptchaAnswer] = useState("");
+  const [captchaLoading, setCaptchaLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const { showSuccess } = useGlobalMessage();
@@ -186,6 +192,25 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
   const isRegister = mode === "register";
   const title = isRegister ? "注册账号" : "登录账号";
   const actionLabel = isRegister ? "提交注册申请" : "登录";
+
+  const refreshCaptcha = useCallback(async () => {
+    setCaptchaLoading(true);
+    setCaptchaAnswer("");
+    try {
+      const captcha = await getCaptcha();
+      setCaptchaId(captcha.id);
+      setCaptchaImage(captcha.image);
+    } catch {
+      setCaptchaId("");
+      setCaptchaImage("");
+    } finally {
+      setCaptchaLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshCaptcha();
+  }, [refreshCaptcha]);
 
   useEffect(() => {
     if (!isRegister || organizations.length > 0) return;
@@ -207,8 +232,8 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
       setSubmitting(true);
       try {
         const data = isRegister
-          ? await register(username.trim(), password, displayName, orgId)
-          : await login(username.trim(), password);
+          ? await register(username.trim(), password, displayName, orgId, captchaId, captchaAnswer)
+          : await login(username.trim(), password, captchaId, captchaAnswer);
         if (isRegister && data.pending) {
           showSuccess("注册申请已提交，等待组织管理员审批，批准后即可登录。");
           setMode("login");
@@ -224,9 +249,22 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
         setError(err.message);
       } finally {
         setSubmitting(false);
+        refreshCaptcha();
       }
     },
-    [displayName, isRegister, onAuthenticated, orgId, password, passwordConfirm, showSuccess, username]
+    [
+      captchaAnswer,
+      captchaId,
+      displayName,
+      isRegister,
+      onAuthenticated,
+      orgId,
+      password,
+      passwordConfirm,
+      refreshCaptcha,
+      showSuccess,
+      username,
+    ]
   );
 
   const switchMode = useCallback(() => {
@@ -323,6 +361,37 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
             />
           )}
 
+          <div className="auth-captcha">
+            <TextField
+              id="auth-captcha-answer"
+              label="验证码"
+              fullWidth
+              size="small"
+              value={captchaAnswer}
+              onChange={(event) => setCaptchaAnswer(event.target.value)}
+              autoComplete="off"
+              placeholder="输入图片中的字符"
+              disabled={captchaLoading || !captchaId}
+            />
+            <div className="auth-captcha-image">
+              {captchaImage ? (
+                <img src={captchaImage} alt="验证码" />
+              ) : (
+                <span>{captchaLoading ? "正在加载" : "加载失败"}</span>
+              )}
+              <IconButton
+                type="button"
+                aria-label="刷新验证码"
+                title="刷新验证码"
+                onClick={refreshCaptcha}
+                disabled={captchaLoading || submitting}
+                size="small"
+              >
+                <Refresh fontSize="small" />
+              </IconButton>
+            </div>
+          </div>
+
           {error && <div className="form-alert failed">{error}</div>}
 
           <Button
@@ -330,7 +399,7 @@ function AuthScreen({ registrationEnabled, onAuthenticated }) {
             type="submit"
             variant="contained"
             color="primary"
-            disabled={submitting}
+            disabled={submitting || captchaLoading || !captchaId || !captchaAnswer.trim()}
             startIcon={submitting ? <Spinner size={16} /> : <Icon name={isRegister ? "check" : "lock"} size={16} />}
           >
             {submitting ? "处理中..." : actionLabel}

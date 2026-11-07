@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -29,6 +30,18 @@ TEST_DATABASE_URL = str(
     .set(database="video_factory_test")
     .render_as_string(hide_password=False)
 )
+
+
+def with_captcha(client: Any, payload: dict[str, Any]) -> dict[str, Any]:
+    """Add a valid captcha to an auth payload for API integration tests."""
+    from app.api.auth import captcha_manager
+
+    response = client.post("/api/auth/captcha/new")
+    if response.status_code != 200:
+        raise AssertionError(f"captcha issue failed: {response.status_code} {response.text}")
+
+    challenge = asyncio.run(captcha_manager.storage.get(response.json()["id"]))
+    return payload | {"captcha_id": challenge.id, "captcha_answer": challenge.solution}
 
 
 def create_schema() -> None:

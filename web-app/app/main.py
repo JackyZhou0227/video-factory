@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
-from app.api.auth import router as auth_router
+from app.api.auth import captcha_cleanup_loop, router as auth_router
 from app.api.digital_human import router as digital_human_router
 from app.api.output import router as output_router
 from app.api.poster_video import router as poster_video_router
@@ -48,6 +48,10 @@ async def lifespan(application: FastAPI):
         storage_cleanup.periodic_cleanup_loop(),
         name="vf-storage-cleanup",
     )
+    captcha_cleanup_worker = asyncio.create_task(
+        captcha_cleanup_loop(),
+        name="vf-captcha-cleanup",
+    )
     try:
         await tts_service.prewarm_provider_statuses_async()
     except Exception:
@@ -56,7 +60,8 @@ async def lifespan(application: FastAPI):
         yield
     finally:
         cleanup_worker.cancel()
-        await asyncio.gather(cleanup_worker, return_exceptions=True)
+        captcha_cleanup_worker.cancel()
+        await asyncio.gather(cleanup_worker, captcha_cleanup_worker, return_exceptions=True)
         await runtime.stop()
         configure_task_runtime(None)
 

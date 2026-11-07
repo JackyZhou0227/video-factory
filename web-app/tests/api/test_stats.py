@@ -10,6 +10,7 @@ from app.api import stats as stats_api
 from app.api.auth import router as auth_router
 from app.db.models import GenerationTask
 from app.services import auth_store, settings_store
+from tests.pg_test_utils import with_captcha
 
 
 def _iso(days_ago: int) -> str:
@@ -43,6 +44,7 @@ def _seed_task(user_id: str, username: str, display_name: str, task_type: str, *
 
 class StatsApiTests(unittest.TestCase):
     def setUp(self):
+        auth_store.reset_rate_limits()
         self.app = FastAPI()
         self.app.include_router(auth_router, prefix="/api")
         self.app.include_router(stats_api.router, prefix="/api")
@@ -77,7 +79,10 @@ class StatsApiTests(unittest.TestCase):
 
     def login(self, username: str, password: str):
         self.client.cookies.clear()
-        response = self.client.post("/api/auth/login", json={"username": username, "password": password})
+        response = self.client.post(
+            "/api/auth/login",
+            json=with_captcha(self.client, {"username": username, "password": password}),
+        )
         self.assertEqual(response.status_code, 200, response.text)
 
     def test_personal_stats_only_own_tasks(self):

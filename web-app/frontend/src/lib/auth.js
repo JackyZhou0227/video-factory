@@ -5,20 +5,34 @@ export async function getCurrentUser() {
   return apiJson("/api/auth/me", { silentError: true });
 }
 
-export async function login(username, password) {
+export async function getCaptcha() {
+  return apiJson("/api/auth/captcha/new", { method: "POST", silentError: true });
+}
+
+export async function login(username, password, captchaId, captchaAnswer) {
   return apiJson(
     "/api/auth/login",
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({
+        username,
+        password,
+        captcha_id: captchaId,
+        captcha_answer: captchaAnswer,
+      }),
       silentError: true,
     }
   );
 }
 
-export async function register(username, password, displayName, orgId) {
-  const payload = { username, password };
+export async function register(username, password, displayName, orgId, captchaId, captchaAnswer) {
+  const payload = {
+    username,
+    password,
+    captcha_id: captchaId,
+    captcha_answer: captchaAnswer,
+  };
   if (displayName.trim()) payload.display_name = displayName.trim();
   if (orgId) payload.org_id = orgId;
 

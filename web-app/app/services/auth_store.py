@@ -43,6 +43,8 @@ REGISTER_IP_MAX_ATTEMPTS = 5
 REGISTER_IP_WINDOW_SECONDS = 3600
 REGISTER_USERNAME_MAX_ATTEMPTS = 3
 REGISTER_USERNAME_WINDOW_SECONDS = 3600
+CAPTCHA_IP_MAX_ATTEMPTS = 10
+CAPTCHA_IP_WINDOW_SECONDS = 60
 MAX_RATE_LIMIT_KEYS = 4096
 SESSION_CLEANUP_INTERVAL_SECONDS = 300
 MAX_SESSIONS_PER_USER = 10
@@ -211,6 +213,14 @@ def check_registration_rate_limit(client_ip: str, username: str) -> None:
         _rate_limit_key("register-user", normalized),
         REGISTER_USERNAME_MAX_ATTEMPTS,
         REGISTER_USERNAME_WINDOW_SECONDS,
+    )
+
+
+def check_captcha_rate_limit(client_ip: str) -> None:
+    _consume_rate_limit(
+        _rate_limit_key("captcha-ip", client_ip or "unknown"),
+        CAPTCHA_IP_MAX_ATTEMPTS,
+        CAPTCHA_IP_WINDOW_SECONDS,
     )
 
 
