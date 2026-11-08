@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api.admin import router as admin_router
 from app.api.auth import captcha_cleanup_loop, router as auth_router
-from app.api.digital_human import router as digital_human_router
+from app.api.comfyui import router as comfyui_router
 from app.api.output import router as output_router
 from app.api.poster_video import router as poster_video_router
 from app.api.smart_editing import router as smart_editing_router
@@ -98,7 +98,7 @@ def create_app() -> FastAPI:
     application.include_router(admin_router, prefix="/api")
     application.include_router(stats_router, prefix="/api")
     application.include_router(output_router)
-    application.include_router(digital_human_router, prefix="/api")
+    application.include_router(comfyui_router, prefix="/api")
     application.include_router(tts_studio_router, prefix="/api")
     application.include_router(poster_video_router, prefix="/api")
     application.include_router(template_production_router, prefix="/api")

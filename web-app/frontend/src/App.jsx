@@ -10,7 +10,7 @@ import List from "@mui/material/List";
 import ListItemButton from "@mui/material/ListItemButton";
 import Icon from "./components/Icon";
 import Spinner from "./components/Spinner";
-import DigitalHuman from "./components/DigitalHuman";
+import ComfyUI from "./components/ComfyUI";
 import PosterVideo from "./components/PosterVideo";
 import SmartEditing from "./components/SmartEditing";
 import TemplateProduction from "./components/TemplateProduction";
@@ -37,10 +37,10 @@ function roleLevel(user) {
 
 const NAV_ITEMS = [
   {
-    id: "digital-human",
-    label: "数字人",
-    description: "口播视频生成",
-    icon: "digitalHuman",
+    id: "comfyui",
+    label: "ComfyUI 工作流",
+    description: "选择并提交云端工作流",
+    icon: "comfyui",
   },
   {
     id: "tts-studio",
@@ -101,10 +101,10 @@ const NAV_ITEMS = [
 ];
 
 const PAGE_META = {
-  "digital-human": {
-    eyebrow: PAGE_NAMES.digitalHuman,
-    title: "数字人口播视频",
-    description: "上传人物图片与已生成的口播音频，提交 RunningHub 生成数字人口播视频。",
+  "comfyui": {
+    eyebrow: PAGE_NAMES.comfyui,
+    title: "ComfyUI 工作流",
+    description: "选择工作流并填写输入参数，提交到配置的工作流服务。",
   },
   "tts-studio": {
     eyebrow: PAGE_NAMES.ttsStudio,
@@ -163,7 +163,7 @@ const PAGE_META = {
   },
 };
 
-const DEFAULT_PAGE = "digital-human";
+const DEFAULT_PAGE = "comfyui";
 
 function pageFromPathname(pathname) {
   const profilePage = profilePageFromPathname(pathname);
@@ -578,8 +578,8 @@ export default function App() {
         </header>
 
         <div className="page-stack">
-          <div className={`app-main page-panel ${activePage === "digital-human" ? "is-active" : ""}`}>
-            <DigitalHuman onOpenTtsStudio={() => handlePageChange("tts-studio")} />
+          <div className={`app-main page-panel ${activePage === "comfyui" ? "is-active" : ""}`}>
+            <ComfyUI onOpenTtsStudio={() => handlePageChange("tts-studio")} />
           </div>
           <div className={`app-main page-panel ${activePage === "tts-studio" ? "is-active" : ""}`}>
             <TTSStudio active={activePage === "tts-studio"} />

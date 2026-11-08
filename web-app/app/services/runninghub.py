@@ -144,11 +144,26 @@ async def submit_digital_human(
     Submit image + audio to RunningHub and return the RunningHub task id.
     Does not wait for remote completion or download the generated video.
     """
+    return await submit_workflow(
+        workflow_id=workflow_id,
+        parameters={
+            "videoimage": str(image_path),
+            "audio": str(audio_path),
+        },
+        api_key=api_key,
+        instance_type=instance_type,
+    )
+
+
+async def submit_workflow(
+    *,
+    workflow_id: str,
+    parameters: dict[str, Any],
+    api_key: str,
+    instance_type: Optional[str] = None,
+) -> str:
+    """Submit mapped parameters to a RunningHub ComfyUI workflow."""
     executor = _new_runninghub_executor(api_key, instance_type)
-    params = {
-        "videoimage": str(image_path),
-        "audio": str(audio_path),
-    }
 
     try:
         workflow_json, include_workflow_json = await _get_workflow_json_for_submission(
@@ -169,7 +184,7 @@ async def submit_digital_human(
 
         node_info_list = await executor._convert_params_to_node_info_list(
             metadata,
-            params,
+            parameters,
             seed_changes,
         )
         task_data = await _create_task(

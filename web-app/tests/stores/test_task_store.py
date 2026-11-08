@@ -101,7 +101,7 @@ class TaskStoreTests(unittest.TestCase):
             with self.subTest(sensitive_key=sensitive_key), self.assertRaises(ValueError):
                 task_store.create_task(
                     user=self.user(),
-                    task_type=task_store.TASK_TYPE_DIGITAL_HUMAN,
+                    task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
                     generation_type="video",
                     requested_count=1,
                     output_root=self.output_root,
@@ -183,7 +183,7 @@ class TaskStoreTests(unittest.TestCase):
         with self.assertRaises(task_store.TaskCancellationConflictError):
             task_store.request_task_cancellation(task["id"], "user-a")
 
-    def test_all_task_types_except_digital_human_can_be_cancelled(self):
+    def test_all_task_types_except_comfyui_workflow_can_be_cancelled(self):
         cancellable_types = (
             task_store.TASK_TYPE_VOICE,
             task_store.TASK_TYPE_POSTER,
@@ -204,10 +204,10 @@ class TaskStoreTests(unittest.TestCase):
                 self.assertEqual(cancelling["status"], "cancelling")
                 task_store.update_task(task["id"], status="cancelled", finished=True)
 
-    def test_digital_human_task_cannot_be_cancelled(self):
+    def test_comfyui_workflow_task_cannot_be_cancelled(self):
         task = task_store.create_task(
             user=self.user("user-a"),
-            task_type=task_store.TASK_TYPE_DIGITAL_HUMAN,
+            task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
             generation_type="video",
             requested_count=1,
             output_root=self.output_root,

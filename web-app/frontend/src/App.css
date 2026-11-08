@@ -1105,6 +1105,12 @@ a {
   grid-column: span 8;
 }
 
+.workflow-input-list {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
 .workflow-card {
   display: grid;
   gap: 14px;
@@ -1719,7 +1725,7 @@ a {
   color: #8d611f;
 }
 
-.task-row-icon.digital_human {
+.task-row-icon.comfyui_workflow {
   background: var(--accent-soft);
   color: var(--accent-dark);
 }

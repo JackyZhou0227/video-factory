@@ -73,7 +73,7 @@ class AlembicMigrationTests(unittest.TestCase):
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0006",
+                    "0007",
                 )
         finally:
             engine.dispose()
@@ -126,13 +126,67 @@ class AlembicMigrationTests(unittest.TestCase):
                     connection.execute(
                         text("SELECT version_num FROM alembic_version")
                     ).scalar_one(),
-                    "0006",
+                    "0007",
                 )
             with engine.connect() as connection:
                 self.assertEqual(
                     connection.execute(text("SELECT COUNT(*) FROM users")).scalar_one(),
                     1,
                 )
+        finally:
+            engine.dispose()
+
+    def test_comfyui_workflow_migration_renames_legacy_task_type_only(self):
+        engine = create_engine_from_url(self.database_url)
+        try:
+            Base.metadata.create_all(engine)
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "INSERT INTO users "
+                        "(id, username, display_name, created_at, updated_at) "
+                        "VALUES ('user-1', 'alice', 'Alice', '2026-08-23', '2026-08-23')"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "INSERT INTO generation_tasks "
+                        "(id, user_id, task_type, generation_type, requested_count, status, "
+                        "storage_path, extra_info_json, artifacts_json, created_at, updated_at) "
+                        "VALUES "
+                        "('legacy-dh', 'user-1', 'digital_human', 'video', 1, 'submitted', "
+                        "'/output/tasks/digital_human/legacy-dh', "
+                        "'{\"runninghub_task_id\":\"rh-123\"}', '[]', '2026-08-23', '2026-08-23'), "
+                        "('voice-task', 'user-1', 'voice_generation', 'voice', 1, 'completed', "
+                        "'/output/tasks/voice_generation/voice-task', '{}', '[]', '2026-08-23', '2026-08-23')"
+                    )
+                )
+        finally:
+            engine.dispose()
+
+        command.stamp(self._config(), "0006")
+        command.upgrade(self._config(), "head")
+
+        engine = create_engine_from_url(self.database_url)
+        try:
+            with engine.connect() as connection:
+                legacy = connection.execute(
+                    text(
+                        "SELECT task_type, storage_path, extra_info_json, status "
+                        "FROM generation_tasks WHERE id = 'legacy-dh'"
+                    )
+                ).one()
+                voice_type = connection.execute(
+                    text("SELECT task_type FROM generation_tasks WHERE id = 'voice-task'")
+                ).scalar_one()
+            self.assertEqual(legacy.task_type, "comfyui_workflow")
+            self.assertEqual(legacy.storage_path, "/output/tasks/digital_human/legacy-dh")
+            self.assertEqual(
+                legacy.extra_info_json,
+                '{"runninghub_task_id":"rh-123"}',
+            )
+            self.assertEqual(legacy.status, "submitted")
+            self.assertEqual(voice_type, "voice_generation")
         finally:
             engine.dispose()
 

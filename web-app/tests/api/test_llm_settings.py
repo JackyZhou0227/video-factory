@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.api import digital_human as settings_api
+from app.api import comfyui as settings_api
 from app.api.auth import require_current_user
 
 

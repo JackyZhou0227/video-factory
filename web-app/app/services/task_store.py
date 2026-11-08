@@ -15,14 +15,14 @@ from app.core.config import app_config, resolve_output_dir
 from app.db.models import GenerationTask, User
 from app.services import settings_store, storage_cleanup
 
-TASK_TYPE_DIGITAL_HUMAN = "digital_human"
+TASK_TYPE_COMFYUI_WORKFLOW = "comfyui_workflow"
 TASK_TYPE_VOICE = "voice_generation"
 TASK_TYPE_TEMPLATE = "template_production"
 TASK_TYPE_POSTER = "poster_video"
 TASK_TYPE_SMART_EDITING = "smart_editing"
 
 TASK_TYPES = {
-    TASK_TYPE_DIGITAL_HUMAN,
+    TASK_TYPE_COMFYUI_WORKFLOW,
     TASK_TYPE_VOICE,
     TASK_TYPE_TEMPLATE,
     TASK_TYPE_POSTER,
@@ -640,9 +640,9 @@ def request_task_cancellation(task_id: str, user_id: str) -> dict[str, Any]:
         current = _fetch_row(session, task_id, user_id)
         if current is None:
             raise TaskNotFoundError("Task not found")
-        if current.task_type == TASK_TYPE_DIGITAL_HUMAN:
+        if current.task_type == TASK_TYPE_COMFYUI_WORKFLOW:
             raise TaskCancellationConflictError(
-                "数字人任务暂不支持取消",
+                "ComfyUI 工作流任务暂不支持取消",
                 status=str(current.status),
             )
         if current.status in {"cancelled", "cancelling"}:

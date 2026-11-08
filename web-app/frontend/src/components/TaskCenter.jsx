@@ -25,7 +25,7 @@ import { ProtectedDownloadButton, ProtectedMedia } from "./ProtectedAsset";
 import { apiJson, useBackendBaseUrl } from "../lib/backend";
 
 const TASK_LABELS = {
-  digital_human: "数字人",
+  comfyui_workflow: "ComfyUI 工作流",
   voice_generation: "语音生成",
   template_production: "模板量产",
   smart_editing: "智能剪辑",
@@ -96,7 +96,7 @@ function statusIcon(status) {
 }
 
 function canCancelTask(task) {
-  return task?.task_type !== "digital_human" && ["pending", "running"].includes(task.status);
+  return task?.task_type !== "comfyui_workflow" && ["pending", "running"].includes(task.status);
 }
 
 function StatusChip({ status, withIcon = false }) {
@@ -236,7 +236,7 @@ function TaskDetail({ task, backendBaseUrl, loading, onClose }) {
 
 const FILTER_OPTIONS = {
   task_type: [
-    { value: "digital_human", label: "数字人" },
+    { value: "comfyui_workflow", label: "ComfyUI 工作流" },
     { value: "voice_generation", label: "语音生成" },
     { value: "poster_video", label: "大字报" },
     { value: "template_production", label: "模板量产" },
@@ -411,7 +411,7 @@ export default function TaskCenter({ active = true }) {
                       <TableCell>
                         <div className="task-row-task">
                           <span className={`task-row-icon ${task.task_type}`}>
-                            <Icon name={task.generation_type === "voice" ? "audio" : task.task_type === "digital_human" ? "digitalHuman" : task.generation_type === "image" ? "image" : "video"} size={18} />
+                            <Icon name={task.generation_type === "voice" ? "audio" : task.task_type === "comfyui_workflow" ? "digitalHuman" : task.generation_type === "image" ? "image" : "video"} size={18} />
                           </span>
                           <strong>{taskSummary(task)}</strong>
                         </div>

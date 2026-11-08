@@ -13,7 +13,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.api import digital_human, tts_studio
+from app.api import comfyui, tts_studio
 from app.api.auth import require_current_user
 from app.db.models import VoiceProfile
 from app.services.tts import EDGE_TTS_MODEL
@@ -298,7 +298,7 @@ class TTSStudioApiTests(unittest.TestCase):
 
     def test_tts_studio_routes_do_not_replace_digital_human_video_generation(self):
         app = FastAPI()
-        app.include_router(digital_human.router, prefix="/api")
+        app.include_router(comfyui.router, prefix="/api")
         app.include_router(tts_studio.router, prefix="/api")
         app.dependency_overrides[require_current_user] = self._current_user
 

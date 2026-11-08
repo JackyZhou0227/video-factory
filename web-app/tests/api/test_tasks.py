@@ -287,7 +287,7 @@ class TasksApiTests(unittest.TestCase):
     def test_non_tts_active_task_remains_unchanged_and_cannot_be_cancelled(self):
         task = task_store.create_task(
             user=self.user("user-a"),
-            task_type=task_store.TASK_TYPE_DIGITAL_HUMAN,
+            task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
             generation_type="video",
             requested_count=1,
             output_root=self.output_root,

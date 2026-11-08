@@ -15,7 +15,7 @@ _orm_session = settings_store._orm_session
 VALID_DAY_RANGES = {None, 7, 30, 90}
 
 TASK_TYPE_LABELS = {
-    task_store.TASK_TYPE_DIGITAL_HUMAN: "数字人口播",
+    task_store.TASK_TYPE_COMFYUI_WORKFLOW: "ComfyUI 工作流",
     task_store.TASK_TYPE_VOICE: "语音合成",
     task_store.TASK_TYPE_TEMPLATE: "模板量产",
     task_store.TASK_TYPE_POSTER: "大字报视频",

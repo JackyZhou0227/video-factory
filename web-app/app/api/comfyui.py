@@ -5,14 +5,16 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
+from starlette.datastructures import UploadFile as StarletteUploadFile
 
 from app.api import common
 from app.api.auth import require_current_user
 from app.core.config import ROOT, app_config
 from app.core import uploads
 from app.services import runninghub, settings_store, task_store
+from app.services import workflow_catalog
 from app.services.llm import LLMConfig, LLMServiceError, llm_service
 
 router = APIRouter(dependencies=[Depends(require_current_user)])
@@ -74,9 +76,12 @@ def _task_payload(task: dict) -> dict:
         "progress": task["progress"],
         "message": task["message"],
         "video_url": video_url,
-        "runninghub_task_id": extra.get("runninghub_task_id"),
-        "runninghub_task_url": extra.get("runninghub_task_url", RUNNINGHUB_TASKS_URL),
-        "runninghub_works_url": extra.get("runninghub_works_url", RUNNINGHUB_WORKS_URL),
+        "provider_task_id": extra.get("provider_task_id") or extra.get("runninghub_task_id"),
+        "provider_task_url": extra.get("provider_task_url") or extra.get("runninghub_task_url", RUNNINGHUB_TASKS_URL),
+        "provider_dashboard_url": extra.get("provider_dashboard_url") or extra.get("runninghub_works_url", RUNNINGHUB_WORKS_URL),
+        "runninghub_task_id": extra.get("runninghub_task_id") or extra.get("provider_task_id"),
+        "runninghub_task_url": extra.get("runninghub_task_url") or extra.get("provider_task_url", RUNNINGHUB_TASKS_URL),
+        "runninghub_works_url": extra.get("runninghub_works_url") or extra.get("provider_dashboard_url", RUNNINGHUB_WORKS_URL),
         "error": task.get("error"),
     }
 
@@ -85,11 +90,12 @@ def _resolve_runninghub_inputs(
     user_id: str,
     api_key: Optional[str],
     instance_type: Optional[str],
+    workflow_id: Optional[str] = None,
 ) -> tuple[str, str, Optional[str]]:
     stored = settings_store.get_runninghub_settings(user_id)
 
     resolved_api_key = (api_key or stored["api_key"]).strip()
-    resolved_workflow_id = settings_store.FIXED_DIGITAL_HUMAN_WORKFLOW_ID
+    resolved_workflow_id = workflow_id or settings_store.FIXED_DIGITAL_HUMAN_WORKFLOW_ID
     resolved_instance_type = instance_type
     if isinstance(resolved_instance_type, str):
         resolved_instance_type = resolved_instance_type.strip() or None
@@ -100,6 +106,184 @@ def _resolve_runninghub_inputs(
         raise HTTPException(status_code=422, detail="请先在设置页配置 RunningHub API Key")
 
     return resolved_api_key, resolved_workflow_id, resolved_instance_type
+
+
+def _workflow_form_values(workflow: dict, form) -> dict:
+    declarations = {field["key"]: field for field in workflow["inputs"]}
+    unknown = set(form.keys()) - declarations.keys()
+    if unknown:
+        raise HTTPException(status_code=422, detail=f"未知工作流参数：{', '.join(sorted(unknown))}")
+
+    values = {}
+    for key in declarations:
+        items = form.getlist(key)
+        if len(items) > 1:
+            raise HTTPException(status_code=422, detail=f"{key}只能提供一个值")
+        if items:
+            values[key] = items[0]
+    return values
+
+
+def _validate_workflow_inputs(workflow: dict, values: dict) -> tuple[dict, dict]:
+    file_fields = {
+        field["key"]: field
+        for field in workflow["inputs"]
+        if field["type"] in {"image", "audio"}
+    }
+    scalar_values = {key: value for key, value in values.items() if key not in file_fields}
+    scalar_values = workflow_catalog.validate_scalar_inputs(workflow, scalar_values)
+    files = {}
+    for key, field in file_fields.items():
+        upload = values.get(key)
+        if upload is None:
+            if field.get("required"):
+                raise HTTPException(status_code=422, detail=f"请上传{field['label']}")
+            continue
+        if not isinstance(upload, StarletteUploadFile):
+            raise HTTPException(status_code=422, detail=f"{field['label']}必须是文件")
+        is_image = field["type"] == "image"
+        allowed_mime_types = uploads.IMAGE_MIME_TYPES if is_image else uploads.AUDIO_MIME_TYPES
+        max_size = uploads.MAX_IMAGE_FILE_SIZE if is_image else uploads.MAX_AUDIO_FILE_SIZE
+        files[key] = {
+            "upload": upload,
+            "suffix": uploads.validate_upload(
+                upload,
+                allowed_extensions=field["extensions"],
+                allowed_mime_types=allowed_mime_types,
+                max_size=max_size,
+                label=field["label"],
+            ),
+            "field": field,
+            "max_size": max_size,
+            "allowed_mime_types": allowed_mime_types,
+        }
+    return scalar_values, files
+
+
+async def _create_workflow_task(
+    *,
+    user: dict,
+    workflow: dict,
+    values: dict,
+    api_key: Optional[str] = None,
+    instance_type: Optional[str] = None,
+    output_root: Optional[Path] = None,
+) -> dict:
+    if workflow["provider"] != "runninghub":
+        raise HTTPException(status_code=422, detail="暂不支持此工作流服务来源")
+
+    scalar_values, files = _validate_workflow_inputs(workflow, values)
+    resolved_api_key, resolved_workflow_id, resolved_instance_type = _resolve_runninghub_inputs(
+        user_id=user["id"],
+        api_key=api_key,
+        instance_type=instance_type,
+        workflow_id=workflow["workflow_id"],
+    )
+    cfg = _get_config()
+    output_root = output_root or _output_root(cfg)
+    task_id = uuid.uuid4().hex
+    task_record = common.create_task(
+        user=user,
+        task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
+        generation_type="video",
+        requested_count=1,
+        task_id=task_id,
+        output_root=output_root,
+        extra_info={
+            "provider": workflow["provider"],
+            "workflow_key": workflow["key"],
+        },
+        message="任务已创建，等待提交 ComfyUI 工作流...",
+    )
+    task_dir = Path(task_record["storage_path"])
+    provider_inputs = {
+        field["runninghub_parameter"]: value
+        for field in workflow["inputs"]
+        if field["type"] in {"text", "number", "select"} and (value := scalar_values.get(field["key"])) is not None
+    }
+    saved_paths: list[Path] = []
+    try:
+        for key, item in files.items():
+            file_path = task_dir / f"input_{key}{item['suffix']}"
+            await uploads.save_upload(
+                item["upload"],
+                file_path,
+                allowed_extensions=item["field"]["extensions"],
+                allowed_mime_types=item["allowed_mime_types"],
+                max_size=item["max_size"],
+                label=item["field"]["label"],
+            )
+            saved_paths.append(file_path)
+            provider_inputs[item["field"]["runninghub_parameter"]] = str(file_path)
+    except HTTPException as exc:
+        task_store.update_task(
+            task_id,
+            status="failed",
+            progress=0,
+            message="保存工作流输入素材失败",
+            error=str(exc.detail),
+            success_count=0,
+            failed_count=1,
+            finished=True,
+        )
+        for path in saved_paths:
+            path.unlink(missing_ok=True)
+        raise
+    except Exception as exc:
+        task_store.update_task(
+            task_id,
+            status="failed",
+            progress=0,
+            message="保存工作流输入素材失败",
+            error=str(exc),
+            success_count=0,
+            failed_count=1,
+            finished=True,
+        )
+        for path in saved_paths:
+            path.unlink(missing_ok=True)
+        raise HTTPException(status_code=500, detail="保存工作流输入素材失败") from exc
+
+    _tasks[task_id] = {
+        "user_id": user["id"],
+        "status": "pending",
+        "progress": 0,
+        "message": "任务已创建，等待提交 ComfyUI 工作流...",
+        "video_url": None,
+        "provider_task_id": None,
+        "provider_task_url": RUNNINGHUB_TASKS_URL,
+        "provider_dashboard_url": RUNNINGHUB_WORKS_URL,
+        "error": None,
+    }
+    common.schedule_task(
+        task_id,
+        lambda: _run_workflow_generation(
+            task_id=task_id,
+            workflow={**workflow, "workflow_id": resolved_workflow_id},
+            inputs=provider_inputs,
+            api_key=resolved_api_key,
+            instance_type=resolved_instance_type,
+        ),
+    )
+    return {"task_id": task_id}
+
+
+@router.get("/workflows")
+def list_workflows(user: dict = Depends(require_current_user)):
+    del user
+    return workflow_catalog.list_public_workflows()
+
+
+@router.post("/workflows/{workflow_key}/generate")
+async def generate_workflow(
+    workflow_key: str,
+    request: Request,
+    user: dict = Depends(require_current_user),
+):
+    workflow = workflow_catalog.get_workflow(workflow_key)
+    form = await request.form()
+    values = _workflow_form_values(workflow, form)
+    return await _create_workflow_task(user=user, workflow=workflow, values=values)
 
 
 @router.get("/settings")
@@ -157,15 +341,17 @@ async def generate_video(
     runninghub_instance_type: Optional[str] = Form(None),
     runninghub_concurrent_limit: int = Form(1),
 ):
-    """Create a RunningHub task from a character image and uploaded audio."""
+    """Compatibility endpoint for the original digital-human input fields."""
     if runninghub_concurrent_limit < 1 or runninghub_concurrent_limit > 10:
         raise HTTPException(status_code=422, detail="runninghub_concurrent_limit must be between 1 and 10")
 
+    workflow = workflow_catalog.get_workflow("digital-human-lipsync")
     cfg = _get_config()
     runninghub_api_key, runninghub_workflow_id, runninghub_instance_type = _resolve_runninghub_inputs(
         user_id=user["id"],
         api_key=runninghub_api_key,
         instance_type=runninghub_instance_type,
+        workflow_id=workflow["workflow_id"],
     )
     output_root = _output_root(cfg)
     image_suffix = uploads.validate_upload(
@@ -188,11 +374,15 @@ async def generate_video(
     task_id = uuid.uuid4().hex
     task_record = common.create_task(
         user=user,
-        task_type=task_store.TASK_TYPE_DIGITAL_HUMAN,
+        task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
         generation_type="video",
         requested_count=1,
         task_id=task_id,
         output_root=output_root,
+        extra_info={
+            "provider": workflow["provider"],
+            "workflow_key": workflow["key"],
+        },
         message="任务已创建，等待提交 RunningHub...",
     )
     task_dir = Path(task_record["storage_path"])
@@ -292,6 +482,29 @@ async def _run_video_generation(
     workflow_id: str,
     instance_type: Optional[str],
 ):
+    await _run_workflow_generation(
+        task_id=task_id,
+        workflow={
+            "key": "digital-human-lipsync",
+            "provider": "runninghub",
+            "workflow_id": workflow_id,
+        },
+        inputs={
+            "videoimage": str(image_path),
+            "audio": str(audio_path),
+        },
+        api_key=api_key,
+        instance_type=instance_type,
+    )
+
+
+async def _run_workflow_generation(
+    task_id: str,
+    workflow: dict,
+    inputs: dict,
+    api_key: str,
+    instance_type: Optional[str],
+):
     def _update(status: str, progress: int, message: str):
         cached_task = _tasks.get(task_id)
         if cached_task is not None:
@@ -305,11 +518,10 @@ async def _run_video_generation(
         )
 
     try:
-        _update("running", 55, "音频已确认，正在提交 RunningHub 数字人工作流...")
-        runninghub_task_id = await runninghub.submit_digital_human(
-            image_path=image_path,
-            audio_path=audio_path,
-            workflow_id=workflow_id,
+        _update("running", 55, "正在提交 ComfyUI 工作流...")
+        provider_task_id = await runninghub.submit_workflow(
+            workflow_id=workflow["workflow_id"],
+            parameters=inputs,
             api_key=api_key,
             instance_type=instance_type,
         )
@@ -317,8 +529,15 @@ async def _run_video_generation(
         extra_info = dict(record.get("extra_info") or {})
         extra_info.update(
             {
-                "runninghub_task_id": str(runninghub_task_id),
-                "runninghub_workflow_id": workflow_id,
+                "provider": workflow["provider"],
+                "workflow_key": workflow["key"],
+                "workflow_id": workflow["workflow_id"],
+                "provider_task_id": str(provider_task_id),
+                "provider_task_url": RUNNINGHUB_TASKS_URL,
+                "provider_dashboard_url": RUNNINGHUB_WORKS_URL,
+                "provider_instance_type": instance_type,
+                "runninghub_task_id": str(provider_task_id),
+                "runninghub_workflow_id": workflow["workflow_id"],
                 "runninghub_instance_type": instance_type,
                 "runninghub_task_url": RUNNINGHUB_TASKS_URL,
                 "runninghub_works_url": RUNNINGHUB_WORKS_URL,
@@ -326,9 +545,9 @@ async def _run_video_generation(
         )
         task_store.update_task(
             task_id,
-            status="completed",
+            status="submitted",
             progress=100,
-            message="RunningHub 任务已提交成功。生成通常需要较长时间，请到 RunningHub 查看进度和作品。",
+            message="工作流任务已提交成功，请到 RunningHub 查看进度和作品。",
             extra_info=extra_info,
             success_count=1,
             failed_count=0,
@@ -337,10 +556,13 @@ async def _run_video_generation(
         cached_task = _tasks.get(task_id)
         if cached_task is not None:
             cached_task.update(
-                status="completed",
+                status="submitted",
                 progress=100,
-                message="RunningHub 任务已提交成功。生成通常需要较长时间，请到 RunningHub 查看进度和作品。",
-                runninghub_task_id=runninghub_task_id,
+                message="工作流任务已提交成功，请到 RunningHub 查看进度和作品。",
+                provider_task_id=provider_task_id,
+                provider_task_url=RUNNINGHUB_TASKS_URL,
+                provider_dashboard_url=RUNNINGHUB_WORKS_URL,
+                runninghub_task_id=provider_task_id,
                 runninghub_task_url=RUNNINGHUB_TASKS_URL,
                 runninghub_works_url=RUNNINGHUB_WORKS_URL,
             )

@@ -112,8 +112,8 @@ async def cancel_task(task_id: str, user: dict = Depends(require_current_user)):
         current = task_store.get_task(task_id, user["id"])
     except task_store.TaskNotFoundError:
         raise HTTPException(status_code=404, detail="Task not found") from None
-    if current["task_type"] == task_store.TASK_TYPE_DIGITAL_HUMAN:
-        raise HTTPException(status_code=409, detail="数字人任务暂不支持取消")
+    if current["task_type"] == task_store.TASK_TYPE_COMFYUI_WORKFLOW:
+        raise HTTPException(status_code=409, detail="ComfyUI 工作流任务暂不支持取消")
     if current["status"] == "cancelled":
         return task_payload(current)
 
