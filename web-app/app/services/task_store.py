@@ -640,9 +640,10 @@ def request_task_cancellation(task_id: str, user_id: str) -> dict[str, Any]:
         current = _fetch_row(session, task_id, user_id)
         if current is None:
             raise TaskNotFoundError("Task not found")
-        if current.task_type == TASK_TYPE_COMFYUI_WORKFLOW:
+        extra = _json_loads(current.extra_info_json, {})
+        if current.task_type == TASK_TYPE_COMFYUI_WORKFLOW and extra.get("source") != "selfhost":
             raise TaskCancellationConflictError(
-                "ComfyUI 工作流任务暂不支持取消",
+                "RunningHub 工作流任务暂不支持取消",
                 status=str(current.status),
             )
         if current.status in {"cancelled", "cancelling"}:

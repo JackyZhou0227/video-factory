@@ -39,6 +39,7 @@ async def lifespan(application: FastAPI):
         qwen_limit=int(
             ((app_config.get("tts") or {}).get("qwen3_tts_base") or {}).get("concurrent_limit", 1)
         ),
+        comfyui_selfhost_limit=int(task_config.get("comfyui_selfhost_limit", 1)),
     )
     task_store.mark_incomplete_tasks_failed()
     configure_task_runtime(runtime)

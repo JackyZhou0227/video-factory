@@ -132,12 +132,19 @@ class TaskExecutionManager:
         max_active_jobs: int,
         max_queued_jobs: int,
         qwen_limit: int,
+        comfyui_selfhost_limit: int = 1,
     ) -> None:
         self.max_active_jobs = max(1, int(max_active_jobs))
         self.max_queued_jobs = max(0, int(max_queued_jobs))
         self.capacity = self.max_active_jobs + self.max_queued_jobs
         self.qwen_limit = max(1, int(qwen_limit))
+        self.comfyui_limit = max(1, int(comfyui_selfhost_limit))
+        self.comfyui_capacity = self.comfyui_limit + self.max_queued_jobs
         self._queue: asyncio.Queue[tuple[str, TaskRunner, asyncio.Event]] = asyncio.Queue()
+        self._comfyui_queue: asyncio.Queue[tuple[str, TaskRunner, asyncio.Event]] = asyncio.Queue()
+        self._comfyui_reserved = 0
+        self._comfyui_active = 0
+        self._comfyui_workers: list[asyncio.Task[None]] = []
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._workers: list[asyncio.Task[None]] = []
         self._blocking_executor = ThreadPoolExecutor(
@@ -166,6 +173,11 @@ class TaskExecutionManager:
                 "capacity": self.capacity,
             },
             "qwen": {"active": self._lane_active["qwen"], "limit": self.qwen_limit},
+            "comfyui": {
+                "active": self._comfyui_active,
+                "queued": max(0, self._comfyui_reserved - self._comfyui_active),
+                "limit": self.comfyui_limit,
+            },
         }
 
     async def start(self) -> None:
@@ -173,24 +185,42 @@ class TaskExecutionManager:
             return
         self._accepting = True
         self._workers = [
-            asyncio.create_task(self._worker(index), name=f"vf-task-worker-{index}")
+            asyncio.create_task(
+                self._worker(index, self._queue, "default"),
+                name=f"vf-task-worker-{index}",
+            )
             for index in range(self.max_active_jobs)
+        ]
+        self._comfyui_workers = [
+            asyncio.create_task(
+                self._worker(index, self._comfyui_queue, "comfyui"),
+                name=f"vf-comfyui-worker-{index}",
+            )
+            for index in range(self.comfyui_limit)
         ]
 
     def can_accept(self) -> bool:
         return self._accepting and self._reserved < self.capacity
 
-    def submit(self, task_id: str, runner: TaskRunner) -> None:
+    def submit(self, task_id: str, runner: TaskRunner, *, lane: str = "default") -> None:
+        if lane not in {"default", "comfyui"}:
+            raise ValueError(f"Unknown task lane: {lane}")
         if not self._accepting:
             raise TaskRuntimeCapacityError("任务执行器正在启动或停止，请稍后重试")
-        if self._reserved >= self.capacity:
-            raise TaskRuntimeCapacityError("服务器任务队列已满，请等待已有任务完成后再试")
         if task_id in self._cancel_events:
             raise TaskRuntimeCapacityError("任务已经在执行队列中")
+        queue = self._comfyui_queue if lane == "comfyui" else self._queue
+        reserved = self._comfyui_reserved if lane == "comfyui" else self._reserved
+        capacity = self.comfyui_capacity if lane == "comfyui" else self.capacity
+        if reserved >= capacity:
+            raise TaskRuntimeCapacityError("服务器任务队列已满，请等待已有任务完成后再试")
         cancel_event = asyncio.Event()
         self._cancel_events[task_id] = cancel_event
-        self._reserved += 1
-        self._queue.put_nowait((task_id, runner, cancel_event))
+        if lane == "comfyui":
+            self._comfyui_reserved += 1
+        else:
+            self._reserved += 1
+        queue.put_nowait((task_id, runner, cancel_event))
 
     def cancel(self, task_id: str) -> bool:
         """Signal one queued or running task without touching other work."""
@@ -260,10 +290,13 @@ class TaskExecutionManager:
             finished=finished,
         )
 
-    async def _worker(self, _index: int) -> None:
+    async def _worker(self, _index: int, queue: asyncio.Queue, lane: str = "default") -> None:
         while True:
-            task_id, runner, cancel_event = await self._queue.get()
-            self._active += 1
+            task_id, runner, cancel_event = await queue.get()
+            if lane == "comfyui":
+                self._comfyui_active += 1
+            else:
+                self._active += 1
             try:
                 if cancel_event.is_set():
                     self._transition(
@@ -334,15 +367,18 @@ class TaskExecutionManager:
                     finished=True,
                 )
             finally:
-                self._active -= 1
-                self._reserved -= 1
+                if lane == "comfyui":
+                    self._comfyui_active -= 1
+                    self._comfyui_reserved -= 1
+                else:
+                    self._active -= 1
+                    self._reserved -= 1
                 self._cancel_events.pop(task_id, None)
-                self._queue.task_done()
+                queue.task_done()
 
-    async def stop(self) -> None:
-        self._accepting = False
-        while not self._queue.empty():
-            task_id, _runner, cancel_event = self._queue.get_nowait()
+    def _drain(self, queue: asyncio.Queue, lane: str) -> None:
+        while not queue.empty():
+            task_id, _runner, cancel_event = queue.get_nowait()
             cancel_event.set()
             self._transition(
                 task_id,
@@ -351,13 +387,23 @@ class TaskExecutionManager:
                 error="服务停止时任务未开始执行",
             )
             self._cancel_events.pop(task_id, None)
-            self._reserved -= 1
-            self._queue.task_done()
-        for worker in self._workers:
+            if lane == "comfyui":
+                self._comfyui_reserved -= 1
+            else:
+                self._reserved -= 1
+            queue.task_done()
+
+    async def stop(self) -> None:
+        self._accepting = False
+        self._drain(self._queue, "default")
+        self._drain(self._comfyui_queue, "comfyui")
+        workers = [*self._workers, *self._comfyui_workers]
+        for worker in workers:
             worker.cancel()
-        if self._workers:
-            await asyncio.gather(*self._workers, return_exceptions=True)
+        if workers:
+            await asyncio.gather(*workers, return_exceptions=True)
         self._workers.clear()
+        self._comfyui_workers.clear()
         self._blocking_executor.shutdown(wait=False, cancel_futures=True)
         self._qwen_executor.shutdown(wait=False, cancel_futures=True)
 

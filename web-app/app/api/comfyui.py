@@ -72,12 +72,18 @@ def _task_payload(task: dict) -> dict:
         None,
     )
     video_url = common.artifact_url(task["id"], video_artifact["id"]) if video_artifact else None
+    image_urls = [
+        common.artifact_url(task["id"], artifact["id"])
+        for artifact in task.get("artifacts", [])
+        if artifact.get("kind") == "image" and artifact.get("status") == "completed"
+    ]
     return {
         "user_id": task["user_id"],
         "status": task["status"],
         "progress": task["progress"],
         "message": task["message"],
         "video_url": video_url,
+        "image_urls": image_urls,
         "provider_task_id": extra.get("provider_task_id") or extra.get("runninghub_task_id"),
         "provider_task_url": extra.get("provider_task_url") or extra.get("runninghub_task_url", RUNNINGHUB_TASKS_URL),
         "provider_dashboard_url": extra.get("provider_dashboard_url") or extra.get("runninghub_works_url", RUNNINGHUB_WORKS_URL),
@@ -388,13 +394,15 @@ async def _create_selfhost_task(
     # Schedule async execution
     common.schedule_task(
         task_id,
-        lambda: _run_selfhost_workflow(
+        lambda cancel_event=None: _run_selfhost_workflow(
             task_id=task_id,
             workflow_file=workflow_file_path,
             scalar_inputs=scalar_values,
             file_inputs={key: saved_paths[i] for i, key in enumerate(files.keys())},
             task_dir=task_dir,
+            cancel_event=cancel_event,
         ),
+        lane="comfyui",
     )
 
     return {"task_id": task_id}
@@ -425,6 +433,127 @@ def _comfyui_error_message(response: httpx.Response) -> str:
     return "ComfyUI 拒绝了工作流：" + "；".join(parts)
 
 
+def _cancel_requested(cancel_event: asyncio.Event | None) -> bool:
+    return cancel_event is not None and cancel_event.is_set()
+
+
+def _raise_for_status(response: httpx.Response) -> None:
+    if response.status_code >= 400:
+        raise Exception(f"ComfyUI 返回 {response.status_code}：{response.text[:300]}")
+
+
+async def cancel_selfhost_prompt(base_url: str, prompt_id: str) -> None:
+    """Cancel one ComfyUI prompt. Fall back to interrupt plus queue delete on older servers."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.post(f"{base_url}/api/jobs/{prompt_id}/cancel")
+        if response.status_code != 404:
+            _raise_for_status(response)
+            return
+        interrupt = await client.post(f"{base_url}/interrupt", json={"prompt_id": prompt_id})
+        _raise_for_status(interrupt)
+        deleted = await client.post(f"{base_url}/queue", json={"delete": [prompt_id]})
+        _raise_for_status(deleted)
+
+
+async def _fetch_comfyui_history(base_url: str, prompt_id: str) -> dict:
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        response = await client.get(f"{base_url}/history/{prompt_id}")
+        _raise_for_status(response)
+        payload = response.json()
+    return payload if isinstance(payload, dict) else {}
+
+
+async def _store_selfhost_images(
+    *,
+    task_id: str,
+    task_dir: Path,
+    base_url: str,
+    outputs: dict,
+) -> int:
+    downloaded: list[Path] = []
+    for node_outputs in outputs.values():
+        if not isinstance(node_outputs, dict):
+            continue
+        for image in node_outputs.get("images") or []:
+            filename = image["filename"]
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.get(
+                    f"{base_url}/view",
+                    params={
+                        "filename": filename,
+                        "subfolder": image.get("subfolder", ""),
+                        "type": image.get("type", "output"),
+                    },
+                )
+                _raise_for_status(response)
+            output_path = task_dir / filename
+            output_path.write_bytes(response.content)
+            downloaded.append(output_path)
+    if not downloaded:
+        raise Exception("工作流执行成功，但未生成任何输出文件")
+    for path in downloaded:
+        task_store.add_artifact(
+            task_id,
+            path=path,
+            kind="image",
+            status="completed",
+            is_primary=(path == downloaded[0]),
+        )
+    task_store.update_task(
+        task_id,
+        status="completed",
+        progress=100,
+        message=f"完成！生成了 {len(downloaded)} 个文件",
+        success_count=len(downloaded),
+        finished=True,
+    )
+    return len(downloaded)
+
+
+def _remember_prompt_id(task_id: str, prompt_id: str) -> None:
+    record = task_store.get_task(task_id)
+    extra = dict(record.get("extra_info") or {})
+    extra["comfyui_prompt_id"] = prompt_id
+    task_store.update_task(task_id, extra_info=extra)
+
+
+async def _settle_selfhost_history(
+    history: dict,
+    prompt_id: str,
+    task_id: str,
+    task_dir: Path,
+    base_url: str,
+) -> bool:
+    job = history.get(prompt_id)
+    if not isinstance(job, dict):
+        return False
+    status_info = job.get("status") or {}
+    if status_info.get("completed"):
+        await _store_selfhost_images(
+            task_id=task_id,
+            task_dir=task_dir,
+            base_url=base_url,
+            outputs=job.get("outputs") or {},
+        )
+        return True
+    if status_info.get("status_str") == "error":
+        raise Exception(_execution_error_message(status_info))
+    return False
+
+
+async def _stop_selfhost_prompt(
+    base_url: str,
+    prompt_id: str,
+    task_id: str,
+    task_dir: Path,
+) -> None:
+    await cancel_selfhost_prompt(base_url, prompt_id)
+    history = await _fetch_comfyui_history(base_url, prompt_id)
+    if await _settle_selfhost_history(history, prompt_id, task_id, task_dir, base_url):
+        return
+    common.finalize_cancellation(task_id)
+
+
 def _execution_error_message(status_info: dict) -> str:
     """Pull the exception message out of a history entry's execution_error event."""
     for event in status_info.get("messages") or []:
@@ -443,6 +572,7 @@ async def _run_selfhost_workflow(
     scalar_inputs: dict,
     file_inputs: dict[str, Path],
     task_dir: Path,
+    cancel_event: asyncio.Event | None = None,
 ):
     """
     Execute workflow on self-hosted ComfyUI
@@ -484,9 +614,10 @@ async def _run_selfhost_workflow(
                         if node_id in workflow_json:
                             workflow_json[node_id]["inputs"][input_key] = value
 
-        # TODO: Handle file inputs (may need custom node support)
+        if _cancel_requested(cancel_event):
+            common.finalize_cancellation(task_id)
+            return
 
-        # Update task status
         task_store.update_task(
             task_id,
             status="running",
@@ -494,17 +625,16 @@ async def _run_selfhost_workflow(
             message="正在提交工作流到 ComfyUI...",
         )
 
-        # Submit to ComfyUI
         client_id = uuid.uuid4().hex
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 f"{comfyui_url}/prompt",
                 json={"prompt": workflow_json, "client_id": client_id},
             )
-        # ComfyUI 缺模型/缺节点时仍返回 200，只在 node_errors 里报错
         if response.status_code != 200 or response.json().get("node_errors"):
             raise Exception(_comfyui_error_message(response))
         prompt_id = response.json()["prompt_id"]
+        _remember_prompt_id(task_id, prompt_id)
 
         task_store.update_task(
             task_id,
@@ -513,71 +643,15 @@ async def _run_selfhost_workflow(
             message=f"工作流已提交，等待执行... (ID: {prompt_id[:8]})",
         )
 
-        # Poll for completion
-        max_attempts = 120  # 2 minutes
+        max_attempts = 120
         for attempt in range(max_attempts):
+            if _cancel_requested(cancel_event):
+                await _stop_selfhost_prompt(comfyui_url, prompt_id, task_id, task_dir)
+                return
             await asyncio.sleep(1)
-
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                hist_response = await client.get(f"{comfyui_url}/history/{prompt_id}")
-                hist_response.raise_for_status()
-                history = hist_response.json()
-
-            if prompt_id in history:
-                job = history[prompt_id]
-                status_info = job.get("status", {})
-
-                if status_info.get("completed"):
-                    # Success - download outputs
-                    outputs = job.get("outputs", {})
-                    downloaded_files = []
-
-                    for node_id, node_outputs in outputs.items():
-                        if "images" in node_outputs:
-                            for img in node_outputs["images"]:
-                                filename = img["filename"]
-                                subfolder = img.get("subfolder", "")
-                                file_type = img.get("type", "output")
-
-                                # Download from ComfyUI
-                                async with httpx.AsyncClient(timeout=30.0) as client:
-                                    img_response = await client.get(
-                                        f"{comfyui_url}/view",
-                                        params={"filename": filename, "subfolder": subfolder, "type": file_type},
-                                    )
-                                    img_response.raise_for_status()
-
-                                    output_path = task_dir / filename
-                                    output_path.write_bytes(img_response.content)
-                                    downloaded_files.append(output_path)
-
-                    if not downloaded_files:
-                        raise Exception("工作流执行成功，但未生成任何输出文件")
-
-                    # Register artifacts
-                    for path in downloaded_files:
-                        task_store.add_artifact(
-                            task_id,
-                            path=path,
-                            kind="image",
-                            status="completed",
-                            is_primary=(path == downloaded_files[0]),
-                        )
-
-                    task_store.update_task(
-                        task_id,
-                        status="completed",
-                        progress=100,
-                        message=f"完成！生成了 {len(downloaded_files)} 个文件",
-                        success_count=len(downloaded_files),
-                        finished=True,
-                    )
-                    return
-
-                elif status_info.get("status_str") == "error":
-                    raise Exception(_execution_error_message(status_info))
-
-            # Update progress
+            history = await _fetch_comfyui_history(comfyui_url, prompt_id)
+            if await _settle_selfhost_history(history, prompt_id, task_id, task_dir, comfyui_url):
+                return
             progress = min(30 + (attempt * 60 // max_attempts), 90)
             task_store.update_task(
                 task_id,
@@ -585,7 +659,6 @@ async def _run_selfhost_workflow(
                 message=f"执行中... ({attempt}/{max_attempts})",
             )
 
-        # Timeout
         raise Exception(f"执行超时 ({max_attempts}秒)")
 
     except Exception as exc:

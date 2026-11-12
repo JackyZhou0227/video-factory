@@ -18,7 +18,8 @@
 1. 前端读取 `GET /api/workflows`，按工作流渲染输入。
 2. 提交时带上 `source`：`runninghub` 或 `selfhost`。
 3. 后端保存输入并创建 `comfyui_workflow` 任务。
-4. RunningHub 提交成功后任务标记为完成，产物到 RunningHub 查看。自定义 ComfyUI 把工作流 POST 到配置的 `/prompt`，完成后把图片登记为任务产物。
+4. RunningHub 提交成功后任务标记为完成，产物到 RunningHub 查看，这条不能取消。自定义 ComfyUI 进入单独队列，默认同时只等 1 条（`tasks.comfyui_selfhost_limit`）。它把工作流 POST 到配置的 `/prompt`，保存返回的 `prompt_id`，完成后把图片登记为任务产物，ComfyUI 页面可以直接预览。
+5. 取消本地任务时调用 ComfyUI 的 `POST /api/jobs/{prompt_id}/cancel`。旧版本没有这个接口时，改为 `POST /interrupt` 并从队列删除该编号。还没提交就取消的，不再发给 ComfyUI。
 
 工作流定义在 `web-app/app/services/workflow_catalog.py`。RunningHub 只用 `web-app/workflows/runninghub/<key>.json` 里的 `workflow_id`。自定义 ComfyUI 使用 `web-app/workflows/selfhost/` 里的 API 格式 JSON。原稿在 [ComfyUI 工作流原稿](../comfyui-workflow/README.md)。
 

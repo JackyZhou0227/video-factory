@@ -26,18 +26,9 @@ def resolve_output_dir(config: dict[str, Any] | None = None) -> Path:
 
 
 def get_comfyui_config() -> dict[str, str]:
-    """
-    Get ComfyUI configuration for self-hosted workflows
-
-    Returns:
-        {
-            "url": ComfyUI server URL,
-            "api_key": ComfyUI API key (optional)
-        }
-    """
+    """Return the self-hosted ComfyUI server URL."""
     comfyui_config = app_config.get("comfyui") or {}
     return {
         "url": comfyui_config.get("url", "http://localhost:8188"),
-        "api_key": comfyui_config.get("api_key", ""),
     }
 

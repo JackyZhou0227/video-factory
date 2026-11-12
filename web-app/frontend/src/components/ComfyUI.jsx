@@ -25,6 +25,7 @@ const VIDEO_STEP_LABELS = {
   submitted: "任务已提交",
   completed: "任务已完成",
   failed: "提交失败",
+  cancelled: "任务已取消",
 };
 
 const RUNNINGHUB_TASKS_URL = "https://www.runninghub.cn/bill-task";
@@ -218,13 +219,16 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
   const [progress, setProgress] = useState(0);
   const [statusMsg, setStatusMsg] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
+  const [imageUrls, setImageUrls] = useState([]);
   const [providerResult, setProviderResult] = useState(null);
+  const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState("");
   const [generating, setGenerating] = useState(false);
 
   const fileInputRefs = useRef({});
   const pollTimeoutRef = useRef(null);
   const pollAbortRef = useRef(null);
+  const activeTaskIdRef = useRef("");
 
   const selectedWorkflow = workflows.find((workflow) => workflow.key === workflowKey) || null;
   const fields = selectedWorkflow?.inputs || [];
@@ -251,9 +255,12 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
     setProgress(0);
     setStatusMsg("");
     setVideoUrl("");
+    setImageUrls([]);
     setProviderResult(null);
     setError("");
     setGenerating(false);
+    setCancelling(false);
+    activeTaskIdRef.current = "";
   }, [stopPolling]);
 
   useEffect(() => {
@@ -338,7 +345,9 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
     if (taskStatus === "submitted") {
       return statusMsg || "工作流任务已提交成功，请到 RunningHub 查看进度和作品。";
     }
+    if (taskStatus === "cancelled") return statusMsg || "任务已取消";
     if (taskStatus === "completed") {
+      if (imageUrls.length) return "图片已生成，可预览或下载。";
       return videoUrl ? "视频已生成，可预览或下载。" : statusMsg;
     }
     if (isReadableMessage(statusMsg)) return statusMsg;
@@ -346,12 +355,13 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
     if (!selectedWorkflow) return "当前没有可用工作流。";
     if (inputsReady) return "工作流输入已就绪，可以提交任务。";
     return "请填写工作流要求的输入参数。";
-  }, [catalogError, error, inputsReady, selectedWorkflow, statusMsg, taskStatus, videoUrl]);
+  }, [catalogError, error, imageUrls.length, inputsReady, selectedWorkflow, statusMsg, taskStatus, videoUrl]);
 
   const videoPanelStatus = useMemo(() => {
     if (taskStatus === "completed") return "completed";
     if (["pending", "running", "submitted"].includes(taskStatus)) return taskStatus;
     if (taskStatus === "failed") return "failed";
+    if (taskStatus === "cancelled") return "cancelled";
     return inputsReady ? "ready" : "idle";
   }, [inputsReady, taskStatus]);
 
@@ -362,6 +372,7 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
     setGenerating(true);
     setError("");
     setVideoUrl("");
+    setImageUrls([]);
     setProviderResult(null);
     setProgress(0);
     setTaskStatus("pending");
@@ -383,6 +394,7 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
       );
       const { task_id: taskId } = data;
       if (!taskId) throw new Error("后端没有返回工作流任务 ID。");
+      activeTaskIdRef.current = taskId;
 
       const controller = new AbortController();
       pollAbortRef.current = controller;
@@ -395,9 +407,18 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
           setProgress(result.progress ?? 0);
           setStatusMsg(result.message ?? "");
 
+          if (result.status === "cancelled") {
+            setTaskStatus("cancelled");
+            setStatusMsg(result.message || "任务已取消");
+            setGenerating(false);
+            pollAbortRef.current = null;
+            return;
+          }
+
           if (result.status === "submitted" || result.status === "completed") {
             setTaskStatus(result.status);
             setVideoUrl(result.video_url ?? "");
+            setImageUrls(Array.isArray(result.image_urls) ? result.image_urls : []);
             const providerTaskId = result.provider_task_id || result.runninghub_task_id;
             setProviderResult(providerTaskId ? {
               taskId: providerTaskId,
@@ -436,6 +457,25 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
       setGenerating(false);
     }
   }, [backendBaseUrl, canGenerate, fields, selectedSource, selectedWorkflow, stopPolling, workflowInputs]);
+
+  const cancelActiveTask = useCallback(async () => {
+    const taskId = activeTaskIdRef.current;
+    if (!taskId || selectedSource !== "selfhost") return;
+    setCancelling(true);
+    try {
+      const result = await apiJson(
+        `/api/tasks/${encodeURIComponent(taskId)}/cancel`,
+        { method: "POST", silentError: true },
+        backendBaseUrl
+      );
+      setTaskStatus(result.status || "cancelling");
+      setStatusMsg(result.message || "任务正在取消");
+    } catch (requestError) {
+      setError(requestError.message || "取消任务失败");
+    } finally {
+      setCancelling(false);
+    }
+  }, [backendBaseUrl, selectedSource]);
 
   return (
     <>
@@ -684,6 +724,18 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
             >
               {taskStatus === "submitted" ? "任务已提交" : generating ? "正在提交" : "提交工作流"}
             </Button>
+            {selectedSource === "selfhost" && ["pending", "running"].includes(taskStatus) && (
+              <Button
+                type="button"
+                variant="outlined"
+                color="error"
+                disabled={cancelling}
+                onClick={cancelActiveTask}
+                startIcon={cancelling ? <Spinner size={16} /> : <Icon name="x" size={16} />}
+              >
+                {cancelling ? "正在取消" : "取消任务"}
+              </Button>
+            )}
             {(["pending", "running"].includes(taskStatus) || progress > 0) && taskStatus !== "submitted" && (
               <div className="progress-area" aria-label="提交进度">
                 <div className="progress-meta">
@@ -717,6 +769,14 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
                   </Button>
                 </div>
               </div>
+            ) : taskStatus === "completed" && imageUrls.length ? (
+              <>
+                <ProtectedMedia className="result-video" path={imageUrls[0]} kind="image" alt="生成的图片" backendBaseUrl={backendBaseUrl} />
+                <ProtectedDownloadButton path={imageUrls[0]} filename="comfyui-workflow.png" backendBaseUrl={backendBaseUrl}>
+                  <Icon name="download" size={16} />
+                  下载图片
+                </ProtectedDownloadButton>
+              </>
             ) : taskStatus === "completed" && videoUrl ? (
               <>
                 <ProtectedMedia className="result-video" path={videoUrl} kind="video" backendBaseUrl={backendBaseUrl} />

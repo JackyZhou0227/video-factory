@@ -96,7 +96,9 @@ function statusIcon(status) {
 }
 
 function canCancelTask(task) {
-  return task?.task_type !== "comfyui_workflow" && ["pending", "running"].includes(task.status);
+  if (!["pending", "running"].includes(task?.status)) return false;
+  if (task.task_type !== "comfyui_workflow") return true;
+  return task.extra_info?.source === "selfhost";
 }
 
 function StatusChip({ status, withIcon = false }) {

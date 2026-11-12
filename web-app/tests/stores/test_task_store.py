@@ -204,20 +204,47 @@ class TaskStoreTests(unittest.TestCase):
                 self.assertEqual(cancelling["status"], "cancelling")
                 task_store.update_task(task["id"], status="cancelled", finished=True)
 
-    def test_comfyui_workflow_task_cannot_be_cancelled(self):
-        task = task_store.create_task(
+    def test_runninghub_comfyui_workflow_cannot_be_cancelled(self):
+        for extra_info in (None, {"source": "runninghub"}):
+            with self.subTest(extra_info=extra_info):
+                task = task_store.create_task(
+                    user=self.user("user-a"),
+                    task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
+                    generation_type="video",
+                    requested_count=1,
+                    output_root=self.output_root,
+                    extra_info=extra_info,
+                )
+                task_store.update_task(task["id"], status="running", started=True)
+
+                with self.assertRaises(task_store.TaskCancellationConflictError) as error:
+                    task_store.request_task_cancellation(task["id"], "user-a")
+                self.assertEqual(str(error.exception), "RunningHub 工作流任务暂不支持取消")
+                self.assertEqual(task_store.get_task(task["id"])["status"], "running")
+
+    def test_selfhost_comfyui_workflow_can_be_cancelled(self):
+        running = task_store.create_task(
             user=self.user("user-a"),
             task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
-            generation_type="video",
+            generation_type="image",
             requested_count=1,
             output_root=self.output_root,
+            extra_info={"source": "selfhost"},
         )
-        task_store.update_task(task["id"], status="running", started=True)
+        task_store.update_task(running["id"], status="running", started=True)
+        cancelling = task_store.request_task_cancellation(running["id"], "user-a")
+        self.assertEqual(cancelling["status"], "cancelling")
 
-        with self.assertRaises(task_store.TaskCancellationConflictError):
-            task_store.request_task_cancellation(task["id"], "user-a")
-
-        self.assertEqual(task_store.get_task(task["id"], "user-a")["status"], "running")
+        pending = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
+            generation_type="image",
+            requested_count=1,
+            output_root=self.output_root,
+            extra_info={"source": "selfhost"},
+        )
+        cancelled = task_store.request_task_cancellation(pending["id"], "user-a")
+        self.assertEqual(cancelled["status"], "cancelled")
 
     def test_cancelling_tasks_count_toward_quota_and_summary(self):
         self._set_task_quota(per_user=1)

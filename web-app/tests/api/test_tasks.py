@@ -297,7 +297,23 @@ class TasksApiTests(unittest.TestCase):
         response = self.cancel_task(task["id"])
 
         self.assertEqual(response.status_code, 409, response.text)
+        self.assertEqual(response.json()["detail"], "RunningHub 工作流任务暂不支持取消")
         self.assertEqual(task_store.get_task(task["id"])["status"], "running")
+
+    def test_selfhost_pending_comfyui_task_can_be_cancelled(self):
+        task = task_store.create_task(
+            user=self.user("user-a"),
+            task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
+            generation_type="image",
+            requested_count=1,
+            output_root=self.output_root,
+            extra_info={"source": "selfhost"},
+        )
+
+        response = self.cancel_task(task["id"], registered=False)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["status"], "cancelled")
 
     def test_all_non_digital_human_task_types_can_be_cancelled(self):
         for task_type in (

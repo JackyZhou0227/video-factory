@@ -21,6 +21,7 @@ class TaskExecutionManagerTests(unittest.IsolatedAsyncioTestCase):
             max_active_jobs=1,
             max_queued_jobs=1,
             qwen_limit=1,
+            comfyui_selfhost_limit=1,
         )
         self.task_update = patch("app.services.task_runtime.task_store.update_task").start()
         self.task_transition = patch(
@@ -57,6 +58,44 @@ class TaskExecutionManagerTests(unittest.IsolatedAsyncioTestCase):
 
         release_first.set()
         await asyncio.wait_for(second_started.wait(), timeout=1)
+
+    async def test_comfyui_lane_waits_independently_of_the_default_lane(self):
+        comfyui_started = asyncio.Event()
+        release_comfyui = asyncio.Event()
+        second_comfyui_started = asyncio.Event()
+        default_started = asyncio.Event()
+        release_default = asyncio.Event()
+
+        async def hold_comfyui():
+            comfyui_started.set()
+            await release_comfyui.wait()
+
+        async def second_comfyui():
+            second_comfyui_started.set()
+
+        async def default_job():
+            default_started.set()
+            await release_default.wait()
+
+        self.manager.submit("comfyui-1", hold_comfyui, lane="comfyui")
+        await asyncio.wait_for(comfyui_started.wait(), timeout=1)
+        self.manager.submit("comfyui-2", second_comfyui, lane="comfyui")
+        await asyncio.sleep(0)
+        self.assertFalse(second_comfyui_started.is_set())
+
+        self.manager.submit("default-1", default_job, lane="default")
+        await asyncio.wait_for(default_started.wait(), timeout=1)
+        self.assertFalse(second_comfyui_started.is_set())
+        self.manager.submit("default-2", default_job, lane="default")
+
+        with self.assertRaises(TaskRuntimeCapacityError):
+            self.manager.submit("comfyui-3", second_comfyui, lane="comfyui")
+        with self.assertRaises(TaskRuntimeCapacityError):
+            self.manager.submit("default-3", default_job, lane="default")
+
+        release_default.set()
+        release_comfyui.set()
+        await asyncio.wait_for(second_comfyui_started.wait(), timeout=1)
 
     async def test_run_blocking_tracks_lane_usage(self):
         def blocking():

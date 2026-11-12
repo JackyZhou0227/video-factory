@@ -4,11 +4,9 @@ runninghub:
   base_url: "https://www.runninghub.cn"
 
 comfyui:
-  # 自定义 ComfyUI 服务器配置（用于 selfhost 工作流）
+  # 自定义 ComfyUI 服务器地址（用于 selfhost 工作流）
   url: "http://localhost:8188"
-  # ComfyUI API key（可选），从 https://platform.comfy.org/profile/api-keys 获取
-  api_key: ""
-  # 注意：Docker 用户需使用 host.docker.internal:8188 (Mac/Windows) 或宿主机 IP (Linux)
+  # Docker 用户需使用 host.docker.internal:8188 (Mac/Windows) 或宿主机 IP (Linux)
 
 tasks:
   # 每个用户可占用的 pending/running 任务数；0 或负数表示不限制。
@@ -16,6 +14,8 @@ tasks:
   # 全局任务池：最多同时执行 max_active_jobs 个，另允许 max_queued_jobs 个等待；全局接纳上限自动为二者之和。
   max_active_jobs: 10
   max_queued_jobs: 10
+  # 本地 ComfyUI 同时等待的任务数。计算在 ComfyUI 进程里，这里只限制本机有几条任务在等它。
+  comfyui_selfhost_limit: 1
   # 磁盘低水位保护：输出目录所在磁盘低于任一阈值时拒绝创建新任务（429），不影响运行中任务。
   disk:
     min_free_bytes: 5368709120 # 5 GiB；0 表示不按字节数检查。
