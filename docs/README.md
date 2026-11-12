@@ -11,3 +11,4 @@
 - [智能剪辑模块](modules/smart-editing.md)
 - [任务中心模块](modules/task-center.md)
 - [Skills 模块](modules/skills.md)
+- [ComfyUI 工作流原稿](comfyui-workflow/README.md)

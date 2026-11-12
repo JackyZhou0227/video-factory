@@ -1,18 +1,23 @@
 from __future__ import annotations
 
+import json
 import math
+from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
 
-from app.services import settings_store
+from app.core.config import ROOT
+
+# Workflow key -> selfhost workflow filename (without .json)
+SELFHOST_WORKFLOW_MAPPING = {
+    "text-to-image": "image_flux3_klein_t2i",
+}
 
 WORKFLOWS: tuple[dict[str, Any], ...] = (
     {
         "key": "digital-human-lipsync",
         "name": "数字人口播",
-        "provider": "runninghub",
-        "workflow_id": settings_store.FIXED_DIGITAL_HUMAN_WORKFLOW_ID,
         "inputs": (
             {
                 "key": "image",
@@ -34,26 +39,143 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
             },
         ),
     },
+    {
+        "key": "text-to-image",
+        "name": "文生图",
+        "generation_type": "image",
+        "inputs": (
+            {
+                "key": "prompt",
+                "label": "提示词",
+                "type": "textarea",
+                "required": True,
+                "placeholder": "描述你想生成的图片...",
+                "runninghub_parameter": "prompt",
+                "selfhost_node_id": "18:17",
+                "selfhost_input_key": "value",
+            },
+            {
+                "key": "negative_prompt",
+                "label": "负面提示词",
+                "type": "textarea",
+                "required": False,
+                "placeholder": "不想看到的内容（可选）",
+                "runninghub_parameter": "negative_prompt",
+                "selfhost_node_id": "18:5",
+                "selfhost_input_key": "text",
+            },
+            {
+                "key": "width",
+                "label": "宽度",
+                "type": "number",
+                "required": False,
+                "default": 1024,
+                "min": 256,
+                "max": 2048,
+                "step": 64,
+                "runninghub_parameter": "width",
+                "selfhost_node_id": "18:6",
+                "selfhost_input_key": "width",
+            },
+            {
+                "key": "height",
+                "label": "高度",
+                "type": "number",
+                "required": False,
+                "default": 1024,
+                "min": 256,
+                "max": 2048,
+                "step": 64,
+                "runninghub_parameter": "height",
+                "selfhost_node_id": "18:6",
+                "selfhost_input_key": "height",
+            },
+        ),
+    },
 )
 
 
-def list_public_workflows() -> list[dict[str, Any]]:
-    return [
+def _scan_workflow_sources(workflow_key: str) -> dict[str, dict[str, Any]]:
+    """
+    Scan workflows/ directory to detect available sources for a workflow
+
+    Args:
+        workflow_key: Workflow key to scan
+
+    Returns:
         {
-            "key": workflow["key"],
-            "name": workflow["name"],
-            "provider": workflow["provider"],
-            "inputs": [
-                {
-                    key: list(value) if key == "extensions" else value
-                    for key, value in field.items()
-                    if key not in {"runninghub_parameter", "extensions"}
-                }
-                for field in workflow["inputs"]
-            ],
+            "runninghub": {"workflow_id": "xxx"} or None,
+            "selfhost": {"workflow_path": "workflows/selfhost/xxx.json"} or None,
         }
-        for workflow in WORKFLOWS
-    ]
+    """
+    sources: dict[str, dict[str, Any]] = {}
+    workflows_dir = ROOT / "workflows"
+
+    # Check RunningHub
+    rh_path = workflows_dir / "runninghub" / f"{workflow_key}.json"
+    if rh_path.exists():
+        try:
+            data = json.loads(rh_path.read_text(encoding="utf-8"))
+            if data.get("source") == "runninghub" and "workflow_id" in data:
+                sources["runninghub"] = {"workflow_id": data["workflow_id"]}
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Check Selfhost
+    selfhost_filename = SELFHOST_WORKFLOW_MAPPING.get(workflow_key)
+    if selfhost_filename:
+        sf_path = workflows_dir / "selfhost" / f"{selfhost_filename}.json"
+        if sf_path.exists():
+            sources["selfhost"] = {"workflow_path": str(sf_path.relative_to(ROOT))}
+
+    return sources
+
+
+def list_public_workflows() -> list[dict[str, Any]]:
+    """
+    List all public workflows with their available sources
+
+    Returns:
+        [
+            {
+                "key": "digital-human-lipsync",
+                "name": "数字人口播",
+                "sources": ["runninghub"],  # or ["runninghub", "selfhost"]
+                "inputs": [...]
+            }
+        ]
+    """
+    workflows = []
+    for workflow in WORKFLOWS:
+        # Scan available sources
+        source_configs = _scan_workflow_sources(workflow["key"])
+        available_sources = list(source_configs.keys())
+        if not available_sources:
+            continue  # 没有任何可用来源的工作流不展示
+
+        workflows.append(
+            {
+                "key": workflow["key"],
+                "name": workflow["name"],
+                "sources": available_sources,
+                "inputs": [
+                    {
+                        key: list(value) if key == "extensions" else value
+                        for key, value in field.items()
+                        if key
+                        not in {
+                            "runninghub_parameter",
+                            "selfhost_node_id",
+                            "selfhost_input_key",
+                            "extensions",
+                        }
+                    }
+                    for field in workflow["inputs"]
+                ],
+            }
+        )
+
+    return workflows
 
 
 def get_workflow(key: str) -> dict[str, Any]:
@@ -63,6 +185,35 @@ def get_workflow(key: str) -> dict[str, Any]:
     raise HTTPException(status_code=404, detail="工作流不存在")
 
 
+def get_workflow_source_config(workflow_key: str, source: str) -> dict[str, Any]:
+    """
+    Get source-specific configuration for a workflow
+
+    Args:
+        workflow_key: Workflow key
+        source: "runninghub" or "selfhost"
+
+    Returns:
+        {"workflow_id": "xxx"} for runninghub
+        {"workflow_path": "workflows/selfhost/xxx.json"} for selfhost
+
+    Raises:
+        HTTPException: Workflow doesn't exist or doesn't support the source
+    """
+    # Verify workflow exists
+    get_workflow(workflow_key)
+
+    # Scan sources
+    sources = _scan_workflow_sources(workflow_key)
+
+    if source not in sources:
+        raise HTTPException(
+            status_code=404, detail=f"工作流 {workflow_key} 不支持 {source} 来源"
+        )
+
+    return sources[source]
+
+
 def validate_scalar_inputs(
     workflow: dict[str, Any],
     values: dict[str, Any],
@@ -70,7 +221,7 @@ def validate_scalar_inputs(
     declarations = {
         field["key"]: field
         for field in workflow["inputs"]
-        if field["type"] in {"text", "number", "select"}
+        if field["type"] in {"text", "textarea", "number", "select"}
     }
     unknown = set(values) - declarations.keys()
     if unknown:
@@ -86,7 +237,7 @@ def validate_scalar_inputs(
                 normalized[key] = field["default"]
             continue
 
-        if field["type"] == "text":
+        if field["type"] in {"text", "textarea"}:
             value = str(value)
             if len(value) > int(field.get("max_length", 10000)):
                 raise HTTPException(status_code=422, detail=f"{field['label']}过长")

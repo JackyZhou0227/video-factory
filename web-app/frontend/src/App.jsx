@@ -575,11 +575,15 @@ export default function App() {
           {activePage === "template-production" ? (
             <SkillHeaderCard skill={templateProductionSkill} icon="template" />
           ) : null}
+          {activePage === "comfyui" ? <div id="comfyui-header-slot" /> : null}
         </header>
 
         <div className="page-stack">
           <div className={`app-main page-panel ${activePage === "comfyui" ? "is-active" : ""}`}>
-            <ComfyUI onOpenTtsStudio={() => handlePageChange("tts-studio")} />
+            <ComfyUI
+              active={activePage === "comfyui"}
+              onOpenTtsStudio={() => handlePageChange("tts-studio")}
+            />
           </div>
           <div className={`app-main page-panel ${activePage === "tts-studio" ? "is-active" : ""}`}>
             <TTSStudio active={activePage === "tts-studio"} />

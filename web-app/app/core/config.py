@@ -24,3 +24,20 @@ def resolve_output_dir(config: dict[str, Any] | None = None) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     return output_dir
 
+
+def get_comfyui_config() -> dict[str, str]:
+    """
+    Get ComfyUI configuration for self-hosted workflows
+
+    Returns:
+        {
+            "url": ComfyUI server URL,
+            "api_key": ComfyUI API key (optional)
+        }
+    """
+    comfyui_config = app_config.get("comfyui") or {}
+    return {
+        "url": comfyui_config.get("url", "http://localhost:8188"),
+        "api_key": comfyui_config.get("api_key", ""),
+    }
+

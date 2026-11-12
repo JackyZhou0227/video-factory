@@ -3,6 +3,13 @@ runninghub:
   # 如果账号属于其他地区，可通过 RUNNINGHUB_BASE_URL 或此处覆盖。
   base_url: "https://www.runninghub.cn"
 
+comfyui:
+  # 自定义 ComfyUI 服务器配置（用于 selfhost 工作流）
+  url: "http://localhost:8188"
+  # ComfyUI API key（可选），从 https://platform.comfy.org/profile/api-keys 获取
+  api_key: ""
+  # 注意：Docker 用户需使用 host.docker.internal:8188 (Mac/Windows) 或宿主机 IP (Linux)
+
 tasks:
   # 每个用户可占用的 pending/running 任务数；0 或负数表示不限制。
   max_running_tasks_per_user: 3

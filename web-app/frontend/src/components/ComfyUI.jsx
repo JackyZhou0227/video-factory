@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Button from "@mui/material/Button";
 import Chip from "@mui/material/Chip";
 import LinearProgress from "@mui/material/LinearProgress";
 import MenuItem from "@mui/material/MenuItem";
+import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import TextField from "@mui/material/TextField";
@@ -40,10 +42,12 @@ function isReadableMessage(message) {
   return typeof message === "string" && message.trim() && !/[锟]/.test(message);
 }
 
-export default function ComfyUI({ onOpenTtsStudio }) {
+export default function ComfyUI({ onOpenTtsStudio, active = false }) {
   const backendBaseUrl = useBackendBaseUrl();
+  const [headerSlot, setHeaderSlot] = useState(null);
   const [workflows, setWorkflows] = useState([]);
   const [workflowKey, setWorkflowKey] = useState("");
+  const [selectedSource, setSelectedSource] = useState("");
   const [workflowInputs, setWorkflowInputs] = useState({});
   const [previews, setPreviews] = useState({});
   const [catalogError, setCatalogError] = useState("");
@@ -112,6 +116,20 @@ export default function ComfyUI({ onOpenTtsStudio }) {
       Object.values(previews).forEach((url) => URL.revokeObjectURL(url));
     };
   }, [previews, stopPolling]);
+
+  // 执行环境选择器挂到页面标题右侧的槽位
+  useEffect(() => {
+    setHeaderSlot(active ? document.getElementById("comfyui-header-slot") : null);
+  }, [active]);
+
+  // Auto-select first available source when workflow changes
+  useEffect(() => {
+    if (selectedWorkflow?.sources?.length > 0) {
+      setSelectedSource(selectedWorkflow.sources[0]);
+    } else {
+      setSelectedSource("");
+    }
+  }, [selectedWorkflow]);
 
   const handleWorkflowChange = useCallback((nextWorkflowKey) => {
     setWorkflowKey(nextWorkflowKey);
@@ -188,6 +206,7 @@ export default function ComfyUI({ onOpenTtsStudio }) {
 
     try {
       const formData = new FormData();
+      formData.append("source", selectedSource || "runninghub");
       for (const field of fields) {
         const value = workflowInputs[field.key];
         if (value !== undefined && value !== null && value !== "") {
@@ -253,7 +272,7 @@ export default function ComfyUI({ onOpenTtsStudio }) {
       setError(requestError.message || "创建工作流任务失败");
       setGenerating(false);
     }
-  }, [backendBaseUrl, canGenerate, fields, selectedWorkflow, stopPolling, workflowInputs]);
+  }, [backendBaseUrl, canGenerate, fields, selectedSource, selectedWorkflow, stopPolling, workflowInputs]);
 
   return (
     <>
@@ -268,6 +287,43 @@ export default function ComfyUI({ onOpenTtsStudio }) {
             <Tab key={workflow.key} value={workflow.key} label={workflow.name} disabled={generating} />
           ))}
         </Tabs>
+
+        {headerSlot &&
+          selectedWorkflow?.sources?.length > 0 &&
+          createPortal(
+            <Stack direction="row" spacing={1.25} sx={{ alignItems: "center" }}>
+              <Typography variant="body2" sx={{ color: "text.secondary" }}>
+                执行环境
+              </Typography>
+              <TextField
+                select
+                size="small"
+                value={selectedSource}
+                onChange={(event) => setSelectedSource(event.target.value)}
+                disabled={selectedWorkflow.sources.length === 1 || generating}
+                sx={{ minWidth: 200 }}
+              >
+                {selectedWorkflow.sources.includes("runninghub") && (
+                  <MenuItem value="runninghub">
+                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                      <Icon name="cloud" size={16} />
+                      RunningHub
+                    </Stack>
+                  </MenuItem>
+                )}
+                {selectedWorkflow.sources.includes("selfhost") && (
+                  <MenuItem value="selfhost">
+                    <Stack direction="row" spacing={1} sx={{ alignItems: "center" }}>
+                      <Icon name="serverCog" size={16} />
+                      自定义 ComfyUI
+                    </Stack>
+                  </MenuItem>
+                )}
+              </TextField>
+            </Stack>,
+            headerSlot
+          )}
+
         {catalogError && <div className="form-alert failed">{catalogError}</div>}
 
         <div className="production-grid">
@@ -323,17 +379,19 @@ export default function ComfyUI({ onOpenTtsStudio }) {
             <div className="control-section-heading digital-human-audio-heading">
               <span>{fields.filter((field) => field.type === "image").length > 0 ? "02" : "01"}</span>
               <strong>其他输入</strong>
-              <Button
-                className="digital-human-tts-link"
-                type="button"
-                variant="text"
-                size="small"
-                disableRipple
-                onClick={onOpenTtsStudio}
-              >
-                前往语音合成
-                <Icon name="arrowRight" size={14} />
-              </Button>
+              {fields.some((field) => field.type === "audio") && (
+                <Button
+                  className="digital-human-tts-link"
+                  type="button"
+                  variant="text"
+                  size="small"
+                  disableRipple
+                  onClick={onOpenTtsStudio}
+                >
+                  前往语音合成
+                  <Icon name="arrowRight" size={14} />
+                </Button>
+              )}
             </div>
             <div className="workflow-input-list">
               {fields.filter((field) => field.type !== "image").map((field) => {
@@ -391,6 +449,7 @@ export default function ComfyUI({ onOpenTtsStudio }) {
                     </TextField>
                   );
                 }
+                const multiline = field.type === "textarea" || Boolean(field.multiline);
                 return (
                   <TextField
                     key={field.key}
@@ -399,8 +458,8 @@ export default function ComfyUI({ onOpenTtsStudio }) {
                     type={field.type === "number" ? "number" : "text"}
                     label={field.label}
                     required={field.required}
-                    multiline={Boolean(field.multiline)}
-                    minRows={field.multiline ? 3 : undefined}
+                    multiline={multiline}
+                    minRows={multiline ? 3 : undefined}
                     value={value ?? field.default ?? ""}
                     inputProps={{
                       min: field.min,

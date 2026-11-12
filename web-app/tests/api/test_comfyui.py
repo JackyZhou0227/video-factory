@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import httpx
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -92,6 +93,7 @@ class ComfyUIApiTests(unittest.TestCase):
         missing_audio = self.client.post(
             "/api/workflows/digital-human-lipsync/generate",
             files={"image": ("character.png", b"image", "image/png")},
+            data={"source": "runninghub"},
         )
         unknown_workflow = self.client.post(
             "/api/workflows/unknown/generate",
@@ -99,6 +101,7 @@ class ComfyUIApiTests(unittest.TestCase):
                 "image": ("character.png", b"image", "image/png"),
                 "audio": ("speech.mp3", b"audio", "audio/mpeg"),
             },
+            data={"source": "runninghub"},
         )
         invalid_image = self.client.post(
             "/api/workflows/digital-human-lipsync/generate",
@@ -106,6 +109,7 @@ class ComfyUIApiTests(unittest.TestCase):
                 "image": ("character.txt", b"image", "text/plain"),
                 "audio": ("speech.mp3", b"audio", "audio/mpeg"),
             },
+            data={"source": "runninghub"},
         )
 
         self.assertEqual(missing_audio.status_code, 422, missing_audio.text)
@@ -129,6 +133,7 @@ class ComfyUIApiTests(unittest.TestCase):
                     "image": ("character.png", b"image", "image/png"),
                     "audio": ("speech.mp3", b"audio", "audio/mpeg"),
                 },
+                data={"source": "runninghub"},
             )
 
         self.assertEqual(response.status_code, 200, response.text)
@@ -152,6 +157,31 @@ class ComfyUIApiTests(unittest.TestCase):
                 "audio": str(task_dir / "input_audio.mp3"),
             },
         )
+
+    def test_comfyui_error_message_surfaces_missing_models(self):
+        response = httpx.Response(
+            200,
+            json={
+                "error": {"message": "Prompt outputs failed validation"},
+                "node_errors": {
+                    "18:1": {
+                        "class_type": "UNETLoader",
+                        "errors": [
+                            {
+                                "type": "value_not_in_list",
+                                "details": "unet_name: 'flux3.safetensors' not in []",
+                            }
+                        ],
+                    }
+                },
+            },
+        )
+
+        message = comfyui._comfyui_error_message(response)
+
+        self.assertIn("Prompt outputs failed validation", message)
+        self.assertIn("UNETLoader", message)
+        self.assertIn("flux3.safetensors", message)
 
     def test_runninghub_task_id_is_persisted_in_extra_info_only(self):
         task_id = uuid.uuid4().hex
