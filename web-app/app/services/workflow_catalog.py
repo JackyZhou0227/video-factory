@@ -17,7 +17,7 @@ SELFHOST_WORKFLOW_MAPPING = {
 WORKFLOWS: tuple[dict[str, Any], ...] = (
     {
         "key": "digital-human-lipsync",
-        "name": "数字人口播",
+        "name": "数字人对口型",
         "inputs": (
             {
                 "key": "image",
@@ -30,7 +30,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
             },
             {
                 "key": "audio",
-                "label": "口播音频",
+                "label": "对口型音频",
                 "type": "audio",
                 "required": True,
                 "extensions": (".mp3", ".wav", ".aac", ".m4a", ".ogg", ".flac"),
@@ -55,40 +55,42 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
                 "selfhost_input_key": "value",
             },
             {
-                "key": "negative_prompt",
-                "label": "负面提示词",
-                "type": "textarea",
+                "key": "resolution",
+                "label": "清晰度",
+                "type": "select",
                 "required": False,
-                "placeholder": "不想看到的内容（可选）",
-                "runninghub_parameter": "negative_prompt",
-                "selfhost_node_id": "18:5",
-                "selfhost_input_key": "text",
+                "default": "720p",
+                "options": ("480p", "720p", "1080p"),
+                # ResolutionSelector megapixels, multiple=16, chosen inside a stable range.
+                # 480p: 640x640, 736x560, 560x736, 784x528, 528x784, 848x480, 480x848
+                # 720p: 960x960, 1104x832, 832x1104, 1168x784, 784x1168, 1280x720, 720x1280
+                # 1080p: 1440x1440, 1664x1248, 1248x1664, 1760x1168, 1168x1760, 1920x1072, 1072x1920
+                "selfhost_node_id": "19",
+                "selfhost_input_key": "megapixels",
+                "selfhost_value_map": {
+                    "480p": 0.39,
+                    "720p": 0.874,
+                    "1080p": 1.97,
+                },
             },
             {
-                "key": "width",
-                "label": "宽度",
-                "type": "number",
+                "key": "aspect_ratio",
+                "label": "比例",
+                "type": "select",
                 "required": False,
-                "default": 1024,
-                "min": 256,
-                "max": 2048,
-                "step": 64,
-                "runninghub_parameter": "width",
-                "selfhost_node_id": "18:6",
-                "selfhost_input_key": "width",
-            },
-            {
-                "key": "height",
-                "label": "高度",
-                "type": "number",
-                "required": False,
-                "default": 1024,
-                "min": 256,
-                "max": 2048,
-                "step": 64,
-                "runninghub_parameter": "height",
-                "selfhost_node_id": "18:6",
-                "selfhost_input_key": "height",
+                "default": "9:16",
+                "options": ("1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"),
+                "selfhost_node_id": "19",
+                "selfhost_input_key": "aspect_ratio",
+                "selfhost_value_map": {
+                    "1:1": "1:1 (Square)",
+                    "4:3": "4:3 (Standard)",
+                    "3:4": "3:4 (Portrait Standard)",
+                    "3:2": "3:2 (Photo)",
+                    "2:3": "2:3 (Portrait Photo)",
+                    "16:9": "16:9 (Widescreen)",
+                    "9:16": "9:16 (Portrait Widescreen)",
+                },
             },
         ),
     },
@@ -139,7 +141,7 @@ def list_public_workflows() -> list[dict[str, Any]]:
         [
             {
                 "key": "digital-human-lipsync",
-                "name": "数字人口播",
+                "name": "数字人对口型",
                 "sources": ["runninghub"],  # or ["runninghub", "selfhost"]
                 "inputs": [...]
             }
@@ -167,6 +169,7 @@ def list_public_workflows() -> list[dict[str, Any]]:
                             "runninghub_parameter",
                             "selfhost_node_id",
                             "selfhost_input_key",
+                            "selfhost_value_map",
                             "extensions",
                         }
                     }

@@ -18,7 +18,7 @@ DEFAULT_USERNAME = "local"
 DEFAULT_DISPLAY_NAME = "本机用户"
 RUNNINGHUB_NAMESPACE = "runninghub"
 LLM_NAMESPACE = "llm"
-FIXED_DIGITAL_HUMAN_WORKFLOW_ID = "2003717471859294210"
+FIXED_LIP_SYNC_WORKFLOW_ID = "2003717471859294210"
 DEFAULT_RUNNINGHUB_INSTANCE_TYPE = "plus"
 USER_PUBLIC_COLUMNS = "id, username, display_name, role, is_default, created_at, updated_at"
 DEFAULT_LLM_BASE_URL = "https://api.openai.com/v1"
@@ -134,7 +134,7 @@ def _normalize_runninghub_settings(settings: Optional[dict[str, Any]] = None) ->
     raw_instance_type = source.get("instance_type")
     return {
         "api_key": str(source.get("api_key") or "").strip(),
-        "workflow_id": FIXED_DIGITAL_HUMAN_WORKFLOW_ID,
+        "workflow_id": FIXED_LIP_SYNC_WORKFLOW_ID,
         "concurrent_limit": _normalize_concurrent_limit(source.get("concurrent_limit")),
         "instance_type": DEFAULT_RUNNINGHUB_INSTANCE_TYPE if raw_instance_type is None else str(raw_instance_type).strip(),
     }

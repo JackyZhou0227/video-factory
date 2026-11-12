@@ -73,7 +73,7 @@ def create_app() -> FastAPI:
 
     application = FastAPI(
         title="Video Factory",
-        description="AI 驱动的数字人口播视频 Web 应用",
+        description="AI 驱动的数字人对口型视频 Web 应用",
         version="0.1.0",
         lifespan=lifespan,
     )

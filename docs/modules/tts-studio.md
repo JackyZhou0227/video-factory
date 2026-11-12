@@ -2,7 +2,7 @@
 
 ## 作用
 
-独立生成语音，支持 Edge-TTS 在线音色和 Qwen3-TTS Base 本地音色克隆。生成结果可试听、下载，并作为数字人模块的输入。
+独立生成语音，支持 Edge-TTS 在线音色和 Qwen3-TTS Base 本地音色克隆。生成结果可试听、下载，并可作为 [ComfyUI 模块](comfyui.md)里数字人对口型工作流的输入。
 
 ## Provider
 

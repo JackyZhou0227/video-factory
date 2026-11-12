@@ -1101,8 +1101,98 @@ a {
   grid-column: span 4;
 }
 
-.digital-human-audio-workflow {
+.lipsync-audio-workflow {
   grid-column: span 8;
+}
+
+.text-to-image-workflow {
+  grid-column: 1 / -1;
+}
+
+.text-to-image-workflow .field {
+  gap: 8px;
+}
+
+.t2i-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 18px 32px;
+}
+
+.t2i-choice-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.t2i-segments.MuiToggleButtonGroup-root {
+  gap: 6px;
+}
+
+.t2i-segments .MuiToggleButtonGroup-grouped,
+.t2i-segments .MuiToggleButtonGroup-grouped:not(:first-of-type),
+.t2i-segments .MuiToggleButtonGroup-grouped:not(:last-of-type) {
+  margin: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--bg);
+  text-transform: none;
+}
+
+.t2i-segments .MuiToggleButton-root {
+  min-width: 64px;
+  height: 34px;
+  padding: 0 12px;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.t2i-segments .MuiToggleButton-root.Mui-selected {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-dark);
+}
+
+.t2i-segments .MuiToggleButton-root.Mui-selected:hover {
+  background: var(--accent-soft);
+}
+
+.t2i-aspects .MuiToggleButton-root {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: 6px;
+  width: 58px;
+  height: 64px;
+  min-width: 58px;
+  padding: 6px 4px;
+}
+
+.t2i-aspect-stage {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+}
+
+.t2i-aspect-frame {
+  border: 1.5px solid currentColor;
+  border-radius: 2px;
+}
+
+.t2i-aspects small {
+  font-size: 11px;
+  line-height: 1;
+}
+
+.t2i-size {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .workflow-input-list {
@@ -1131,16 +1221,18 @@ a {
   max-height: 300px;
 }
 
-.digital-human-audio-workflow .upload-dropzone.compact {
+.lipsync-audio-workflow .upload-dropzone.compact {
   min-height: 280px;
 }
 
-.digital-human-audio-heading {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+.workflow-field-label-row {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
 }
 
-.digital-human-tts-link {
+.lipsync-tts-link {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -3826,7 +3918,7 @@ a {
 
 @media (max-width: 1380px) {
   .media-workflow,
-  .digital-human-audio-workflow {
+  .lipsync-audio-workflow {
     grid-column: span 6;
   }
 }
@@ -3847,7 +3939,7 @@ a {
   }
 
   .media-workflow,
-  .digital-human-audio-workflow {
+  .lipsync-audio-workflow {
     grid-column: 1;
   }
 

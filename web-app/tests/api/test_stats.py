@@ -66,7 +66,7 @@ class StatsApiTests(unittest.TestCase):
 
         from app.services import task_store
 
-        # 组织A 成员A1：3 个数字人任务（40 天前 1 个 + 5 天前 2 个），成片 5、失败 1
+        # 组织A 成员A1：3 个对口型任务（40 天前 1 个 + 5 天前 2 个），成片 5、失败 1
         _seed_task(self.member_a1["id"], "member_a1", "成员A1", task_store.TASK_TYPE_COMFYUI_WORKFLOW, success=2, failed=1, days_ago=40)
         _seed_task(self.member_a1["id"], "member_a1", "成员A1", task_store.TASK_TYPE_COMFYUI_WORKFLOW, success=3, failed=0, days_ago=5)
         # 组织A 成员A2：5 天前 2 个语音任务

@@ -1,6 +1,6 @@
 # Video Factory
 
-Video Factory 是一个本地运行的 AI 视频生产工作台。当前包含数字人口播、独立语音合成、大字报视频和模板量产模块：前端负责素材、文案和生成参数，后端负责统一 LLM/TTS 调用、RunningHub 工作流和 FFmpeg 批量成片。
+Video Factory 是一个本地运行的 AI 视频生产工作台。当前包含 ComfyUI 工作流、独立语音合成、大字报视频和模板量产模块：前端负责素材、文案和生成参数，后端负责统一 LLM/TTS 调用、RunningHub 工作流和 FFmpeg 批量成片。
 
 ## 文档导航
 
@@ -8,7 +8,7 @@ README 只用于项目介绍和模块入口；每个模块的技术说明拆分�
 
 | 目标 | 文档 |
 | --- | --- |
-| 数字人口播 | [数字人模块](docs/modules/digital-human.md) |
+| ComfyUI 工作流 | [ComfyUI 模块](docs/modules/comfyui.md) |
 | 语音合成与音色克隆 | [TTS Studio 模块](docs/modules/tts-studio.md) |
 | 大字报视频 | [大字报模块](docs/modules/poster-video.md) |
 | 模板量产 | [模板量产模块](docs/modules/template-production.md) |

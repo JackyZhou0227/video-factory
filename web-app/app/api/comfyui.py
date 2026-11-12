@@ -97,7 +97,7 @@ def _resolve_runninghub_inputs(
     stored = settings_store.get_runninghub_settings(user_id)
 
     resolved_api_key = (api_key or stored["api_key"]).strip()
-    resolved_workflow_id = workflow_id or settings_store.FIXED_DIGITAL_HUMAN_WORKFLOW_ID
+    resolved_workflow_id = workflow_id or settings_store.FIXED_LIP_SYNC_WORKFLOW_ID
     resolved_instance_type = instance_type
     if isinstance(resolved_instance_type, str):
         resolved_instance_type = resolved_instance_type.strip() or None
@@ -477,6 +477,9 @@ async def _run_selfhost_workflow(
                 if value is not None:
                     node_id = field.get("selfhost_node_id")
                     input_key = field.get("selfhost_input_key")
+                    value_map = field.get("selfhost_value_map")
+                    if value_map is not None:
+                        value = value_map[value]
                     if node_id and input_key:
                         if node_id in workflow_json:
                             workflow_json[node_id]["inputs"][input_key] = value
@@ -705,7 +708,7 @@ async def generate_video(
     runninghub_instance_type: Optional[str] = Form(None),
     runninghub_concurrent_limit: int = Form(1),
 ):
-    """Compatibility endpoint for the original digital-human input fields."""
+    """Compatibility endpoint for the original lip-sync input fields."""
     if runninghub_concurrent_limit < 1 or runninghub_concurrent_limit > 10:
         raise HTTPException(status_code=422, detail="runninghub_concurrent_limit must be between 1 and 10")
 
@@ -778,7 +781,7 @@ async def generate_video(
             task_id,
             status="failed",
             progress=0,
-            message="保存数字人输入素材失败",
+            message="保存对口型素材失败",
             error=str(exc.detail),
             success_count=0,
             failed_count=1,
@@ -792,7 +795,7 @@ async def generate_video(
             task_id,
             status="failed",
             progress=0,
-            message="保存数字人输入素材失败",
+            message="保存对口型素材失败",
             error=str(exc),
             success_count=0,
             failed_count=1,

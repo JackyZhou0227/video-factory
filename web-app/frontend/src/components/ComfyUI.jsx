@@ -8,6 +8,8 @@ import Stack from "@mui/material/Stack";
 import Tab from "@mui/material/Tab";
 import Tabs from "@mui/material/Tabs";
 import TextField from "@mui/material/TextField";
+import ToggleButton from "@mui/material/ToggleButton";
+import ToggleButtonGroup from "@mui/material/ToggleButtonGroup";
 import Typography from "@mui/material/Typography";
 import { statusChipColors } from "../theme";
 import Icon from "./Icon";
@@ -40,6 +42,167 @@ function formatFileSize(size) {
 
 function isReadableMessage(message) {
   return typeof message === "string" && message.trim() && !/[锟]/.test(message);
+}
+
+const TEXT_TO_IMAGE_SIZES = {
+  "480p": {
+    "1:1": [640, 640],
+    "4:3": [736, 560],
+    "3:4": [560, 736],
+    "3:2": [784, 528],
+    "2:3": [528, 784],
+    "16:9": [848, 480],
+    "9:16": [480, 848],
+  },
+  "720p": {
+    "1:1": [960, 960],
+    "4:3": [1104, 832],
+    "3:4": [832, 1104],
+    "3:2": [1168, 784],
+    "2:3": [784, 1168],
+    "16:9": [1280, 720],
+    "9:16": [720, 1280],
+  },
+  "1080p": {
+    "1:1": [1440, 1440],
+    "4:3": [1664, 1248],
+    "3:4": [1248, 1664],
+    "3:2": [1760, 1168],
+    "2:3": [1168, 1760],
+    "16:9": [1920, 1072],
+    "9:16": [1072, 1920],
+  },
+};
+
+const TEXT_TO_IMAGE_ASPECTS = [
+  ["1:1", 1, 1],
+  ["4:3", 4, 3],
+  ["3:4", 3, 4],
+  ["3:2", 3, 2],
+  ["2:3", 2, 3],
+  ["16:9", 16, 9],
+  ["9:16", 9, 16],
+];
+
+const choiceGroupSx = {
+  gap: "6px",
+  "& .MuiToggleButtonGroup-grouped": {
+    margin: "0 !important",
+    border: "1px solid var(--border) !important",
+    borderRadius: "8px !important",
+    color: "var(--text)",
+    backgroundColor: "var(--background)",
+    textTransform: "none",
+  },
+  "& .MuiToggleButton-root.Mui-selected": {
+    color: "var(--accent-dark)",
+    backgroundColor: "var(--accent-soft)",
+    borderColor: "var(--accent) !important",
+  },
+  "& .MuiToggleButton-root.Mui-selected:hover": {
+    backgroundColor: "var(--accent-soft)",
+  },
+};
+
+function aspectFrameSize(widthRatio, heightRatio) {
+  const max = 26;
+  const scale = max / Math.max(widthRatio, heightRatio);
+  return {
+    width: Math.max(8, Math.round(widthRatio * scale)),
+    height: Math.max(8, Math.round(heightRatio * scale)),
+  };
+}
+
+function TextToImageCard({ fields, values, onChange, generating }) {
+  const promptField = fields.find((field) => field.key === "prompt");
+  const resolutionField = fields.find((field) => field.key === "resolution");
+  const aspectField = fields.find((field) => field.key === "aspect_ratio");
+  const resolution = values.resolution ?? resolutionField?.default ?? "720p";
+  const aspect = values.aspect_ratio ?? aspectField?.default ?? "9:16";
+  const size = TEXT_TO_IMAGE_SIZES[resolution]?.[aspect];
+
+  return (
+    <div className="workflow-card text-to-image-workflow">
+      {promptField && (
+        <div className="field">
+          <label className="field-label" htmlFor="workflow-input-prompt">
+            {promptField.label}{promptField.required ? " *" : ""}
+          </label>
+          <TextField
+            id="workflow-input-prompt"
+            fullWidth
+            multiline
+            minRows={6}
+            placeholder={promptField.placeholder}
+            disabled={generating}
+            value={values.prompt ?? ""}
+            onChange={(event) => onChange(promptField, event.target.value)}
+          />
+        </div>
+      )}
+      <div className="t2i-controls">
+        {resolutionField && (
+          <div className="t2i-choice-group">
+            <span className="field-label">{resolutionField.label}</span>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              color="primary"
+              className="t2i-segments"
+              sx={choiceGroupSx}
+              value={resolution}
+              disabled={generating}
+              onChange={(_, next) => { if (next) onChange(resolutionField, next); }}
+            >
+              {(resolutionField.options || []).map((option) => (
+                <ToggleButton key={option} value={option}>{option}</ToggleButton>
+              ))}
+            </ToggleButtonGroup>
+          </div>
+        )}
+        {aspectField && (
+          <div className="t2i-choice-group">
+            <span className="field-label">{aspectField.label}</span>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              color="primary"
+              className="t2i-segments t2i-aspects"
+              sx={{
+                ...choiceGroupSx,
+                "& .MuiToggleButton-root": {
+                  display: "grid",
+                  justifyItems: "center",
+                  alignContent: "center",
+                  gap: "6px",
+                  width: 58,
+                  height: 64,
+                  minWidth: 58,
+                  padding: "6px 4px",
+                },
+              }}
+              value={aspect}
+              disabled={generating}
+              onChange={(_, next) => { if (next) onChange(aspectField, next); }}
+            >
+              {TEXT_TO_IMAGE_ASPECTS.filter(([label]) => (aspectField.options || []).includes(label)).map(([label, widthRatio, heightRatio]) => {
+                const frame = aspectFrameSize(widthRatio, heightRatio);
+                return (
+                  <ToggleButton key={label} value={label} aria-label={label}>
+                    <span className="t2i-aspect-stage" aria-hidden="true">
+                      <span className="t2i-aspect-frame" style={{ width: frame.width, height: frame.height }} />
+                    </span>
+                    <small>{label}</small>
+                  </ToggleButton>
+                );
+              })}
+            </ToggleButtonGroup>
+            {size && <span className="t2i-size">{size[0]}×{size[1]}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function ComfyUI({ onOpenTtsStudio, active = false }) {
@@ -329,10 +492,6 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
         <div className="production-grid">
           {fields.filter((field) => field.type === "image").length > 0 && (
             <div className="workflow-card media-workflow">
-              <div className="control-section-heading">
-                <span>01</span>
-                <strong>图片素材</strong>
-              </div>
               {fields.filter((field) => field.type === "image").map((field) => {
                 const value = workflowInputs[field.key];
                 const previewUrl = previews[field.key];
@@ -375,24 +534,16 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
             </div>
           )}
 
-          <div className="workflow-card digital-human-audio-workflow">
-            <div className="control-section-heading digital-human-audio-heading">
-              <span>{fields.filter((field) => field.type === "image").length > 0 ? "02" : "01"}</span>
-              <strong>其他输入</strong>
-              {fields.some((field) => field.type === "audio") && (
-                <Button
-                  className="digital-human-tts-link"
-                  type="button"
-                  variant="text"
-                  size="small"
-                  disableRipple
-                  onClick={onOpenTtsStudio}
-                >
-                  前往语音合成
-                  <Icon name="arrowRight" size={14} />
-                </Button>
-              )}
-            </div>
+          {selectedWorkflow?.key === "text-to-image" ? (
+            <TextToImageCard
+              fields={fields}
+              values={workflowInputs}
+              onChange={handleInputChange}
+              generating={generating}
+            />
+          ) : null}
+          {selectedWorkflow?.key !== "text-to-image" && (
+          <div className="workflow-card lipsync-audio-workflow">
             <div className="workflow-input-list">
               {fields.filter((field) => field.type !== "image").map((field) => {
                 const value = workflowInputs[field.key];
@@ -400,9 +551,22 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
                   const previewUrl = previews[field.key];
                   return (
                     <div className="field" key={field.key}>
-                      <label className="field-label" htmlFor={`workflow-input-${field.key}`}>
-                        {field.label}{field.required ? " *" : ""}
-                      </label>
+                      <div className="workflow-field-label-row">
+                        <label className="field-label" htmlFor={`workflow-input-${field.key}`}>
+                          {field.label}{field.required ? " *" : ""}
+                        </label>
+                        <Button
+                          className="lipsync-tts-link"
+                          type="button"
+                          variant="text"
+                          size="small"
+                          disableRipple
+                          onClick={onOpenTtsStudio}
+                        >
+                          前往语音合成
+                          <Icon name="arrowRight" size={14} />
+                        </Button>
+                      </div>
                       <label className={`upload-dropzone compact ${value ? "is-filled" : ""}`}>
                         <span className="upload-placeholder">
                           <Icon name="upload" size={22} />
@@ -475,6 +639,7 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
               )}
             </div>
           </div>
+          )}
         </div>
       </section>
 

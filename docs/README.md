@@ -4,7 +4,7 @@
 
 ## 模块文档
 
-- [数字人模块](modules/digital-human.md)
+- [ComfyUI 模块](modules/comfyui.md)
 - [TTS Studio 模块](modules/tts-studio.md)
 - [大字报模块](modules/poster-video.md)
 - [模板量产模块](modules/template-production.md)

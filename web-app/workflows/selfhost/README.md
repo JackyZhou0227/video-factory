@@ -15,17 +15,19 @@
 运行时按 `workflow_catalog` 里的 `selfhost_node_id` / `selfhost_input_key`
 直接改节点输入，再把整份 JSON POST 到 ComfyUI `/prompt`。
 
-原稿（UI 格式 + API 格式）统一放在仓库根目录 `docs/comfyui-workflow/<name>/`，
-本目录只放从那里复制来的 `api.json`，保持 ComfyUI 导出原样、不在文件里改节点。
+原稿按功能放在 `docs/comfyui-workflow/<功能名>/`，JSON 在其中的 `json/`。
+功能目录名不跟某一版模型绑定；换图时替换那里的 JSON，再改上面的文件名映射。
+本目录只放从 `json/api.json` 复制来的运行文件，保持 ComfyUI 导出原样、不在文件里改节点。
 
 当前映射（`text-to-image`）：
 
 | 表单字段 | 节点 | 输入 |
 |---|---|---|
 | prompt | `18:17` | `value` |
-| negative_prompt | `18:5` | `text` |
-| width | `18:6` | `width` |
-| height | `18:6` | `height` |
+| resolution | `19` | `megapixels`（480p / 720p / 1080p） |
+| aspect_ratio | `19` | `aspect_ratio` |
+
+负面提示词不在表单里。节点 `18:5` 保持工作流原稿里的空字符串。宽高由节点 `19`（ResolutionSelector，`multiple` 为 16）按清晰度和比例算出来，再接到 `18:6`。
 
 加新工作流时：
 

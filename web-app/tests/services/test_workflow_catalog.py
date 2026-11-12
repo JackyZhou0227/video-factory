@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import math
 import unittest
-from pathlib import Path
 
 from fastapi import HTTPException
 
@@ -11,7 +11,7 @@ from app.services import workflow_catalog
 
 
 class WorkflowCatalogTests(unittest.TestCase):
-    def test_public_catalog_contains_runninghub_talking_video_workflow(self):
+    def test_public_catalog_contains_runninghub_lip_sync_workflow(self):
         workflows = workflow_catalog.list_public_workflows()
 
         self.assertEqual(len(workflows), 2)  # digital-human-lipsync, text-to-image
@@ -29,8 +29,17 @@ class WorkflowCatalogTests(unittest.TestCase):
         self.assertEqual(text2img["sources"], ["selfhost"])
         self.assertEqual(
             [(item["key"], item["type"]) for item in text2img["inputs"]],
-            [("prompt", "textarea"), ("negative_prompt", "textarea"), ("width", "number"), ("height", "number")],
+            [("prompt", "textarea"), ("resolution", "select"), ("aspect_ratio", "select")],
         )
+        self.assertNotIn("negative_prompt", {item["key"] for item in text2img["inputs"]})
+        resolution = next(item for item in text2img["inputs"] if item["key"] == "resolution")
+        self.assertEqual(list(resolution["options"]), ["480p", "720p", "1080p"])
+        aspect = next(item for item in text2img["inputs"] if item["key"] == "aspect_ratio")
+        self.assertEqual(
+            list(aspect["options"]),
+            ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"],
+        )
+        self.assertNotIn("selfhost_value_map", resolution)
 
     def test_selfhost_input_mappings_point_at_nodes_in_the_workflow_json(self):
         for workflow in workflow_catalog.WORKFLOWS:
@@ -50,6 +59,59 @@ class WorkflowCatalogTests(unittest.TestCase):
                     workflow_json[node_id]["inputs"],
                     f"{workflow['key']}:{field['key']}",
                 )
+
+    def test_text_to_image_resolution_presets_match_resolution_selector(self):
+        workflow = workflow_catalog.get_workflow("text-to-image")
+        resolution = next(field for field in workflow["inputs"] if field["key"] == "resolution")
+        aspect = next(field for field in workflow["inputs"] if field["key"] == "aspect_ratio")
+        ratios = {
+            "1:1": (1, 1),
+            "4:3": (4, 3),
+            "3:4": (3, 4),
+            "3:2": (3, 2),
+            "2:3": (2, 3),
+            "16:9": (16, 9),
+            "9:16": (9, 16),
+        }
+        expected = {
+            "480p": {
+                "1:1": (640, 640),
+                "4:3": (736, 560),
+                "3:4": (560, 736),
+                "3:2": (784, 528),
+                "2:3": (528, 784),
+                "16:9": (848, 480),
+                "9:16": (480, 848),
+            },
+            "720p": {
+                "1:1": (960, 960),
+                "4:3": (1104, 832),
+                "3:4": (832, 1104),
+                "3:2": (1168, 784),
+                "2:3": (784, 1168),
+                "16:9": (1280, 720),
+                "9:16": (720, 1280),
+            },
+            "1080p": {
+                "1:1": (1440, 1440),
+                "4:3": (1664, 1248),
+                "3:4": (1248, 1664),
+                "3:2": (1760, 1168),
+                "2:3": (1168, 1760),
+                "16:9": (1920, 1072),
+                "9:16": (1072, 1920),
+            },
+        }
+
+        self.assertEqual(set(resolution["selfhost_value_map"]), set(resolution["options"]))
+        self.assertEqual(set(aspect["selfhost_value_map"]), set(aspect["options"]))
+        for clarity, megapixels in resolution["selfhost_value_map"].items():
+            for label, (width_ratio, height_ratio) in ratios.items():
+                total_pixels = megapixels * 1024 * 1024
+                scale = math.sqrt(total_pixels / (width_ratio * height_ratio))
+                width = round(width_ratio * scale / 16) * 16
+                height = round(height_ratio * scale / 16) * 16
+                self.assertEqual((width, height), expected[clarity][label])
 
     def test_resolve_workflow_rejects_unknown_key(self):
         with self.assertRaises(HTTPException) as error:

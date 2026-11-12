@@ -6,7 +6,7 @@
 
 ## 任务类型
 
-`digital_human`、`voice_generation`、`poster_video`、`template_production`、`smart_editing`。语音调速结果追加到原语音任务，不创建新任务；模板内部的文案生成和改写也不单独建任务。
+`comfyui_workflow`、`voice_generation`、`poster_video`、`template_production`、`smart_editing`。语音调速结果追加到原语音任务，不创建新任务；模板内部的文案生成和改写也不单独建任务。旧的 `digital_human` 任务类型已迁移为 `comfyui_workflow`。
 
 ## 数据模型
 

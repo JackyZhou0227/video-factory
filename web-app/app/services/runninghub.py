@@ -85,7 +85,7 @@ async def _create_task(
     return result.get("data", {})
 
 
-async def generate_digital_human(
+async def generate_lip_sync(
     image_path: Path,
     audio_path: Path,
     output_path: Path,
@@ -133,7 +133,7 @@ async def generate_digital_human(
     return output_path
 
 
-async def submit_digital_human(
+async def submit_lip_sync(
     image_path: Path,
     audio_path: Path,
     workflow_id: str,
