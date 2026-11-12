@@ -136,7 +136,7 @@
 ### DATA-03 SQLite 迁移到 PostgreSQL — 8 分
 
 - 状态：`[x]`
-- 已完成：`DATABASE_URL`/`database.url` 强制 PostgreSQL（psycopg），新增 `scripts/migrate_sqlite_to_postgres.py` 一次性导入脚本与迁移记录文档。
+- 已完成：`DATABASE_URL`/`database.url` 强制 PostgreSQL（psycopg）。一次性 SQLite 导入已经做完，导入脚本已删除。
 - 结论：纳入路线，但必须在 SQLAlchemy + Alembic + SQLite 适配稳定后进行，不与 ORM 重写同时硬切。
 - 新增 `DATABASE_URL` 配置，保留 SQLite 作为开发和回滚后端一段时间。
 - 编写一次性 SQLite → PostgreSQL 导入和核对脚本，迁移 users、sessions、settings、tasks、BGM 等现有数据。
@@ -168,18 +168,17 @@
 - PostgreSQL 迁移后保留扩展安装方式，但不增加向量字段和运行时依赖。
 - 真正出现知识库、RAG 或素材语义搜索需求时，再建立独立 embedding 表和索引。
 
-### DEPLOY-01 应用只监听本机回环地址 — 10 分
+### DEPLOY-01 局域网可直接访问 — 10 分
 
 - 状态：`[x]`
-- 当前问题：示例配置和启动脚本使用 `0.0.0.0:18888`。
-- 涉及文件：`web-app/config.example.yaml`、`web-app/start_app.bat`、`web-app/main.py`
-- 改造方向：应用监听 `127.0.0.1:18888`；花生壳只转发到本机回环地址；Windows 防火墙禁止外部直接访问 18888；禁止通过路由器端口映射绕过花生壳安全策略。
-- 验收标准：局域网其他机器无法直接访问应用端口；公网只能通过配置好的隧道入口访问。
+- 当前状态：生产故意监听 `0.0.0.0:18888`，同一局域网内的机器可以用本机 IP 直接打开页面。`config.example.yaml`、`scripts/start.bat` 和 `scripts/VideoFactory.xml` 都是这个地址。公网入口继续走花生壳，不把应用改成只监听 `127.0.0.1`。
+- 涉及文件：`web-app/config.example.yaml`、`web-app/scripts/start.bat`、`web-app/scripts/VideoFactory.xml`、`web-app/main.py`
+- 验收标准：局域网其他机器可以通过 `http://<本机IP>:18888` 访问。
 
 ### DEPLOY-02 生产模式关闭 reload — 10 分
 
 - 状态：`[x]`
-- 当前问题：`web-app/main.py:17` 使用 `reload=True`，可能导致模型重复加载、显存占用增加和任务状态异常。
+- 当前状态：`scripts/dev.bat` 使用 development 并打开 reload。`scripts/start.bat` 与 `scripts/VideoFactory.xml` 固定 `VIDEO_FACTORY_ENV=production`、`VIDEO_FACTORY_RELOAD=0`，并使用仓库根目录 `.venv` 里的 Python。
 - 改造方向：开发启动脚本保留 reload；生产启动脚本明确关闭 reload；使用固定 Python/Conda 环境启动，不依赖系统默认 `python`。
 - 验收标准：生产进程只有一个明确的应用进程；重启和升级行为可预测。
 
@@ -276,9 +275,9 @@
 ### OPS-01 生产启动和进程托管 — 9 分
 
 - 状态：`[-]`
-- 当前状态：`start.bat` 生产脚本已固定 production 环境、关闭 reload，并含 Python/依赖/前端构建/端口占用的启动前检查；Windows 进程托管（服务/计划任务自动拉起）和日志轮转尚未实现。
+- 当前状态：`scripts/start.bat` 固定 production、关闭 reload，并检查 Python、依赖、前端构建和端口占用。`scripts/install-service.bat` 与 `scripts/VideoFactory.xml` 用 WinSW 2.12 注册 Windows 服务：延迟自动启动，进程退出后重启，日志在 `scripts/logs` 按 10MB 滚动并保留 8 份。安装前检查虚拟环境、依赖和前端构建。尚未把 PostgreSQL 写成服务依赖，也还没有在客户机上验证重启恢复。
 - 使用固定 Python/Conda 环境，生产关闭 reload，Windows 重启后自动启动并在异常退出时拉起。
-- 启动前检查配置、模型目录、FFmpeg、SQLite、输出目录和显卡状态。
+- 启动前检查配置、模型目录、FFmpeg、数据库、输出目录和显卡状态。
 - 日志先按日期或大小轮转，不引入复杂监控平台。
 - 验收标准：Windows 重启后服务可以按预期恢复；启动失败有明确诊断信息。
 
@@ -342,8 +341,9 @@
 ### DOC-01 更新部署文档 — 8 分
 
 - 状态：`[-]`
+- 当前状态：部署文档放在 `docs/deployment/`。`windows.md` 已写环境准备、初始化管理员、前台启动、WinSW 服务安装与卸载、日志位置，以及环境变量如何盖过 `config.yaml`。Linux 部署、花生壳、Host 白名单、HTTPS Cookie、防火墙、备份和恢复尚未成文。
 - 单机版文档重点：Windows 环境准备、随机管理员密码、花生壳隧道、Host 白名单、HTTPS Cookie、Windows 防火墙、启动/停止、备份/恢复和日志位置。
-- 文档需要同时说明 SQLite/ORM 基础阶段和 PostgreSQL 迁移阶段；Redis、任务队列和多 worker 仍暂不纳入。
+- 文档需要同时说明当前的 PostgreSQL 部署；Redis、任务队列和多 worker 仍暂不纳入。Linux 部署以后写在 `docs/deployment/`，不和 Windows 步骤混在一篇里。
 - 验收标准：新机器可以按照文档完成部署、创建管理员、配置 GPU/TTS、启动服务和恢复备份。
 
 ### DOC-02 建立版本升级和回滚流程 — 8 分
@@ -408,7 +408,7 @@
 
 - 已完成认证基线：关闭默认公开注册、取消固定管理员密码、首用户不自动成为管理员、登录/注册限流、密码长度上限、Session 清理与数量上限。
 - 已完成浏览器会话防护：动态判断本机 HTTP 与穿透 HTTPS 的 `Secure` Cookie；生产示例启用双提交 CSRF，前端自动发送 `X-CSRF-Token`。
-- 已完成公网入口基线：默认监听回环地址、生产关闭 reload、Host 校验、CORS 白名单、安全响应头、请求体上限。
+- 已完成公网入口基线：生产监听 `0.0.0.0:18888` 供局域网直接访问、生产关闭 reload、Host 校验、CORS 白名单、安全响应头、请求体上限。
 - 已完成上传资源基线：音频/图片/视频/JSON 统一大小、扩展名、MIME 和原子临时文件校验。
 - 已完成 LLM 出站地址基线：默认拒绝回环、私网、链路本地、保留地址和本机主机名；可通过环境变量显式放行内部 LLM。
 - 已补充认证、CSRF、上传限制和 LLM 地址校验测试；当前后端全量测试为 161 个通过，前端生产构建通过。

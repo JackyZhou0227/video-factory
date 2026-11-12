@@ -10,10 +10,11 @@ The React/Vite frontend is in `web-app/frontend/`: components are under `src/com
 
 Run from `web-app/` unless noted:
 
-- `.\bootstrap.bat` creates `.venv`, installs Python and frontend dependencies, and builds the frontend.
-- `.\dev.bat` starts FastAPI with reload and Vite at `http://127.0.0.1:5173`.
-- `.\build.bat` runs the production frontend build.
-- `.\start.bat` serves the built frontend and API in production mode on port `18888`.
+- `.\scripts\bootstrap.bat` creates `.venv`, installs Python and frontend dependencies, and builds the frontend.
+- `.\scripts\dev.bat` starts FastAPI with reload and Vite at `http://127.0.0.1:5173`.
+- `.\scripts\build.bat` runs the production frontend build.
+- `.\scripts\start.bat` serves the built frontend and API in production mode on port `18888`.
+- `.\scripts\install-service.bat` registers that production process as a Windows service. Place WinSW beside `scripts\VideoFactory.xml` first. Steps and config overrides are in `docs/deployment/windows.md`.
 - `python -m pytest` runs the backend suite. Tests use the PostgreSQL database `video_factory_test`; ensure PostgreSQL and `config.yaml` are configured first.
 - `python -m alembic upgrade head` applies PostgreSQL migrations; use `python -m alembic current` to inspect the version.
 

@@ -2,9 +2,10 @@
 setlocal EnableExtensions
 chcp 65001 >nul 2>&1
 
-set "APP_DIR=%~dp0"
-set "VENV_PYTHON=%APP_DIR%..\.venv\Scripts\python.exe"
-if not exist "%VENV_PYTHON%" set "VENV_PYTHON=%APP_DIR%..\.venv\python.exe"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "APP_DIR=%%~fI"
+set "VENV_PYTHON=%APP_DIR%\..\.venv\Scripts\python.exe"
+if not exist "%VENV_PYTHON%" set "VENV_PYTHON=%APP_DIR%\..\.venv\python.exe"
 if not defined APP_HOST set "APP_HOST=0.0.0.0"
 if not defined APP_PORT set "APP_PORT=18888"
 
@@ -15,7 +16,7 @@ if not defined PYTHON_EXE set "PYTHON_EXE=python"
 if /i "%PYTHON_EXE%"=="python" (
     where python >nul 2>&1
     if errorlevel 1 (
-        echo Python was not found on PATH. Run bootstrap.bat or activate an environment first.
+        echo Python was not found on PATH. Run scripts\bootstrap.bat or activate an environment first.
         endlocal
         exit /b 1
     )
@@ -25,9 +26,9 @@ if /i "%PYTHON_EXE%"=="python" (
     exit /b 1
 )
 
-if not exist "%APP_DIR%frontend\dist\index.html" (
+if not exist "%APP_DIR%\frontend\dist\index.html" (
     echo Frontend build is missing. Running build.bat...
-    call "%APP_DIR%build.bat"
+    call "%SCRIPT_DIR%build.bat"
     if errorlevel 1 (
         endlocal
         exit /b 1
@@ -37,7 +38,7 @@ if not exist "%APP_DIR%frontend\dist\index.html" (
 "%PYTHON_EXE%" -c "import fastapi, uvicorn" >nul 2>&1
 if errorlevel 1 (
     echo Python dependencies are missing from the selected environment.
-    echo Run bootstrap.bat, or set PYTHON_EXE to an environment that has requirements.txt installed.
+    echo Run scripts\bootstrap.bat, or set PYTHON_EXE to an environment that has requirements.txt installed.
     endlocal
     exit /b 1
 )

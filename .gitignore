@@ -25,6 +25,10 @@ web-app/frontend/node_modules/
 web-app/frontend/dist/
 web-app/frontend/public/skills/
 
+# WinSW binaries downloaded on the customer machine
+web-app/scripts/VideoFactory.exe
+web-app/scripts/WinSW-x64.exe
+
 # Local OS/editor files
 .vscode/
 .idea/

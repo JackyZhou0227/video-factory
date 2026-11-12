@@ -61,8 +61,8 @@ database:
   pool_timeout: 30
 
 server:
-  # 生产默认只监听本机，对外请通过反向代理/HTTPS 隧道暴露。
-  host: "127.0.0.1"
+  # 监听所有网卡，局域网可直接访问。公网入口走内网穿透，不要在路由器上单独映射此端口。
+  host: "0.0.0.0"
   port: 18888
   environment: "production" # production | development
   reload: false # 仅在 development 模式生效

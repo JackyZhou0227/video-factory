@@ -2,8 +2,9 @@
 setlocal EnableExtensions
 chcp 65001 >nul 2>&1
 
-set "APP_DIR=%~dp0"
-for %%I in ("%APP_DIR%..\.venv") do set "VENV_DIR=%%~fI"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "APP_DIR=%%~fI"
+for %%I in ("%APP_DIR%\..\.venv") do set "VENV_DIR=%%~fI"
 rem Support both layouts: python -m venv (Scripts\python.exe) and conda/envs (python.exe at root).
 set "PYTHON_EXE="
 if exist "%VENV_DIR%\Scripts\python.exe" set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
@@ -32,14 +33,14 @@ set "PYTHON_EXE=%VENV_DIR%\Scripts\python.exe"
 
 :python_ready
 echo Installing Python dependencies...
-"%PYTHON_EXE%" -m pip install -r "%APP_DIR%requirements.txt"
+"%PYTHON_EXE%" -m pip install -r "%APP_DIR%\requirements.txt"
 if errorlevel 1 (
     echo Failed to install Python dependencies.
     endlocal
     exit /b 1
 )
 
-if not exist "%APP_DIR%frontend\package.json" (
+if not exist "%APP_DIR%\frontend\package.json" (
     echo Frontend package.json was not found.
     endlocal
     exit /b 1
@@ -52,7 +53,7 @@ if errorlevel 1 (
 )
 
 echo Installing frontend dependencies...
-pushd "%APP_DIR%frontend"
+pushd "%APP_DIR%\frontend"
 if exist package-lock.json (
     call npm ci
 ) else (
@@ -66,7 +67,7 @@ if not "%NPM_EXIT_CODE%"=="0" (
     exit /b %NPM_EXIT_CODE%
 )
 
-call "%APP_DIR%build.bat"
+call "%SCRIPT_DIR%build.bat"
 set "EXIT_CODE=%ERRORLEVEL%"
 endlocal
 exit /b %EXIT_CODE%

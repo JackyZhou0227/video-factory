@@ -15,6 +15,7 @@ README 只用于项目介绍和模块入口；每个模块的技术说明拆分�
 | 智能剪辑 | [智能剪辑模块](docs/modules/smart-editing.md) |
 | 任务中心与产物 | [任务中心模块](docs/modules/task-center.md) |
 | 项目 Skills | [Skills 模块](docs/modules/skills.md) |
+| Windows 部署 | [Windows 部署](docs/deployment/windows.md) |
 | 所有文档入口 | [文档索引](docs/README.md) |
 
 ## 项目结构
@@ -25,11 +26,14 @@ web-app/
   config.example.yaml     本地配置模板
   config.yaml             本地私有配置，已被 .gitignore 忽略
   requirements.txt        Python 后端依赖
-  bootstrap.bat            创建/准备 .venv，安装 Python/前端依赖并构建前端
-  start.bat                使用已有环境启动生产模式应用
-  build.bat                只构建前端静态文件
-  dev.bat                  启动后端热重载和 Vite 开发服务器
-  init-admin.bat           初始化本机管理员账号
+  scripts/                Windows 启动脚本、WinSW 配置和本机维护脚本
+    bootstrap.bat         创建/准备 .venv，安装 Python/前端依赖并构建前端
+    start.bat             使用已有环境启动生产模式应用
+    dev.bat               启动后端热重载和 Vite 开发服务器
+    build.bat             只构建前端静态文件
+    init-admin.bat        初始化本机管理员账号
+    install-service.bat   把生产模式注册为 Windows 服务（需先放好 WinSW）
+    VideoFactory.xml      WinSW 服务配置，与 install-service.bat 配套
   app/                    FastAPI 后端包
   data/                   本机运行数据与迁移备份，已被 .gitignore 忽略
   frontend/               React + Vite 前端

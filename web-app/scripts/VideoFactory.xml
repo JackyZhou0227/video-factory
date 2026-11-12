@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  WinSW 2.12 configuration. install-service.bat copies WinSW-x64.exe to
+  VideoFactory.exe; the exe and this file must share the same base name.
+  shortcut: delayed auto start instead of a PostgreSQL service dependency,
+  because the local service name differs by version. Add <depend> once that name is known.
+-->
+<service>
+  <id>VideoFactory</id>
+  <name>Video Factory</name>
+  <description>Video Factory production server</description>
+  <executable>"%BASE%\..\..\.venv\Scripts\python.exe"</executable>
+  <arguments>main.py</arguments>
+  <workingdirectory>%BASE%\..</workingdirectory>
+  <env name="VIDEO_FACTORY_ENV" value="production"/>
+  <env name="VIDEO_FACTORY_RELOAD" value="0"/>
+  <env name="VIDEO_FACTORY_HOST" value="0.0.0.0"/>
+  <env name="VIDEO_FACTORY_PORT" value="18888"/>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart/>
+  <stopparentprocessfirst>true</stopparentprocessfirst>
+  <stoptimeout>30sec</stoptimeout>
+  <logpath>%BASE%\logs</logpath>
+  <log mode="roll-by-size">
+    <sizeThreshold>10240</sizeThreshold>
+    <keepFiles>8</keepFiles>
+  </log>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <resetfailure>1 hour</resetfailure>
+</service>

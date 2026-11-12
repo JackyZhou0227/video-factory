@@ -2,8 +2,9 @@
 setlocal EnableExtensions
 chcp 65001 >nul 2>&1
 
-set "APP_DIR=%~dp0"
-set "FRONTEND_DIR=%APP_DIR%frontend"
+set "SCRIPT_DIR=%~dp0"
+for %%I in ("%SCRIPT_DIR%..") do set "APP_DIR=%%~fI"
+set "FRONTEND_DIR=%APP_DIR%\frontend"
 
 if not exist "%FRONTEND_DIR%\package.json" (
     echo Frontend package.json was not found: %FRONTEND_DIR%
@@ -17,7 +18,7 @@ if errorlevel 1 (
     exit /b 1
 )
 if not exist "%FRONTEND_DIR%\node_modules" (
-    echo Frontend dependencies are missing. Run bootstrap.bat first.
+    echo Frontend dependencies are missing. Run scripts\bootstrap.bat first.
     endlocal
     exit /b 1
 )
