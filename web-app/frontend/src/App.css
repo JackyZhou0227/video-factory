@@ -878,21 +878,28 @@ a {
   gap: 2px;
   min-width: 0;
   height: 40px;
-  overflow: hidden;
+}
+
+.auth-captcha-image > img,
+.auth-captcha-image > span {
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: 4px;
   background: var(--surface);
 }
 
-.auth-captcha-image img {
+.auth-captcha-image > img {
   display: block;
   width: 110px;
   height: 40px;
   object-fit: contain;
 }
 
-.auth-captcha-image span {
+.auth-captcha-image > span {
+  display: grid;
+  place-items: center;
   width: 110px;
+  height: 40px;
   color: var(--text-muted);
   font-size: 11px;
   text-align: center;
