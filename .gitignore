@@ -27,6 +27,7 @@ web-app/frontend/public/skills/
 
 # Local OS/editor files
 .vscode/
+.idea/
 .trae/
 .DS_Store
 Thumbs.db
