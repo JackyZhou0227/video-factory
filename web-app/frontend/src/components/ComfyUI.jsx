@@ -771,7 +771,7 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
               </div>
             ) : taskStatus === "completed" && imageUrls.length ? (
               <>
-                <ProtectedMedia className="result-video" path={imageUrls[0]} kind="image" alt="生成的图片" backendBaseUrl={backendBaseUrl} />
+                <ProtectedMedia className="result-image" path={imageUrls[0]} kind="image" alt="生成的图片" backendBaseUrl={backendBaseUrl} />
                 <ProtectedDownloadButton path={imageUrls[0]} filename="comfyui-workflow.png" backendBaseUrl={backendBaseUrl}>
                   <Icon name="download" size={16} />
                   下载图片

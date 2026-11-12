@@ -2221,6 +2221,16 @@ a {
   background: #000;
 }
 
+.result-image {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: 460px;
+  object-fit: contain;
+  border-radius: 4px;
+}
+
 
 .submitted-state {
   display: grid;
