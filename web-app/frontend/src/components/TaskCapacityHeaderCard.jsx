@@ -37,6 +37,7 @@ export default function TaskCapacityHeaderCard() {
           <span>等待 {summary?.global?.pending ?? "—"}</span>
           <span>处理中 {summary?.global?.running ?? "—"}</span>
           <span>本地配音 {summary?.runtime ? `${summary.runtime.qwen.active}/${summary.runtime.qwen.limit}` : "—"}</span>
+          <span>本地 ComfyUI {summary?.runtime?.comfyui ? `${summary.runtime.comfyui.active}/${summary.runtime.comfyui.limit}` : "—"}</span>
         </div>
       </div>
     </Paper>

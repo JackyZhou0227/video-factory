@@ -186,6 +186,15 @@ textarea {
   font: inherit;
 }
 
+/* Chrome 自动填充会把输入框强行涂成蓝色，这里拉回主题色。 */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0 1000px var(--popover, #ffffff) inset;
+  -webkit-text-fill-color: var(--text, #3d3929);
+  transition: background-color 9999s ease-in-out 0s;
+}
+
 button {
   border: 0;
 }

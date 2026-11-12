@@ -13,6 +13,7 @@ export function DateField({ label, name, value, onAccept, onChange, fullWidth = 
     size: "small",
     name,
     fullWidth,
+    autoComplete: "off",
     sx: mergedSx,
   };
 
