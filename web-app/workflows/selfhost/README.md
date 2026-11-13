@@ -8,7 +8,7 @@
 
 | workflow_key | selfhost 文件 | 说明 |
 |---|---|---|
-| `text-to-image` | `image_flux3_klein_t2i.json` | 文生图，需 Flux3 系列模型（未下载时报模型缺失） |
+| `text-to-image` | `image_moss_image_t2i.json` | 文生图，需 MOSS-Image 模型（未下载时报模型缺失） |
 
 ## 参数替换
 
@@ -27,7 +27,7 @@
 | resolution | `19` | `megapixels`（480p / 720p / 1080p） |
 | aspect_ratio | `19` | `aspect_ratio` |
 
-负面提示词不在表单里。节点 `18:5` 保持工作流原稿里的空字符串。宽高由节点 `19`（ResolutionSelector，`multiple` 为 16）按清晰度和比例算出来，再接到 `18:6`。
+负面提示词、提示词增强、增强种子和 SLG 不在表单里，节点保持工作流原稿里的值。宽高由节点 `19`（ResolutionSelector，`multiple` 为 16）按清晰度和比例算出来，再接到 `18:6`。模型、采样步数和 CFG 也留在原稿里。
 
 加新工作流时：
 

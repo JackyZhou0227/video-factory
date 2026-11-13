@@ -1205,12 +1205,6 @@ a {
   line-height: 1;
 }
 
-.t2i-size {
-  color: var(--text-soft);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
 .workflow-input-list {
   display: grid;
   gap: 16px;

@@ -31,13 +31,12 @@ class WorkflowCatalogTests(unittest.TestCase):
             [(item["key"], item["type"]) for item in text2img["inputs"]],
             [("prompt", "textarea"), ("resolution", "select"), ("aspect_ratio", "select")],
         )
-        self.assertNotIn("negative_prompt", {item["key"] for item in text2img["inputs"]})
         resolution = next(item for item in text2img["inputs"] if item["key"] == "resolution")
         self.assertEqual(list(resolution["options"]), ["480p", "720p", "1080p"])
         aspect = next(item for item in text2img["inputs"] if item["key"] == "aspect_ratio")
         self.assertEqual(
             list(aspect["options"]),
-            ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"],
+            ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "21:9", "9:16"],
         )
         self.assertNotIn("selfhost_value_map", resolution)
 
@@ -71,6 +70,7 @@ class WorkflowCatalogTests(unittest.TestCase):
             "3:2": (3, 2),
             "2:3": (2, 3),
             "16:9": (16, 9),
+            "21:9": (21, 9),
             "9:16": (9, 16),
         }
         expected = {
@@ -81,6 +81,7 @@ class WorkflowCatalogTests(unittest.TestCase):
                 "3:2": (784, 528),
                 "2:3": (528, 784),
                 "16:9": (848, 480),
+                "21:9": (976, 416),
                 "9:16": (480, 848),
             },
             "720p": {
@@ -90,6 +91,7 @@ class WorkflowCatalogTests(unittest.TestCase):
                 "3:2": (1168, 784),
                 "2:3": (784, 1168),
                 "16:9": (1280, 720),
+                "21:9": (1472, 624),
                 "9:16": (720, 1280),
             },
             "1080p": {
@@ -98,8 +100,9 @@ class WorkflowCatalogTests(unittest.TestCase):
                 "3:4": (1248, 1664),
                 "3:2": (1760, 1168),
                 "2:3": (1168, 1760),
-                "16:9": (1920, 1072),
-                "9:16": (1072, 1920),
+                "16:9": (1920, 1088),
+                "21:9": (2192, 944),
+                "9:16": (1088, 1920),
             },
         }
 
@@ -112,6 +115,15 @@ class WorkflowCatalogTests(unittest.TestCase):
                 width = round(width_ratio * scale / 16) * 16
                 height = round(height_ratio * scale / 16) * 16
                 self.assertEqual((width, height), expected[clarity][label])
+
+    def test_text_to_image_omitted_inputs_use_workflow_defaults(self):
+        workflow = workflow_catalog.get_workflow("text-to-image")
+
+        valid = workflow_catalog.validate_scalar_inputs(workflow, {"prompt": "a cat"})
+
+        self.assertEqual(valid["resolution"], "720p")
+        self.assertEqual(valid["aspect_ratio"], "9:16")
+        self.assertEqual(set(valid), {"prompt", "resolution", "aspect_ratio"})
 
     def test_resolve_workflow_rejects_unknown_key(self):
         with self.assertRaises(HTTPException) as error:

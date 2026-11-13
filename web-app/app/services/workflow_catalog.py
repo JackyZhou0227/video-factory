@@ -11,7 +11,7 @@ from app.core.config import ROOT
 
 # Workflow key -> selfhost workflow filename (without .json)
 SELFHOST_WORKFLOW_MAPPING = {
-    "text-to-image": "image_flux3_klein_t2i",
+    "text-to-image": "image_moss_image_t2i",
 }
 
 WORKFLOWS: tuple[dict[str, Any], ...] = (
@@ -61,16 +61,18 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
                 "required": False,
                 "default": "720p",
                 "options": ("480p", "720p", "1080p"),
-                # ResolutionSelector megapixels, multiple=16, chosen inside a stable range.
-                # 480p: 640x640, 736x560, 560x736, 784x528, 528x784, 848x480, 480x848
-                # 720p: 960x960, 1104x832, 832x1104, 1168x784, 784x1168, 1280x720, 720x1280
-                # 1080p: 1440x1440, 1664x1248, 1248x1664, 1760x1168, 1168x1760, 1920x1072, 1072x1920
+                # Standard 16:9 frames are 854x480, 1280x720 and 1920x1080.
+                # megapixels keeps that pixel count: width * height / (1024 * 1024).
+                # multiple=16, so 16:9 lands on 848x480, 1280x720 and 1920x1088.
+                # 480p: 640x640, 736x560, 560x736, 784x528, 528x784, 848x480, 976x416, 480x848
+                # 720p: 960x960, 1104x832, 832x1104, 1168x784, 784x1168, 1280x720, 1472x624, 720x1280
+                # 1080p: 1440x1440, 1664x1248, 1248x1664, 1760x1168, 1168x1760, 1920x1088, 2192x944, 1088x1920
                 "selfhost_node_id": "19",
                 "selfhost_input_key": "megapixels",
                 "selfhost_value_map": {
-                    "480p": 0.39,
-                    "720p": 0.874,
-                    "1080p": 1.97,
+                    "480p": 854 * 480 / (1024 * 1024),
+                    "720p": 1280 * 720 / (1024 * 1024),
+                    "1080p": 1920 * 1080 / (1024 * 1024),
                 },
             },
             {
@@ -79,7 +81,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
                 "type": "select",
                 "required": False,
                 "default": "9:16",
-                "options": ("1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "9:16"),
+                "options": ("1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "21:9", "9:16"),
                 "selfhost_node_id": "19",
                 "selfhost_input_key": "aspect_ratio",
                 "selfhost_value_map": {
@@ -89,6 +91,7 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
                     "3:2": "3:2 (Photo)",
                     "2:3": "2:3 (Portrait Photo)",
                     "16:9": "16:9 (Widescreen)",
+                    "21:9": "21:9 (Ultrawide)",
                     "9:16": "9:16 (Portrait Widescreen)",
                 },
             },

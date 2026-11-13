@@ -237,6 +237,10 @@ class SelfhostWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.workflow_file.write_text(
             json.dumps({
                 "18:17": {"inputs": {"value": "old"}},
+                "18:5": {"inputs": {"text": "old negative"}},
+                "18:16": {"inputs": {"switch": False}},
+                "18:11": {"inputs": {"sampling_mode.seed": 7}},
+                "18:24": {"inputs": {"switch": True}},
                 "19": {"inputs": {"megapixels": 1.0, "aspect_ratio": "1:1 (Square)", "multiple": 16}},
             }),
             encoding="utf-8",
@@ -321,6 +325,14 @@ class SelfhostWorkflowTests(unittest.IsolatedAsyncioTestCase):
         with patch("app.api.comfyui.httpx.AsyncClient", self._client(routes)):
             await self._run(task)
 
+        posted = self.calls[0][2]["prompt"]
+        self.assertEqual(posted["18:17"]["inputs"]["value"], "a cat")
+        self.assertEqual(posted["18:5"]["inputs"]["text"], "old negative")
+        self.assertEqual(posted["19"]["inputs"]["megapixels"], 1280 * 720 / (1024 * 1024))
+        self.assertEqual(posted["19"]["inputs"]["aspect_ratio"], "9:16 (Portrait Widescreen)")
+        self.assertIs(posted["18:16"]["inputs"]["switch"], False)
+        self.assertEqual(posted["18:11"]["inputs"]["sampling_mode.seed"], 7)
+        self.assertIs(posted["18:24"]["inputs"]["switch"], True)
         saved = task_store.get_task(task["id"])
         self.assertEqual(saved["status"], "completed")
         self.assertEqual(saved["extra_info"]["comfyui_prompt_id"], prompt_id)

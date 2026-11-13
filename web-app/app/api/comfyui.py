@@ -610,6 +610,8 @@ async def _run_selfhost_workflow(
                     value_map = field.get("selfhost_value_map")
                     if value_map is not None:
                         value = value_map[value]
+                    if isinstance(value, float) and value.is_integer():
+                        value = int(value)
                     if node_id and input_key:
                         if node_id in workflow_json:
                             workflow_json[node_id]["inputs"][input_key] = value

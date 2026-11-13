@@ -45,36 +45,6 @@ function isReadableMessage(message) {
   return typeof message === "string" && message.trim() && !/[锟]/.test(message);
 }
 
-const TEXT_TO_IMAGE_SIZES = {
-  "480p": {
-    "1:1": [640, 640],
-    "4:3": [736, 560],
-    "3:4": [560, 736],
-    "3:2": [784, 528],
-    "2:3": [528, 784],
-    "16:9": [848, 480],
-    "9:16": [480, 848],
-  },
-  "720p": {
-    "1:1": [960, 960],
-    "4:3": [1104, 832],
-    "3:4": [832, 1104],
-    "3:2": [1168, 784],
-    "2:3": [784, 1168],
-    "16:9": [1280, 720],
-    "9:16": [720, 1280],
-  },
-  "1080p": {
-    "1:1": [1440, 1440],
-    "4:3": [1664, 1248],
-    "3:4": [1248, 1664],
-    "3:2": [1760, 1168],
-    "2:3": [1168, 1760],
-    "16:9": [1920, 1072],
-    "9:16": [1072, 1920],
-  },
-};
-
 const TEXT_TO_IMAGE_ASPECTS = [
   ["1:1", 1, 1],
   ["4:3", 4, 3],
@@ -82,6 +52,7 @@ const TEXT_TO_IMAGE_ASPECTS = [
   ["3:2", 3, 2],
   ["2:3", 2, 3],
   ["16:9", 16, 9],
+  ["21:9", 21, 9],
   ["9:16", 9, 16],
 ];
 
@@ -120,7 +91,6 @@ function TextToImageCard({ fields, values, onChange, generating }) {
   const aspectField = fields.find((field) => field.key === "aspect_ratio");
   const resolution = values.resolution ?? resolutionField?.default ?? "720p";
   const aspect = values.aspect_ratio ?? aspectField?.default ?? "9:16";
-  const size = TEXT_TO_IMAGE_SIZES[resolution]?.[aspect];
 
   return (
     <div className="workflow-card text-to-image-workflow">
@@ -198,7 +168,6 @@ function TextToImageCard({ fields, values, onChange, generating }) {
                 );
               })}
             </ToggleButtonGroup>
-            {size && <span className="t2i-size">{size[0]}×{size[1]}</span>}
           </div>
         )}
       </div>
