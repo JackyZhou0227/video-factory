@@ -42,12 +42,15 @@ export default function Settings() {
   const [testingLlm, setTestingLlm] = useState(false);
   const [runninghub, setRunninghub] = useState(EMPTY_RUNNINGHUB);
   const [runningHubKey, setRunningHubKey] = useState("");
+  // Keep secret fields readonly until focus. Browsers ignore autoComplete=off and fill the saved username into type=password.
+  const [runningHubKeyEditable, setRunningHubKeyEditable] = useState(false);
   const [concurrentLimit, setConcurrentLimit] = useState(1);
   const [instanceType, setInstanceType] = useState(DEFAULT_INSTANCE_TYPE);
   const [llm, setLlm] = useState(EMPTY_LLM);
   const [llmBaseUrl, setLlmBaseUrl] = useState(EMPTY_LLM.base_url);
   const [llmModel, setLlmModel] = useState("");
   const [llmApiKey, setLlmApiKey] = useState("");
+  const [llmKeyEditable, setLlmKeyEditable] = useState(false);
   const [llmFormVersion, setLlmFormVersion] = useState(0);
   const [testedLlmVersion, setTestedLlmVersion] = useState(null);
   const [llmSaved, setLlmSaved] = useState(false);
@@ -218,7 +221,7 @@ export default function Settings() {
             </div>
           </div>
           <div className="settings-form service-settings-form">
-            <TextField className="field" label="API Key" fullWidth size="small" type="password" autoComplete="off" value={runningHubKey} onChange={(event) => setRunningHubKey(event.target.value)} placeholder={runninghub.api_key_configured ? "已配置，留空则不修改" : "输入 RunningHub API Key"} />
+            <TextField className="field" label="API Key" fullWidth size="small" type="password" name="runninghub-api-key" autoComplete="new-password" value={runningHubKey} onChange={(event) => setRunningHubKey(event.target.value)} placeholder={runninghub.api_key_configured ? "已配置，留空则不修改" : "输入 RunningHub API Key"} slotProps={{ htmlInput: { autoComplete: "new-password", readOnly: !runningHubKeyEditable, onFocus: () => setRunningHubKeyEditable(true) } }} />
             <TextField className="field" label="并发任务数" fullWidth size="small" type="number" slotProps={{ htmlInput: { min: 1, max: 10 } }} value={concurrentLimit} onChange={(event) => setConcurrentLimit(Math.max(1, Math.min(10, Number(event.target.value) || 1)))} />
             <TextField className="field" label="机器规格" fullWidth size="small" select value={instanceType} onChange={(event) => setInstanceType(event.target.value)}>
               {INSTANCE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
@@ -239,7 +242,7 @@ export default function Settings() {
           <div className="settings-form service-settings-form">
             <TextField className="field" label="Base URL" fullWidth size="small" type="url" value={llmBaseUrl} onChange={(event) => updateLlmField(setLlmBaseUrl, event.target.value)} placeholder="https://api.openai.com/v1" />
             <TextField className="field" label="模型名称" fullWidth size="small" value={llmModel} onChange={(event) => updateLlmField(setLlmModel, event.target.value)} placeholder="例如：gpt-4o-mini 或 deepseek-chat" />
-            <TextField className="field" label="API Key" fullWidth size="small" type="password" autoComplete="off" value={llmApiKey} onChange={(event) => updateLlmField(setLlmApiKey, event.target.value)} placeholder={llm.api_key_configured ? "已配置，留空则不修改" : "本地无鉴权服务可留空"} />
+            <TextField className="field" label="API Key" fullWidth size="small" type="password" name="llm-api-key" autoComplete="new-password" value={llmApiKey} onChange={(event) => updateLlmField(setLlmApiKey, event.target.value)} placeholder={llm.api_key_configured ? "已配置，留空则不修改" : "本地无鉴权服务可留空"} slotProps={{ htmlInput: { autoComplete: "new-password", readOnly: !llmKeyEditable, onFocus: () => setLlmKeyEditable(true) } }} />
             <div className="settings-actions llm-settings-actions">
               <Button type="button" variant="outlined" size="small" onClick={testLlm} disabled={testingLlm || !llmReady} startIcon={testingLlm ? <Spinner size={16} /> : <Icon name="lab" size={16} />}>{testingLlm ? "正在测试" : llmTestPassed ? "重新测试" : "测试连接"}</Button>
               {llm.api_key_configured ? <Button type="button" color="error" size="small" onClick={clearLlmKey} disabled={savingLlm}>清除密钥</Button> : null}
