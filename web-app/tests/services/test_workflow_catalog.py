@@ -14,7 +14,7 @@ class WorkflowCatalogTests(unittest.TestCase):
     def test_public_catalog_contains_runninghub_lip_sync_workflow(self):
         workflows = workflow_catalog.list_public_workflows()
 
-        self.assertEqual(len(workflows), 2)  # digital-human-lipsync, text-to-image
+        self.assertEqual(len(workflows), 3)  # digital-human-lipsync, text-to-image, image-edit
 
         # Find digital-human-lipsync
         lipsync = next(w for w in workflows if w["key"] == "digital-human-lipsync")
@@ -39,6 +39,13 @@ class WorkflowCatalogTests(unittest.TestCase):
             ["1:1", "4:3", "3:4", "3:2", "2:3", "16:9", "21:9", "9:16"],
         )
         self.assertNotIn("selfhost_value_map", resolution)
+
+        image_edit = next(w for w in workflows if w["key"] == "image-edit")
+        self.assertEqual(image_edit["sources"], ["selfhost"])
+        self.assertEqual(
+            [(item["key"], item["type"]) for item in image_edit["inputs"]],
+            [("image", "image"), ("prompt", "textarea")],
+        )
 
     def test_selfhost_input_mappings_point_at_nodes_in_the_workflow_json(self):
         for workflow in workflow_catalog.WORKFLOWS:

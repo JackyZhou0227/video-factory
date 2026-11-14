@@ -2,7 +2,7 @@
 
 ## 作用
 
-按工作流目录提交 ComfyUI 任务。每个工作流声明自己的输入，并可以走 RunningHub 或自定义 ComfyUI。当前有两个工作流：数字人对口型、文生图。
+按工作流目录提交 ComfyUI 任务。每个工作流声明自己的输入，并可以走 RunningHub 或自定义 ComfyUI。当前有三个工作流：数字人对口型、文生图、图片编辑。
 
 ## 工作流
 
@@ -10,8 +10,9 @@
 |---|---|---|---|
 | `digital-human-lipsync` | 数字人对口型 | RunningHub | 人物形象图片、对口型音频 |
 | `text-to-image` | 文生图 | 自定义 ComfyUI | 提示词、清晰度、比例 |
+| `image-edit` | 图片编辑 | 自定义 ComfyUI | 上传图片、提示词 |
 
-数字人对口型的音频在 [TTS Studio](tts-studio.md) 生成后回到本模块上传。文生图的清晰度和比例是预设，对应像素由 ComfyUI 的 ResolutionSelector 按 16 的倍数算出。
+数字人对口型的音频在 [TTS Studio](tts-studio.md) 生成后回到本模块上传。文生图的清晰度和比例是预设，对应像素由 ComfyUI 的 ResolutionSelector 按 16 的倍数算出。图片编辑把原图上传到 ComfyUI 后再提交工作流。
 
 ## 处理流程
 

@@ -275,7 +275,8 @@ class SelfhostWorkflowTests(unittest.IsolatedAsyncioTestCase):
             async def __aexit__(self, *exc):
                 return False
 
-            async def post(self, url, json=None):
+            async def post(self, url, json=None, files=None, data=None):
+                del files, data
                 calls.append(("POST", url, json))
                 return routes[("POST", url)]()
 
@@ -338,6 +339,62 @@ class SelfhostWorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(saved["extra_info"]["comfyui_prompt_id"], prompt_id)
         self.assertEqual(saved["artifacts"][0]["kind"], "image")
         self.assertEqual((Path(task["storage_path"]) / "out.png").read_bytes(), b"png")
+
+    async def test_image_edit_uploads_the_source_image_and_sets_the_prompt(self):
+        self.workflow_file.write_text(
+            json.dumps({
+                "8": {"inputs": {"image": "old.png"}},
+                "39": {"inputs": {"prompt": "old"}},
+            }),
+            encoding="utf-8",
+        )
+        source = Path(self.temp_dir.name) / "source.png"
+        source.write_bytes(b"png")
+        task = task_store.create_task(
+            user={"id": "user-a", "username": "user_a", "display_name": "User A"},
+            task_type=task_store.TASK_TYPE_COMFYUI_WORKFLOW,
+            generation_type="image",
+            requested_count=1,
+            output_root=self.output_root,
+            extra_info={"source": "selfhost", "workflow_key": "image-edit"},
+        )
+        task_store.update_task(task["id"], status="running", started=True)
+        task = task_store.get_task(task["id"])
+        prompt_id = "55555555-5555-5555-5555-555555555555"
+
+        routes = {
+            ("POST", "http://comfy.test/upload/image"): lambda: httpx.Response(
+                200, json={"name": "source.png", "subfolder": "", "type": "input"}
+            ),
+            ("POST", "http://comfy.test/prompt"): lambda: httpx.Response(
+                200, json={"prompt_id": prompt_id, "node_errors": {}}
+            ),
+            ("GET", f"http://comfy.test/history/{prompt_id}"): lambda: httpx.Response(200, json={
+                prompt_id: {
+                    "status": {"completed": True},
+                    "outputs": {"9": {"images": [{"filename": "edited.png", "subfolder": "", "type": "output"}]}},
+                }
+            }),
+            ("GET", "http://comfy.test/view"): lambda: httpx.Response(200, content=b"png"),
+        }
+        with patch("app.api.comfyui.httpx.AsyncClient", self._client(routes)):
+            with patch.object(comfyui, "get_comfyui_config", return_value={"url": "http://comfy.test"}), patch(
+                "app.api.comfyui.asyncio.sleep",
+                new=AsyncMock(),
+            ):
+                await comfyui._run_selfhost_workflow(
+                    task_id=task["id"],
+                    workflow_file=self.workflow_file,
+                    scalar_inputs={"prompt": "把外套改成黑色"},
+                    file_inputs={"image": source},
+                    task_dir=Path(task["storage_path"]),
+                )
+
+        prompt_call = next(call for call in self.calls if call[1].endswith("/prompt"))
+        posted = prompt_call[2]["prompt"]
+        self.assertEqual(posted["8"]["inputs"]["image"], "source.png")
+        self.assertEqual(posted["39"]["inputs"]["prompt"], "把外套改成黑色")
+        self.assertTrue(any(call[1].endswith("/upload/image") for call in self.calls))
 
     async def test_selfhost_cancel_before_prompt_does_not_submit(self):
         task = self._task()

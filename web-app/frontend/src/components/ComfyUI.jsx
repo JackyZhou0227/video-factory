@@ -552,7 +552,7 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
             />
           ) : null}
           {selectedWorkflow?.key !== "text-to-image" && (
-          <div className="workflow-card lipsync-audio-workflow">
+          <div className={`workflow-card lipsync-audio-workflow${selectedWorkflow?.key === "image-edit" ? " image-edit-workflow" : ""}`}>
             <div className="workflow-input-list">
               {fields.filter((field) => field.type !== "image").map((field) => {
                 const value = workflowInputs[field.key];
@@ -623,6 +623,26 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
                   );
                 }
                 const multiline = field.type === "textarea" || Boolean(field.multiline);
+                const matchImageHeight = selectedWorkflow?.key === "image-edit" && multiline;
+                if (matchImageHeight) {
+                  return (
+                    <div className="field image-edit-prompt" key={field.key}>
+                      <label className="field-label" htmlFor={`workflow-input-${field.key}`}>
+                        {field.label}{field.required ? " *" : ""}
+                      </label>
+                      <TextField
+                        id={`workflow-input-${field.key}`}
+                        fullWidth
+                        size="small"
+                        multiline
+                        hiddenLabel
+                        placeholder={field.placeholder}
+                        value={value ?? field.default ?? ""}
+                        onChange={(event) => handleInputChange(field, event.target.value)}
+                      />
+                    </div>
+                  );
+                }
                 return (
                   <TextField
                     key={field.key}
@@ -633,6 +653,7 @@ export default function ComfyUI({ onOpenTtsStudio, active = false }) {
                     required={field.required}
                     multiline={multiline}
                     minRows={multiline ? 3 : undefined}
+                    placeholder={field.placeholder}
                     value={value ?? field.default ?? ""}
                     inputProps={{
                       min: field.min,

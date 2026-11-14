@@ -1227,6 +1227,18 @@ a {
   min-height: 280px;
 }
 
+.image-edit-prompt .MuiOutlinedInput-root {
+  min-height: 280px;
+  height: 280px;
+  align-items: flex-start;
+}
+
+.image-edit-prompt .MuiInputBase-inputMultiline {
+  height: 100% !important;
+  overflow: auto !important;
+  box-sizing: border-box;
+}
+
 .media-workflow .preview-img {
   max-height: 300px;
 }
@@ -3965,6 +3977,11 @@ a {
 
   .media-workflow .upload-dropzone {
     min-height: 240px;
+  }
+
+  .image-edit-prompt .MuiOutlinedInput-root {
+    min-height: 240px;
+    height: 240px;
   }
 
   .profile-resource-grid {

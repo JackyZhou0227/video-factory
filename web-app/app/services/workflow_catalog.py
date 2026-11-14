@@ -12,6 +12,7 @@ from app.core.config import ROOT
 # Workflow key -> selfhost workflow filename (without .json)
 SELFHOST_WORKFLOW_MAPPING = {
     "text-to-image": "image_moss_image_t2i",
+    "image-edit": "image_moss_image_edit",
 }
 
 WORKFLOWS: tuple[dict[str, Any], ...] = (
@@ -94,6 +95,32 @@ WORKFLOWS: tuple[dict[str, Any], ...] = (
                     "21:9": "21:9 (Ultrawide)",
                     "9:16": "9:16 (Portrait Widescreen)",
                 },
+            },
+        ),
+    },
+    {
+        "key": "image-edit",
+        "name": "图片编辑",
+        "generation_type": "image",
+        "inputs": (
+            {
+                "key": "image",
+                "label": "上传图片",
+                "type": "image",
+                "required": True,
+                "extensions": (".jpg", ".jpeg", ".png", ".webp", ".bmp"),
+                "accept": "image/jpeg,image/png,image/webp,image/bmp",
+                "selfhost_node_id": "8",
+                "selfhost_input_key": "image",
+            },
+            {
+                "key": "prompt",
+                "label": "提示词",
+                "type": "textarea",
+                "required": True,
+                "placeholder": "描述要怎么改这张图片...",
+                "selfhost_node_id": "39",
+                "selfhost_input_key": "prompt",
             },
         ),
     },

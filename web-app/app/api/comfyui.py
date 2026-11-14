@@ -565,6 +565,24 @@ def _execution_error_message(status_info: dict) -> str:
     return "ComfyUI 执行出错"
 
 
+async def _upload_comfyui_image(client: httpx.AsyncClient, comfyui_url: str, path: Path) -> str:
+    """Upload one local image and return the filename ComfyUI stored."""
+    with path.open("rb") as handle:
+        response = await client.post(
+            f"{comfyui_url}/upload/image",
+            files={"image": (path.name, handle)},
+            data={"overwrite": "false"},
+        )
+    if response.status_code != 200:
+        raise Exception(f"上传图片到 ComfyUI 失败：{response.text[:300]}")
+    payload = response.json()
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise Exception("ComfyUI 没有返回上传后的文件名")
+    subfolder = str(payload.get("subfolder") or "").strip().strip("/")
+    return f"{subfolder}/{name}" if subfolder else name
+
+
 async def _run_selfhost_workflow(
     *,
     task_id: str,
@@ -619,6 +637,21 @@ async def _run_selfhost_workflow(
         if _cancel_requested(cancel_event):
             common.finalize_cancellation(task_id)
             return
+
+        image_fields = [
+            field for field in workflow_def["inputs"]
+            if field["type"] == "image" and field.get("selfhost_node_id") and field.get("selfhost_input_key")
+        ]
+        if image_fields:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                for field in image_fields:
+                    path = file_inputs.get(field["key"])
+                    if path is None:
+                        continue
+                    filename = await _upload_comfyui_image(client, comfyui_url, path)
+                    node_id = field["selfhost_node_id"]
+                    if node_id in workflow_json:
+                        workflow_json[node_id]["inputs"][field["selfhost_input_key"]] = filename
 
         task_store.update_task(
             task_id,

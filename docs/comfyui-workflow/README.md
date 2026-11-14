@@ -6,6 +6,9 @@
 文生图/
   README.md    功能介绍，以及当前用的是哪套图
   json/        ui.json、api.json
+图片编辑/
+  README.md
+  json/
 数字人对口型/
   README.md
   json/

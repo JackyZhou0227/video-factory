@@ -9,6 +9,7 @@
 | workflow_key | selfhost 文件 | 说明 |
 |---|---|---|
 | `text-to-image` | `image_moss_image_t2i.json` | 文生图，需 MOSS-Image 模型（未下载时报模型缺失） |
+| `image-edit` | `image_moss_image_edit.json` | 图片编辑，需 MOSS-Image 模型和编辑 LoRA（未下载时报模型缺失） |
 
 ## 参数替换
 
@@ -28,6 +29,15 @@
 | aspect_ratio | `19` | `aspect_ratio` |
 
 负面提示词、提示词增强、增强种子和 SLG 不在表单里，节点保持工作流原稿里的值。宽高由节点 `19`（ResolutionSelector，`multiple` 为 16）按清晰度和比例算出来，再接到 `18:6`。模型、采样步数和 CFG 也留在原稿里。
+
+当前映射（`image-edit`）：
+
+| 表单字段 | 节点 | 输入 |
+|---|---|---|
+| image | `8` | `image`（先上传到 ComfyUI） |
+| prompt | `39` | `prompt` |
+
+负面提示词、采样参数和原图缩放留在工作流原稿里。
 
 加新工作流时：
 
